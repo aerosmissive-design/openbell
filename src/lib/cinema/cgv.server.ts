@@ -1,4 +1,5 @@
 import { decodeHtml, kstDateKeys, normalizeTitle } from "@/lib/utils";
+import { indexSeatHit, type SeatHit as SharedSeatHit, type SeatHitMap } from "./seats";
 import { cgvFormats } from "./theaters";
 import type { Showtime, TheaterId } from "./types";
 
@@ -20,8 +21,7 @@ const CGV_SITES: Record<
   },
 };
 
-type SeatHit = { rest: number; total: number | null };
-type SeatHitMap = Record<string, SeatHit>;
+type SeatHit = SharedSeatHit;
 
 type Cache = {
   at: number;
@@ -102,8 +102,8 @@ async function fetchRelayDay(
     };
     const map: SeatHitMap = {};
     for (const row of json.data?.timetable ?? []) {
-      const time = String(row.startTime || "").padStart(5, "0");
-      if (!/^\d{2}:\d{2}$/.test(time)) continue;
+      const time = String(row.startTime || "").trim();
+      if (!time) continue;
       if (typeof row.remainingSeats !== "number" || !Number.isFinite(row.remainingSeats)) {
         continue;
       }
@@ -114,11 +114,19 @@ async function fetchRelayDay(
             ? row.totalSeats
             : null,
       };
-      const titleKey = normalizeTitle(row.movieName || "");
-      if (titleKey) map[`k:${siteNo}|${playDate}|${time}|${titleKey}`] = rec;
-      if (row.movieCode) map[`k:${siteNo}|${playDate}|${time}|${row.movieCode}`] = rec;
-      const hallKey = normalizeTitle(row.screenName || "");
-      if (hallKey) map[`k:${siteNo}|${playDate}|${time}|${hallKey}`] = rec;
+      indexSeatHit(
+        map,
+        {
+          theaterId,
+          playDate,
+          startTime: time,
+          movieTitle: row.movieName || "",
+          hallName: row.screenName || "",
+          movieNo: row.movieCode || "",
+          chain: "cgv",
+        },
+        rec,
+      );
     }
     relayCache.set(cacheKey, { at: Date.now(), map });
     return map;

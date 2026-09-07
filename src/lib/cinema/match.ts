@@ -67,9 +67,8 @@ export function titlesMatch(a: string, b: string) {
   const y = normalizeTitle(b);
   if (!x || !y) return false;
   if (x === y) return true;
-  if (x.length >= 5 && y.length >= 5 && (x.includes(y) || y.includes(x))) {
-    return true;
-  }
+  const short = Math.min(x.length, y.length);
+  if (short >= 2 && (x.includes(y) || y.includes(x))) return true;
   return false;
 }
 

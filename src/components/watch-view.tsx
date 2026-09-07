@@ -150,6 +150,7 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
             source={result?.source ?? ""}
             movies={movies}
             shows={shows}
+            allShows={result?.showtimes ?? []}
             otherOpens={theaterRows
               .filter((row) => row.theater.id !== theater.id)
               .flatMap((row) =>
@@ -261,6 +262,7 @@ function TheaterBlock({
   source: _source,
   movies,
   shows,
+  allShows,
   otherOpens,
   alertedShows,
   onlyAlerted,
@@ -272,6 +274,7 @@ function TheaterBlock({
   source: string;
   movies: RankingMovie[];
   shows: Showtime[];
+  allShows: Showtime[];
   otherOpens: { theaterName: string; show: Showtime }[];
   alertedShows: Set<string>;
   onlyAlerted: boolean;
@@ -304,12 +307,19 @@ function TheaterBlock({
         fresh: true,
       });
       const map = result.map ?? {};
-      const hits = countSeatHits(shows, map);
-      if (Object.keys(map).length) {
-        mergeSeatMap(map);
+      if (Object.keys(map).length) mergeSeatMap(map);
+      const watchHits = countSeatHits(shows, map);
+      const allHits = countSeatHits(allShows, map);
+      if (watchHits > 0) {
+        toast.success(`${current.shortName} ${watchHits}개 회차에 잔여석을 붙였습니다.`);
+        return;
       }
-      if (hits > 0) {
-        toast.success(`${current.shortName} ${hits}개 회차에 잔여석을 붙였습니다.`);
+      if (allHits > 0) {
+        toast.success(`${current.shortName} ${allHits}개 회차에 잔여석을 붙였습니다.`);
+        return;
+      }
+      if (!shows.length) {
+        toast(`${current.shortName}에는 지금 감시 중인 특별관 회차가 없습니다.`);
         return;
       }
       if (shows.some((s) => s.restSeats != null)) {

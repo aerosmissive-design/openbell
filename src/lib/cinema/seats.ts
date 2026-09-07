@@ -63,13 +63,48 @@ export function applyCgvSeatHits(
   });
 }
 
-export function putSeatHit(map: SeatHitMap, row: Showtime) {
-  if (typeof row.restSeats !== "number" || !Number.isFinite(row.restSeats)) return;
-  const rec: SeatHit = { rest: row.restSeats, total: row.totalSeats };
-  for (const key of seatLookupKeys(row)) map[key] = rec;
+export function indexSeatHit(
+  map: SeatHitMap,
+  row: {
+    theaterId: string;
+    playDate: string;
+    startTime: string;
+    movieTitle?: string;
+    hallName?: string;
+    movieNo?: string;
+    chain?: "cgv" | "megabox";
+  },
+  rec: SeatHit,
+) {
+  const chain =
+    row.chain ?? (String(row.theaterId).startsWith("cgv") ? "cgv" : "megabox");
+  for (const key of seatLookupKeys({
+    id: "",
+    theaterId: row.theaterId as Showtime["theaterId"],
+    theaterName: "",
+    chain,
+    movieTitle: row.movieTitle || "",
+    movieNo: row.movieNo || "",
+    playDate: row.playDate,
+    startTime: row.startTime,
+    endTime: null,
+    hallName: row.hallName || "",
+    formats: [],
+    restSeats: rec.rest,
+    totalSeats: rec.total,
+    bookingUrl: "",
+    bookable: true,
+  })) {
+    map[key] = rec;
+  }
 }
 
-function lookupSeatHit(row: Showtime, map: SeatHitMap): SeatHit | null {
+export function putSeatHit(map: SeatHitMap, row: Showtime) {
+  if (typeof row.restSeats !== "number" || !Number.isFinite(row.restSeats)) return;
+  indexSeatHit(map, row, { rest: row.restSeats, total: row.totalSeats });
+}
+
+export function lookupSeatHit(row: Showtime, map: SeatHitMap): SeatHit | null {
   for (const key of seatLookupKeys(row)) {
     const hit = map[key];
     if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) {
@@ -78,16 +113,30 @@ function lookupSeatHit(row: Showtime, map: SeatHitMap): SeatHit | null {
   }
   const siteNo = SITE_NO[row.theaterId] ?? "";
   if (!siteNo) return null;
-  const prefix = `${row.chain === "cgv" ? "k" : "m"}:${siteNo}|${row.playDate}|${normTime(row.startTime)}|`;
   const title = normalizeTitle(row.movieTitle);
-  for (const [key, hit] of Object.entries(map)) {
-    if (!key.startsWith(prefix)) continue;
-    if (typeof hit?.rest !== "number" || !Number.isFinite(hit.rest)) continue;
-    const suffix = key.slice(prefix.length);
-    if (!suffix) continue;
-    if (titlesMatch(suffix, title) || titlesMatch(suffix, row.hallName)) {
-      return { rest: hit.rest, total: hit.total ?? null };
+  const hall = normalizeTitle(row.hallName);
+  const tag = row.chain === "cgv" ? "k" : "m";
+  for (const clock of clockVariants(row.playDate, row.startTime)) {
+    const prefix = `${tag}:${siteNo}|${clock.playDate}|${clock.startTime}|`;
+    const cands: SeatHit[] = [];
+    for (const [key, hit] of Object.entries(map)) {
+      if (!key.startsWith(prefix)) continue;
+      if (typeof hit?.rest !== "number" || !Number.isFinite(hit.rest)) continue;
+      const suffix = key.slice(prefix.length);
+      if (
+        !suffix ||
+        titlesMatch(suffix, title) ||
+        titlesMatch(suffix, hall) ||
+        (row.movieNo && suffix === row.movieNo)
+      ) {
+        if (suffix && (titlesMatch(suffix, title) || suffix === row.movieNo)) {
+          return { rest: hit.rest, total: hit.total ?? null };
+        }
+        cands.push(hit);
+      }
     }
+    const named = cands;
+    if (named.length === 1) return { rest: named[0].rest, total: named[0].total ?? null };
   }
   return null;
 }
@@ -98,34 +147,72 @@ export function countSeatHits(rows: Showtime[], map: SeatHitMap): number {
 }
 
 function seatLookupKeys(row: Showtime): string[] {
-  const time = normTime(row.startTime);
   const titleKey = normalizeTitle(row.movieTitle);
   const siteNo = SITE_NO[row.theaterId] ?? "";
   const prefix = row.chain === "cgv" ? "k:" : "m:";
   const keys = [row.id];
-  for (const hall of hallVariants(row.hallName)) {
-    if (siteNo) keys.push(`${prefix}${siteNo}|${row.playDate}|${time}|${hall}`);
+  for (const clock of clockVariants(row.playDate, row.startTime)) {
+    const stem = siteNo ? `${prefix}${siteNo}|${clock.playDate}|${clock.startTime}` : "";
+    if (!stem) continue;
+    for (const hall of hallVariants(row.hallName)) {
+      keys.push(`${stem}|${hall}`);
+    }
+    if (titleKey) keys.push(`${stem}|${titleKey}`);
+    if (row.movieNo) keys.push(`${stem}|${row.movieNo}`);
   }
-  if (siteNo && titleKey) {
-    keys.push(`${prefix}${siteNo}|${row.playDate}|${time}|${titleKey}`);
-  }
-  if (siteNo && row.movieNo) {
-    keys.push(`${prefix}${siteNo}|${row.playDate}|${time}|${row.movieNo}`);
-  }
-  if (siteNo) keys.push(`${prefix}${siteNo}|${row.playDate}|${time}`);
-  return keys;
+  return [...new Set(keys.filter(Boolean))];
 }
 
 function hallVariants(hall: string): string[] {
   const base = normHall(hall);
   const stripped = base.replace(/\[.*?\]/g, "");
   const loose = stripped.replace(/관$/, "");
-  return [...new Set([base, stripped, loose, `${loose}관`].filter(Boolean))];
+  const titled = normalizeTitle(hall);
+  return [...new Set([base, stripped, loose, `${loose}관`, titled].filter(Boolean))];
+}
+
+function clockVariants(playDate: string, startTime: string): { playDate: string; startTime: string }[] {
+  const time = parseClock(startTime);
+  if (!time) return [];
+  const out = [{ playDate, startTime: time.hhmm }];
+  if (time.hour >= 24 && playDate.length === 8) {
+    out.push({
+      playDate: addYmd(playDate, 1),
+      startTime: `${String(time.hour - 24).padStart(2, "0")}:${time.minute}`,
+    });
+    out.push({ playDate, startTime: `${time.hour}:${time.minute}` });
+  }
+  if (time.hour < 4 && playDate.length === 8) {
+    out.push({
+      playDate: addYmd(playDate, -1),
+      startTime: `${time.hour + 24}:${time.minute}`,
+    });
+  }
+  return out;
+}
+
+function parseClock(raw: string): { hour: number; minute: string; hhmm: string } | null {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (digits.length < 3) return null;
+  const padded = digits.length === 3 ? `0${digits}` : digits.slice(0, 4);
+  const hour = Number(padded.slice(0, padded.length - 2));
+  const minute = padded.slice(-2);
+  if (!Number.isFinite(hour) || Number(minute) > 59) return null;
+  const hhmm = `${String(hour % 24).padStart(2, "0")}:${minute}`;
+  return { hour, minute, hhmm: hour >= 24 ? `${hour}:${minute}` : hhmm };
+}
+
+function addYmd(ymd: string, days: number) {
+  const y = Number(ymd.slice(0, 4));
+  const m = Number(ymd.slice(4, 6));
+  const d = Number(ymd.slice(6, 8));
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return `${dt.getUTCFullYear()}${String(dt.getUTCMonth() + 1).padStart(2, "0")}${String(dt.getUTCDate()).padStart(2, "0")}`;
 }
 
 function normTime(time: string) {
-  const t = String(time || "").trim();
-  return t.length === 4 ? `0${t}` : t;
+  const parsed = parseClock(time);
+  return parsed?.hhmm ?? String(time || "").trim();
 }
 
 function normHall(hall: string) {
@@ -156,7 +243,18 @@ export function diffStarSeats(
           s.theaterId === item.theaterId &&
           s.playDate === item.playDate &&
           s.startTime === item.startTime &&
-          normalizeTitle(s.hallName) === normalizeTitle(item.hallName),
+          (normalizeTitle(s.hallName) === normalizeTitle(item.hallName) ||
+            titlesMatch(s.movieTitle, item.movieTitle)),
+      ) ??
+      shows.find(
+        (s) =>
+          s.theaterId === item.theaterId &&
+          titlesMatch(s.movieTitle, item.movieTitle) &&
+          clockVariants(s.playDate, s.startTime).some((c) =>
+            clockVariants(item.playDate, item.startTime).some(
+              (q) => q.playDate === c.playDate && q.startTime === c.startTime,
+            ),
+          ),
       );
     if (!show || show.restSeats == null) return item;
     const prev = item.restSeats;
