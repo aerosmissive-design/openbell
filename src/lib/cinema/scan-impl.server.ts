@@ -6,7 +6,7 @@ import {
   isCgvId,
 } from "./cgv.server";
 import { fetchMegaboxCatalog, fetchMegaboxSchedule, fetchMegaboxSeatmap, fetchNaverMegabox } from "./megabox.server";
-import { applyCgvSeatHits, mergeShowtimes, type SeatHitMap } from "./seats";
+import { applyCgvSeatHits, mergeShowtimes, putSeatHit, type SeatHitMap } from "./seats";
 import type {
   RankingMovie,
   ScanResult,
@@ -36,12 +36,10 @@ export async function runScan(input: {
   }));
 
   const gasSeats = input.gasWebUrl
-    ? Promise.race([
-        loadGasSeatmap(input.gasWebUrl),
-        new Promise<{ status: "empty"; map: GasSeatMap }>((resolve) => {
-          setTimeout(() => resolve({ status: "empty", map: {} }), 3500);
-        }),
-      ])
+    ? loadGasSeatmap(input.gasWebUrl).catch(() => ({
+        status: "empty" as const,
+        map: {} as GasSeatMap,
+      }))
     : Promise.resolve({
         status: "empty" as const,
         map: {} as GasSeatMap,
@@ -55,14 +53,14 @@ export async function runScan(input: {
   const megaSeats = [...wanted].some(
     (id) => id === "megabox_coex" || id === "megabox_namyangju",
   )
-    ? fetchMegaboxSeatmap({ days }).catch(() => ({
+    ? fetchMegaboxSeatmap({ days: Math.min(days, 7) }).catch(() => ({
         map: {} as SeatHitMap,
         showtimes: [] as Showtime[],
       }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const gasShows =
     sources.gas && input.gasWebUrl
-      ? loadGasShows(input.gasWebUrl)
+      ? loadGasTimetable(input.gasWebUrl, days).catch(() => [] as Showtime[])
       : Promise.resolve([] as Showtime[]);
 
   const jobs: Promise<TheaterScan>[] = [];
@@ -78,39 +76,38 @@ export async function runScan(input: {
     }
   }
 
-  const [catalog, seats, relay, mega, ...theaters] = await Promise.all([
+  const [catalog, seats, relay, mega, gasList, ...theaters] = await Promise.all([
     rankingPromise,
     gasSeats,
     relaySeats,
     megaSeats,
+    gasShows,
     ...jobs,
   ]);
+  const gasMap: SeatHitMap = { ...seats.map };
+  for (const row of gasList) putSeatHit(gasMap, row);
   const withSeats = applyCgvSeatHitsAcross(
     theaters.map((theater) => {
-      if (theater.theaterId === "megabox_coex" || theater.theaterId === "megabox_namyangju") {
-        const extra = mega.showtimes.filter((row) => row.theaterId === theater.theaterId);
-        if (!extra.length) return theater;
-        return {
-          ...theater,
-          showtimes: mergeShowtimes(theater.showtimes, extra),
-          ok: theater.ok || extra.length > 0,
-          error: extra.length ? null : theater.error,
-        };
-      }
-      if (isCgvId(theater.theaterId)) {
-        const extra = relay.showtimes.filter((row) => row.theaterId === theater.theaterId);
-        if (!extra.length) return theater;
-        return {
-          ...theater,
-          showtimes: mergeShowtimes(theater.showtimes, extra),
-          ok: theater.ok || extra.length > 0,
-          error: extra.length ? null : theater.error,
-        };
-      }
-      return theater;
+      const extra = [
+        ...gasList.filter((row) => row.theaterId === theater.theaterId),
+        ...(theater.theaterId === "megabox_coex" || theater.theaterId === "megabox_namyangju"
+          ? mega.showtimes.filter((row) => row.theaterId === theater.theaterId)
+          : []),
+        ...(isCgvId(theater.theaterId)
+          ? relay.showtimes.filter((row) => row.theaterId === theater.theaterId)
+          : []),
+      ];
+      if (!extra.length) return theater;
+      const showtimes = mergeShowtimes(theater.showtimes, extra);
+      return {
+        ...theater,
+        showtimes,
+        ok: theater.ok || showtimes.length > 0,
+        error: showtimes.length ? null : theater.error,
+      };
     }),
     {
-      ...seats.map,
+      ...gasMap,
       ...relay.map,
       ...mega.map,
     },
@@ -155,20 +152,20 @@ async function scanTheater(
   );
   let gasByDate = new Map<string, Showtime[]>();
   let teleByDate = new Map<string, Showtime[]>();
-  if (stillMissing.length && sources.gas) {
+  if (sources.gas) {
     try {
       gasByDate = byDateForTheater(await gasShows, theaterId);
     } catch {
       gasByDate = new Map();
     }
-    if (theaterId === "cgv_yongsan") {
-      const needTele = stillMissing.some((d) => !gasByDate.get(d)?.length);
-      if (needTele) {
-        try {
-          teleByDate = await fetchYongsanTelegram();
-        } catch {
-          teleByDate = new Map();
-        }
+  }
+  if (stillMissing.length && theaterId === "cgv_yongsan") {
+    const needTele = stillMissing.some((d) => !gasByDate.get(d)?.length);
+    if (needTele) {
+      try {
+        teleByDate = await fetchYongsanTelegram();
+      } catch {
+        teleByDate = new Map();
       }
     }
   }
@@ -180,13 +177,14 @@ async function scanTheater(
   let usedTele = false;
   for (const date of playDates) {
     const merged = mergeShowtimes(
-      officialByDate.get(date) ?? [],
-      naverByDate.get(date) ?? [],
+      mergeShowtimes(officialByDate.get(date) ?? [], naverByDate.get(date) ?? []),
+      gasByDate.get(date) ?? [],
     );
     if (merged.length) {
       showtimes.push(...merged);
       if (officialByDate.get(date)?.length) usedOfficial = true;
       if (naverByDate.get(date)?.length) usedNaver = true;
+      if (gasByDate.get(date)?.length) usedGas = true;
       continue;
     }
     const gas = gasByDate.get(date);
@@ -407,7 +405,16 @@ export async function pingSeatmap(input: {
   };
 }
 
-async function loadGasShows(url: string): Promise<Showtime[]> {
+async function loadGasTimetable(url: string, days: number): Promise<Showtime[]> {
+  const live = await loadGasJson(url, { op: "mega", days: String(Math.min(days, 7)) });
+  if (live.length) return live;
+  return loadGasShows(url);
+}
+
+async function loadGasJson(
+  url: string,
+  params: Record<string, string>,
+): Promise<Showtime[]> {
   let target: URL;
   try {
     target = new URL(url.trim());
@@ -421,7 +428,9 @@ async function loadGasShows(url: string): Promise<Showtime[]> {
   ) {
     return [];
   }
-  target.searchParams.set("op", "shows");
+  for (const [key, value] of Object.entries(params)) {
+    target.searchParams.set(key, value);
+  }
   try {
     const res = await fetch(target.toString(), {
       redirect: "follow",
@@ -440,6 +449,10 @@ async function loadGasShows(url: string): Promise<Showtime[]> {
   } catch {
     return [];
   }
+}
+
+async function loadGasShows(url: string): Promise<Showtime[]> {
+  return loadGasJson(url, { op: "shows" });
 }
 
 function gasRowToShowtime(row: GasShowRow): Showtime | null {

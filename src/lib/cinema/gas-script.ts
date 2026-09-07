@@ -301,7 +301,40 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
   if (op === "shows") {
+    if (p.fresh === "1" || p.fresh === "true") {
+      return ContentService.createTextOutput(JSON.stringify(refreshShowcache_(PropertiesService.getScriptProperties())))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     return ContentService.createTextOutput(JSON.stringify(loadShowcache_()))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  if (op === "mega") {
+    var days = Math.min(Math.max(Number(p.days || 7), 1), 10);
+    var theaters = ["megabox_coex", "megabox_namyangju"];
+    if (p.theater === "megabox_coex" || p.theater === "megabox_namyangju") theaters = [p.theater];
+    var out = [];
+    theaters.forEach(function (id) {
+      kstDates_(days).forEach(function (playDate) {
+        try {
+          fetchMegaboxOfficial_(id, playDate).forEach(function (row) {
+            out.push({
+              id: row.id,
+              theaterId: id,
+              theater: row.theater,
+              title: row.title,
+              date: row.date,
+              time: row.time,
+              hall: row.hall,
+              formats: row.formats,
+              restSeats: row.restSeats,
+              totalSeats: row.totalSeats,
+              url: row.url,
+            });
+          });
+        } catch (err) {}
+      });
+    });
+    return ContentService.createTextOutput(JSON.stringify(out))
       .setMimeType(ContentService.MimeType.JSON);
   }
   if (op === "pack") {
@@ -1157,9 +1190,10 @@ function cgvRow_(playDate, time, hall, title, url, theaterId) {
 function megaFormats_(kind, hall) {
   const k = String(kind || "").toUpperCase();
   const h = String(hall || "").toUpperCase();
-  if (k === "DBC" || h.indexOf("DOLBY") >= 0) return ["dolby"];
-  if (k === "MX4D" || h.indexOf("MX4D") >= 0) return ["mx4d"];
-  if (k === "LUMINEON" || h.indexOf("LED") >= 0) return ["mega_led"];
+  const compact = h.replace(/[\\s|/._-]+/g, "");
+  if (k === "DBC" || compact.indexOf("DOLBY") >= 0 || h.indexOf("돌비") >= 0) return ["dolby"];
+  if (k === "MX4D" || compact.indexOf("MX4D") >= 0) return ["mx4d"];
+  if (k === "LUMINEON" || compact.indexOf("MEGALED") >= 0 || compact.indexOf("LUMINEON") >= 0 || (h.indexOf("메가") >= 0 && compact.indexOf("LED") >= 0) || compact.indexOf("LED") >= 0 && compact.indexOf("MEGA") >= 0) return ["mega_led"];
   return ["other"];
 }
 

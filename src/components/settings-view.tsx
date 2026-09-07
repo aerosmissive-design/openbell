@@ -157,10 +157,22 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           넘어갑니다.
         </p>
         <p className="mt-1.5 text-xs leading-relaxed text-faint">
-          잔여석 버튼은 이 순서를 그대로 쓰지 않습니다. 메가박스는 공홈, CGV는
-          좌석 조회, 둘 다 실패하면 구글 캐시만 봅니다. 네이버와 용아맥에는
-          남은 좌석 숫자가 없습니다.
+          메가박스 공홈은 이 서버에서 자주 막힙니다. 예전에 쓰던 구글 스크립트
+          웹앱은 구글에서 조회해서 안 막힙니다. /exec 로 끝나는 주소를 붙이면
+          코엑스·남양주 시간표를 거기서 가져옵니다.
         </p>
+        <label className="mt-3 block">
+          <span className="text-xs text-muted">구글 스크립트 웹앱</span>
+          <input
+            value={config.gasWebUrl}
+            onChange={(e) => setConfig({ gasWebUrl: e.target.value.trim() })}
+            placeholder="https://script.google.com/macros/s/…/exec"
+            className="mt-1 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border"
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+        </label>
         <div className="mt-3 flex flex-col gap-3">
           {SCAN_STAGE_META.map((stage) => (
             <div
@@ -703,8 +715,8 @@ function WatchAlertHint({ lastScan }: { lastScan: ScanResult | null }) {
       </p>
       <p>
         이미 열린 회차는 보내지 않습니다. 새 날짜·새 시간이 열리면 옵니다.
-        로그인돼 있으면 앱을 꺼도 텔레그램·메일로 갑니다. 웹앱 주소는 필요
-        없습니다.
+        로그인돼 있으면 앱을 꺼도 텔레그램·메일로 갑니다. 메가박스가 비면
+        설정에 구글 스크립트 웹앱 주소를 붙여 주세요.
       </p>
       <button
         type="button"
