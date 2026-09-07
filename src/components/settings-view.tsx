@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { extractKakaoCode, kakaoRedirectUri } from "@/lib/cinema/kakao";
+import { buildGasScript } from "@/lib/cinema/gas-script";
 import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { ScanResult, ScanStage } from "@/lib/cinema/types";
@@ -18,6 +19,7 @@ import { Switch } from "./ui/switch";
 export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const config = useAppStore((s) => s.config);
   const setConfig = useAppStore((s) => s.setConfig);
+  const queue = useAppStore((s) => s.queue);
   const pushAlerts = useAppStore((s) => s.pushAlerts);
   const { user } = useCurrentUserState();
   const loginEmail = user?.primaryEmail?.trim() ?? "";
@@ -157,10 +159,36 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           넘어갑니다.
         </p>
         <p className="mt-1.5 text-xs leading-relaxed text-faint">
-          메가박스 공홈은 이 서버에서 자주 막힙니다. 예전에 쓰던 구글 스크립트
-          웹앱은 구글에서 조회해서 안 막힙니다. /exec 로 끝나는 주소를 붙이면
-          코엑스·남양주 시간표를 거기서 가져옵니다.
+          이 서버 IP는 메가박스 공홈이 막습니다. 예전에 쓰던 구글 스크립트는
+          구글 IP라 통과합니다. 아래 코드를 붙여 웹앱으로 배포한 뒤 /exec 주소를
+          넣으면 코엑스·남양주·영등포 시간표를 거기서 가져옵니다.
         </p>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            className="min-h-11 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong"
+            onClick={() => {
+              void navigator.clipboard
+                .writeText(buildGasScript(config, queue))
+                .then(() =>
+                  toast.success(
+                    "코드를 복사했습니다. script.google.com에 붙여넣고 웹앱으로 배포하세요.",
+                  ),
+                )
+                .catch(() => toast.error("복사하지 못했습니다."));
+            }}
+          >
+            스크립트 복사
+          </button>
+          <a
+            href="https://script.google.com"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-11 items-center rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border"
+          >
+            script.google.com
+          </a>
+        </div>
         <label className="mt-3 block">
           <span className="text-xs text-muted">구글 스크립트 웹앱</span>
           <input

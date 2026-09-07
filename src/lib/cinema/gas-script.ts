@@ -308,34 +308,10 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify(loadShowcache_()))
       .setMimeType(ContentService.MimeType.JSON);
   }
-  if (op === "mega") {
+  if (op === "mega" || op === "live") {
     var days = Math.min(Math.max(Number(p.days || 7), 1), 10);
-    var theaters = ["megabox_coex", "megabox_namyangju"];
-    if (p.theater === "megabox_coex" || p.theater === "megabox_namyangju") theaters = [p.theater];
-    var out = [];
-    theaters.forEach(function (id) {
-      kstDates_(days).forEach(function (playDate) {
-        try {
-          fetchMegaboxOfficial_(id, playDate).forEach(function (row) {
-            out.push({
-              id: row.id,
-              theaterId: id,
-              theater: row.theater,
-              title: row.title,
-              date: row.date,
-              time: row.time,
-              hall: row.hall,
-              formats: row.formats,
-              restSeats: row.restSeats,
-              totalSeats: row.totalSeats,
-              url: row.url,
-            });
-          });
-        } catch (err) {}
-      });
-    });
-    return ContentService.createTextOutput(JSON.stringify(out))
-      .setMimeType(ContentService.MimeType.JSON);
+    var theater = p.theater || p.theaterId || "";
+    return jsonOut_(fetchLiveTimetable_(days, theater));
   }
   if (op === "pack") {
     return ContentService.createTextOutput(JSON.stringify({
@@ -592,6 +568,116 @@ function fetchMegabox_(theaterId, playDate) {
     } catch (e) {}
   }
   return [];
+}
+
+function fetchLiveTimetable_(days, theaterId) {
+  const dates = kstDates_(Math.min(days || 7, 10));
+  const want = String(theaterId || "");
+  const megaIds = ["megabox_coex", "megabox_namyangju"].filter(function (id) {
+    return !want || want === id;
+  });
+  const cgvIds = ["cgv_yongsan", "cgv_yeongdeungpo"].filter(function (id) {
+    return !want || want === id;
+  });
+  const reqs = [];
+  const meta = [];
+  megaIds.forEach(function (id) {
+    const brch = id === "megabox_coex" ? "1351" : "0019";
+    dates.forEach(function (playDate) {
+      reqs.push({
+        url: "https://www.megabox.co.kr/on/oh/ohc/Brch/schedulePage.do",
+        method: "post",
+        payload: { brchNo: brch, brchNo1: brch, playDe: playDate, masterType: "brch" },
+        muteHttpExceptions: true,
+        followRedirects: true,
+      });
+      meta.push({ kind: "mega", theaterId: id, playDate: playDate, brch: brch });
+    });
+  });
+  cgvIds.forEach(function (id) {
+    const site = CGV_SITES_[id];
+    if (!site) return;
+    dates.forEach(function (playDate) {
+      reqs.push({
+        url: "https://mcp.aka.page/api/cgv/timetable?playDate=" + playDate + "&theaterCode=" + site.siteNo + "&limit=200",
+        muteHttpExceptions: true,
+        followRedirects: true,
+      });
+      meta.push({ kind: "cgv", theaterId: id, playDate: playDate, siteNo: site.siteNo });
+    });
+  });
+  const out = [];
+  if (!reqs.length) return out;
+  try {
+    const resps = UrlFetchApp.fetchAll(reqs);
+    resps.forEach(function (res, i) {
+      const info = meta[i];
+      try {
+        if (info.kind === "mega") {
+          const json = JSON.parse(res.getContentText());
+          const list = (((json.megaMap) || {}).movieFormList) || [];
+          list.forEach(function (row) {
+            const hall = decode_(row.theabExpoNm || "");
+            const title = decode_(row.rpstMovieNm || row.movieNm || "");
+            const time = row.playStartTime;
+            if (!title || !time) return;
+            out.push({
+              id: "megabox:" + info.brch + ":" + info.playDate + ":" + time + ":" + hall,
+              theaterId: info.theaterId,
+              theater: info.theaterId === "megabox_coex" ? "메가박스 코엑스" : "메가박스 남양주",
+              title: title,
+              date: info.playDate,
+              time: time,
+              hall: hall,
+              formats: megaFormats_(row.theabKindCd, hall),
+              restSeats: typeof row.restSeatCnt === "number" ? row.restSeatCnt : null,
+              totalSeats: typeof row.totSeatCnt === "number" ? row.totSeatCnt : null,
+              url: megaboxUrl_(info.brch, info.playDate, row.movieNo || row.rpstMovieNo || "", row.playSchdlNo),
+            });
+          });
+          return;
+        }
+        const json = JSON.parse(res.getContentText());
+        const rows = (((json.data) || {}).timetable) || [];
+        const site = CGV_SITES_[info.theaterId];
+        rows.forEach(function (row) {
+          const title = String(row.movieName || "").trim();
+          const time = String(row.startTime || "").trim();
+          if (!title || !time) return;
+          const total = typeof row.totalSeats === "number" ? row.totalSeats : null;
+          const guessed = cgvHallFromSeats_(info.theaterId, row.screenName || "", total);
+          out.push({
+            id: "cgv:" + info.siteNo + ":" + info.playDate + ":" + time + ":" + guessed.hall + ":" + title,
+            theaterId: info.theaterId,
+            theater: site ? site.name : info.theaterId,
+            title: title,
+            date: info.playDate,
+            time: time,
+            hall: guessed.hall,
+            formats: guessed.formats,
+            restSeats: typeof row.remainingSeats === "number" ? row.remainingSeats : null,
+            totalSeats: total,
+            url: row.movieCode
+              ? "https://cgv.co.kr/cnm/movieBook/movie?movNo=" + row.movieCode + "&scnYmd=" + info.playDate + "&siteNo=" + info.siteNo
+              : (site ? site.book : "") + "&date=" + info.playDate,
+          });
+        });
+      } catch (e) {}
+    });
+  } catch (e) {}
+  return out;
+}
+
+function cgvHallFromSeats_(theaterId, hall, total) {
+  const named = cgvFormats_(hall);
+  if (named.length && named[0] !== "other") return { hall: hall, formats: named };
+  const table = theaterId === "cgv_yeongdeungpo"
+    ? { 387: { hall: "IMAX관", formats: ["imax"] }, 144: { hall: "4DX관", formats: ["4dx"] }, 195: { hall: "4관[DOLBY ATMOS] (Laser)", formats: ["atmos"] }, 240: { hall: "SCREENX관 (리클라이너) with PRIVATE BOX", formats: ["screenx"] } }
+    : theaterId === "cgv_yongsan"
+      ? { 144: { hall: "4DX관", formats: ["4dx"] }, 624: { hall: "SCREENX관 (리클라이너)", formats: ["screenx"] } }
+      : {};
+  if (total != null && table[total]) return table[total];
+  return { hall: hall || "일반", formats: ["other"] };
 }
 
 function fetchMegaboxOfficial_(theaterId, playDate) {

@@ -50,14 +50,14 @@ export async function runScan(input: {
         showtimes: [] as Showtime[],
       }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
-  const megaSeats = [...wanted].some(
-    (id) => id === "megabox_coex" || id === "megabox_namyangju",
-  )
-    ? fetchMegaboxSeatmap({ days: Math.min(days, 7) }).catch(() => ({
-        map: {} as SeatHitMap,
-        showtimes: [] as Showtime[],
-      }))
-    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
+  const megaSeats =
+    input.gasWebUrl ||
+    ![...wanted].some((id) => id === "megabox_coex" || id === "megabox_namyangju")
+      ? Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] })
+      : fetchMegaboxSeatmap({ days: Math.min(days, 5) }).catch(() => ({
+          map: {} as SeatHitMap,
+          showtimes: [] as Showtime[],
+        }));
   const gasShows =
     sources.gas && input.gasWebUrl
       ? loadGasTimetable(input.gasWebUrl, days).catch(() => [] as Showtime[])
@@ -342,6 +342,25 @@ export async function pingSeatmap(input: {
 }) {
   const days = Math.min(Math.max(input.daysAhead ?? 7, 1), 14);
   const fresh = Boolean(input.fresh);
+  if (input.url?.trim()) {
+    const live = await loadGasTimetable(
+      input.url.trim(),
+      days,
+      input.theaterId,
+    ).catch(() => [] as Showtime[]);
+    if (live.length) {
+      const map: SeatHitMap = {};
+      for (const row of live) putSeatHit(map, row);
+      const cgvCount = live.filter((row) => row.chain === "cgv").length;
+      return {
+        status: "ok" as const,
+        count: live.length,
+        cgvCount,
+        map,
+        showtimes: live,
+      };
+    }
+  }
   const wantMega =
     !input.theaterId ||
     input.theaterId === "megabox_coex" ||
@@ -405,9 +424,20 @@ export async function pingSeatmap(input: {
   };
 }
 
-async function loadGasTimetable(url: string, days: number): Promise<Showtime[]> {
-  const live = await loadGasJson(url, { op: "mega", days: String(Math.min(days, 7)) });
+async function loadGasTimetable(
+  url: string,
+  days: number,
+  theaterId?: TheaterId,
+): Promise<Showtime[]> {
+  const params: Record<string, string> = {
+    op: "live",
+    days: String(Math.min(days, 10)),
+  };
+  if (theaterId) params.theater = theaterId;
+  const live = await loadGasJson(url, params);
   if (live.length) return live;
+  const mega = await loadGasJson(url, { ...params, op: "mega" });
+  if (mega.length) return mega;
   return loadGasShows(url);
 }
 
