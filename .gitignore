@@ -1,0 +1,16 @@
+node_modules/
+.vercel/
+.nitro/
+dist/
+.output/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+artifacts/
+screenshots/
+attachments/
+.grok/preview.log
+.grok/og-pending
+.pglite/
