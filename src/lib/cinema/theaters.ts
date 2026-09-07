@@ -141,3 +141,33 @@ export function cgvFormats(hallName: string): FormatId[] {
   }
   return out.length ? out : ["other"];
 }
+
+const CGV_CAPACITY: Partial<
+  Record<TheaterId, Record<number, { hall: string; formats: FormatId[] }>>
+> = {
+  cgv_yeongdeungpo: {
+    387: { hall: "IMAX관", formats: ["imax"] },
+    144: { hall: "4DX관", formats: ["4dx"] },
+    195: { hall: "4관[DOLBY ATMOS] (Laser)", formats: ["atmos"] },
+    240: { hall: "SCREENX관 (리클라이너) with PRIVATE BOX", formats: ["screenx"] },
+  },
+  cgv_yongsan: {
+    144: { hall: "4DX관", formats: ["4dx"] },
+    624: { hall: "SCREENX관 (리클라이너)", formats: ["screenx"] },
+  },
+};
+
+export function cgvHallFromCapacity(
+  theaterId: TheaterId,
+  hallName: string,
+  totalSeats: number | null,
+): { hall: string; formats: FormatId[] } {
+  const named = hallName ? cgvFormats(hallName) : (["other"] as FormatId[]);
+  if (named.some((f) => f !== "other")) {
+    return { hall: hallName, formats: named };
+  }
+  const hit =
+    totalSeats != null ? CGV_CAPACITY[theaterId]?.[totalSeats] : undefined;
+  if (hit) return hit;
+  return { hall: hallName || "일반", formats: ["other"] };
+}

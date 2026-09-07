@@ -1230,7 +1230,7 @@ export const DEFAULT_WATCH: WatchConfig = {
   },
   formats: DEFAULT_FORMATS,
   intervalMin: 5,
-  daysAhead: 7,
+  daysAhead: 15,
   browserNotify: true,
   telegramToken: "",
   telegramChatId: "",

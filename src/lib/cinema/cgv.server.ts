@@ -1,6 +1,6 @@
 import { decodeHtml, kstDateKeys, normalizeTitle } from "@/lib/utils";
 import { indexSeatHit, type SeatHit as SharedSeatHit, type SeatHitMap } from "./seats";
-import { cgvFormats } from "./theaters";
+import { cgvFormats, cgvHallFromCapacity } from "./theaters";
 import type { Showtime, TheaterId } from "./types";
 
 export type CgvId = "cgv_yongsan" | "cgv_yeongdeungpo";
@@ -33,7 +33,10 @@ const pending = new Map<CgvId, Promise<Map<string, Showtime[]> | null>>();
 let officialCgvBlocked = false;
 let teleCache: Cache | null = null;
 let telePending: Promise<Map<string, Showtime[]>> | null = null;
-const relayCache = new Map<string, { at: number; map: SeatHitMap }>();
+const relayCache = new Map<
+  string,
+  { at: number; map: SeatHitMap; showtimes: Showtime[] }
+>();
 const RELAY_TTL = 90_000;
 
 export function isCgvId(id: TheaterId): id is CgvId {
@@ -48,7 +51,7 @@ export async function fetchCgvRelaySeatmap(input?: {
   theaterId?: CgvId;
   days?: number;
   fresh?: boolean;
-}): Promise<SeatHitMap> {
+}): Promise<{ map: SeatHitMap; showtimes: Showtime[] }> {
   const days = Math.min(Math.max(input?.days ?? 7, 1), 14);
   const dates = kstDateKeys(days);
   const theaters: CgvId[] = input?.theaterId
@@ -59,20 +62,25 @@ export async function fetchCgvRelaySeatmap(input?: {
   );
   const parts = await Promise.all(jobs);
   const map: SeatHitMap = {};
-  for (const part of parts) Object.assign(map, part);
-  return map;
+  const showtimes: Showtime[] = [];
+  for (const part of parts) {
+    Object.assign(map, part.map);
+    showtimes.push(...part.showtimes);
+  }
+  return { map, showtimes };
 }
 
 async function fetchRelayDay(
   theaterId: CgvId,
   playDate: string,
   fresh: boolean,
-): Promise<SeatHitMap> {
-  const siteNo = CGV_SITES[theaterId].siteNo;
+): Promise<{ map: SeatHitMap; showtimes: Showtime[] }> {
+  const site = CGV_SITES[theaterId];
+  const siteNo = site.siteNo;
   const cacheKey = `${siteNo}|${playDate}`;
   if (!fresh) {
     const hit = relayCache.get(cacheKey);
-    if (hit && Date.now() - hit.at < RELAY_TTL) return hit.map;
+    if (hit && Date.now() - hit.at < RELAY_TTL) return hit;
   }
   try {
     const res = await fetch(
@@ -87,7 +95,7 @@ async function fetchRelayDay(
         signal: AbortSignal.timeout(8000),
       },
     );
-    if (!res.ok) return {};
+    if (!res.ok) return { map: {}, showtimes: [] };
     const json = (await res.json()) as {
       data?: {
         timetable?: Array<{
@@ -101,37 +109,66 @@ async function fetchRelayDay(
       };
     };
     const map: SeatHitMap = {};
+    const showtimes: Showtime[] = [];
     for (const row of json.data?.timetable ?? []) {
       const time = String(row.startTime || "").trim();
-      if (!time) continue;
-      if (typeof row.remainingSeats !== "number" || !Number.isFinite(row.remainingSeats)) {
-        continue;
-      }
-      const rec: SeatHit = {
-        rest: row.remainingSeats,
-        total:
-          typeof row.totalSeats === "number" && Number.isFinite(row.totalSeats)
-            ? row.totalSeats
-            : null,
-      };
-      indexSeatHit(
-        map,
-        {
-          theaterId,
-          playDate,
-          startTime: time,
-          movieTitle: row.movieName || "",
-          hallName: row.screenName || "",
-          movieNo: row.movieCode || "",
-          chain: "cgv",
-        },
-        rec,
+      const title = String(row.movieName || "").trim();
+      if (!time || !title) continue;
+      const total =
+        typeof row.totalSeats === "number" && Number.isFinite(row.totalSeats)
+          ? row.totalSeats
+          : null;
+      const rest =
+        typeof row.remainingSeats === "number" && Number.isFinite(row.remainingSeats)
+          ? row.remainingSeats
+          : null;
+      const guessed = cgvHallFromCapacity(
+        theaterId,
+        row.screenName || "",
+        total,
       );
+      const movieNo = String(row.movieCode || "");
+      const show: Showtime = {
+        id: `cgv:${siteNo}:${playDate}:${time}:${guessed.hall}:${title}`,
+        theaterId,
+        theaterName: site.theaterName,
+        chain: "cgv",
+        movieTitle: title,
+        movieNo,
+        playDate,
+        startTime: time,
+        endTime: null,
+        hallName: guessed.hall,
+        formats: guessed.formats,
+        restSeats: rest,
+        totalSeats: total,
+        bookingUrl: movieNo
+          ? `https://cgv.co.kr/cnm/movieBook/movie?movNo=${movieNo}&scnYmd=${playDate}&siteNo=${siteNo}`
+          : `https://cgv.co.kr/cnm/movieBook?siteNo=${siteNo}&date=${playDate}`,
+        bookable: true,
+      };
+      showtimes.push(show);
+      if (rest != null) {
+        indexSeatHit(
+          map,
+          {
+            theaterId,
+            playDate,
+            startTime: time,
+            movieTitle: title,
+            hallName: guessed.hall,
+            movieNo,
+            chain: "cgv",
+          },
+          { rest, total },
+        );
+      }
     }
-    relayCache.set(cacheKey, { at: Date.now(), map });
-    return map;
+    const packed = { at: Date.now(), map, showtimes };
+    relayCache.set(cacheKey, packed);
+    return packed;
   } catch {
-    return {};
+    return { map: {}, showtimes: [] };
   }
 }
 
@@ -268,32 +305,27 @@ async function loadNaverCgv(theaterId: CgvId): Promise<Map<string, Showtime[]>> 
   });
   if (!res.ok) return byDate;
   const text = (await res.text()).split("\\u002F").join("/");
-  const chunks = text.split('"name":"');
-  for (let i = 1; i < chunks.length; i++) {
-    const title = decodeHtml(chunks[i].split('"')[0] ?? "").trim();
-    if (!title || title.length > 40) continue;
-    const block = chunks[i].slice(0, 80000);
-    if (!block.includes("scheduleList")) continue;
+  const parts = text.split('"__typename":"MovieTime"');
+  for (let i = 1; i < parts.length; i++) {
+    const block = parts[i].slice(0, 100000);
+    const dateRaw = block.match(/"date":"(\d{4}-\d{2}-\d{2})"/)?.[1];
+    const title = decodeHtml(block.match(/"name":"([^"]+)"/)?.[1] ?? "").trim();
+    if (!dateRaw || !title || title.length > 40) continue;
+    if (!block.includes("scheduleList") && !block.includes("theaterName")) continue;
+    const date = dateRaw.replace(/-/g, "");
     const hallBlocks = block.split('"theaterName":"');
     for (let h = 1; h < hallBlocks.length; h++) {
       const hall = hallBlocks[h].split('"')[0] ?? "";
       const formats = cgvFormats(hall).filter((f) => f !== "other");
       if (!formats.length) continue;
       const times = [...hallBlocks[h].matchAll(/"rtime":"(\d{1,2}:\d{2})"/g)].map(
-        (m) => m[1],
+        (m) => m[1].padStart(5, "0"),
       );
       const urls = [...hallBlocks[h].matchAll(/ticketMobileUrl":"([^"]+)"/g)].map(
         (m) => m[1],
       );
-      times.forEach((rawTime, idx) => {
-        const startTime = rawTime.padStart(5, "0");
+      times.forEach((startTime, idx) => {
         const bookingUrl = urls[idx] || urls[0] || "";
-        const fromUrl = bookingUrl.match(/scnYmd=(\d{8})/)?.[1];
-        const fromDate = block
-          .match(/"date":"(\d{4}-\d{2}-\d{2})"/)?.[1]
-          ?.replace(/-/g, "");
-        const date = fromUrl || fromDate;
-        if (!date) return;
         const movieNo = bookingUrl.match(/movNo=(\d+)/)?.[1] ?? "";
         const row: Showtime = {
           id: `cgv:${site.siteNo}:${date}:${startTime}:${hall}:${title}`,

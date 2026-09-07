@@ -47,13 +47,11 @@ export async function runScan(input: {
         map: {} as GasSeatMap,
       });
   const relaySeats = [...wanted].some(isCgvId)
-    ? Promise.race([
-        fetchCgvRelaySeatmap({ days }).catch(() => ({}) as SeatHitMap),
-        new Promise<SeatHitMap>((resolve) => {
-          setTimeout(() => resolve({}), 8000);
-        }),
-      ])
-    : Promise.resolve({} as SeatHitMap);
+    ? fetchCgvRelaySeatmap({ days }).catch(() => ({
+        map: {} as SeatHitMap,
+        showtimes: [] as Showtime[],
+      }))
+    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const megaSeats = [...wanted].some(
     (id) => id === "megabox_coex" || id === "megabox_namyangju",
   )
@@ -89,21 +87,31 @@ export async function runScan(input: {
   ]);
   const withSeats = applyCgvSeatHitsAcross(
     theaters.map((theater) => {
-      if (theater.theaterId !== "megabox_coex" && theater.theaterId !== "megabox_namyangju") {
-        return theater;
+      if (theater.theaterId === "megabox_coex" || theater.theaterId === "megabox_namyangju") {
+        const extra = mega.showtimes.filter((row) => row.theaterId === theater.theaterId);
+        if (!extra.length) return theater;
+        return {
+          ...theater,
+          showtimes: mergeShowtimes(theater.showtimes, extra),
+          ok: theater.ok || extra.length > 0,
+          error: extra.length ? null : theater.error,
+        };
       }
-      const extra = mega.showtimes.filter((row) => row.theaterId === theater.theaterId);
-      if (!extra.length) return theater;
-      return {
-        ...theater,
-        showtimes: mergeShowtimes(theater.showtimes, extra),
-        ok: theater.ok || extra.length > 0,
-        error: extra.length ? null : theater.error,
-      };
+      if (isCgvId(theater.theaterId)) {
+        const extra = relay.showtimes.filter((row) => row.theaterId === theater.theaterId);
+        if (!extra.length) return theater;
+        return {
+          ...theater,
+          showtimes: mergeShowtimes(theater.showtimes, extra),
+          ok: theater.ok || extra.length > 0,
+          error: extra.length ? null : theater.error,
+        };
+      }
+      return theater;
     }),
     {
       ...seats.map,
-      ...relay,
+      ...relay.map,
       ...mega.map,
     },
   );
@@ -132,17 +140,8 @@ async function scanTheater(
       : Promise.resolve(new Map<string, Showtime[]>());
 
   const officialByDate = new Map<string, Showtime[]>();
-  if (sources.official && !isCgvId(theaterId)) {
-    const rows = await mapPool(playDates, 4, (date) =>
-      fetchOfficial(theaterId, date),
-    );
-    rows.forEach((item, i) => {
-      const date = playDates[i];
-      if (item.status === "fulfilled" && item.value.length && date) {
-        officialByDate.set(date, item.value);
-      }
-    });
-  }
+  // Megabox 공홈은 fetchMegaboxSeatmap에서 한 번만 때리고 여기서 합칩니다.
+  // CGV 공홈은 막혀 있어서 네이버 + 릴레이만 씁니다.
 
   const naverByDate = sources.naver
     ? await naverPromise
@@ -375,8 +374,8 @@ export async function pingSeatmap(input: {
             : undefined,
         days,
         fresh,
-      }).catch(() => ({}) as SeatHitMap)
-    : Promise.resolve({} as SeatHitMap);
+      }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
+    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
 
   const [mega, relay] = await Promise.all([megaPromise, cgvPromise]);
   let gasMap: SeatHitMap = {};
@@ -385,24 +384,26 @@ export async function pingSeatmap(input: {
   if (
     input.url?.trim() &&
     !Object.keys(mega.map).length &&
-    !Object.keys(relay).length
+    !Object.keys(relay.map).length
   ) {
     const gas = await loadGasSeatmap(input.url, fresh);
     gasMap = gas.map;
     gasStatus = gas.status;
   }
-  const map = { ...gasMap, ...mega.map, ...relay };
+  const map = { ...gasMap, ...mega.map, ...relay.map };
+  const extraShows = [...mega.showtimes, ...relay.showtimes];
   const keys = Object.keys(map);
   const cgvCount = keys.filter(
     (key) => key.startsWith("k:") || key.startsWith("cgv:"),
   ).length;
-  const status = keys.length || mega.showtimes.length ? ("ok" as const) : gasStatus;
+  const status =
+    keys.length || extraShows.length ? ("ok" as const) : gasStatus;
   return {
     status,
-    count: keys.length || mega.showtimes.length,
+    count: keys.length || extraShows.length,
     cgvCount,
     map,
-    showtimes: mega.showtimes,
+    showtimes: extraShows,
   };
 }
 
