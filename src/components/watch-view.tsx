@@ -286,6 +286,7 @@ function TheaterBlock({
   const gasWebUrl = useAppStore((s) => s.config.gasWebUrl);
   const daysAhead = useAppStore((s) => s.config.daysAhead);
   const mergeSeatMap = useAppStore((s) => s.mergeSeatMap);
+  const mergeOverlayShows = useAppStore((s) => s.mergeOverlayShows);
   const [seatBusy, setSeatBusy] = useState(false);
   const [open, setOpen] = useState(false);
   if (!theater) return null;
@@ -308,14 +309,16 @@ function TheaterBlock({
       });
       const map = result.map ?? {};
       if (Object.keys(map).length) mergeSeatMap(map);
+      const overlay = (result.showtimes ?? []).filter(
+        (row) => row.theaterId === theaterId,
+      );
+      if (overlay.length) mergeOverlayShows(theaterId, overlay);
       const watchHits = countSeatHits(shows, map);
-      const allHits = countSeatHits(allShows, map);
-      if (watchHits > 0) {
-        toast.success(`${current.shortName} ${watchHits}개 회차에 잔여석을 붙였습니다.`);
-        return;
-      }
-      if (allHits > 0) {
-        toast.success(`${current.shortName} ${allHits}개 회차에 잔여석을 붙였습니다.`);
+      const allHits = countSeatHits([...allShows, ...overlay], map);
+      if (watchHits > 0 || overlay.length > 0) {
+        toast.success(
+          `${current.shortName} ${Math.max(watchHits, overlay.length, allHits)}개 회차에 잔여석을 붙였습니다.`,
+        );
         return;
       }
       if (!shows.length) {

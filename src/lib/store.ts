@@ -7,6 +7,7 @@ import type {
   AlertItem,
   BookingIntent,
   FormatId,
+  Showtime,
   TheaterId,
   WatchConfig,
 } from "@/lib/cinema/types";
@@ -28,11 +29,13 @@ type AppState = {
   ownerId: string | null;
   seatTick: number;
   seatMap: SeatHitMap;
+  overlayShows: Record<string, Showtime[]>;
   setOnlyAlerted: (on: boolean) => void;
   setWatchSig: (sig: string) => void;
   setOwnerId: (id: string | null) => void;
   bumpSeatTick: () => void;
   mergeSeatMap: (map: SeatHitMap) => void;
+  mergeOverlayShows: (theaterId: TheaterId, shows: Showtime[]) => void;
   setConfig: (patch: Partial<WatchConfig>) => void;
   setTheater: (id: TheaterId, on: boolean) => void;
   toggleFormat: (id: TheaterId, format: FormatId) => void;
@@ -78,12 +81,20 @@ export const useAppStore = create<AppState>()(
       ownerId: null,
       seatTick: 0,
       seatMap: {},
+      overlayShows: {},
       setOnlyAlerted: (on) => set({ onlyAlerted: on }),
       setWatchSig: (sig) => set({ watchSig: sig }),
       setOwnerId: (id) => set({ ownerId: id }),
       bumpSeatTick: () => set((s) => ({ seatTick: s.seatTick + 1 })),
       mergeSeatMap: (map) =>
         set((s) => ({ seatMap: { ...s.seatMap, ...map } })),
+      mergeOverlayShows: (theaterId, shows) =>
+        set((s) => ({
+          overlayShows: {
+            ...s.overlayShows,
+            [theaterId]: shows,
+          },
+        })),
       setConfig: (patch) =>
         set((s) => ({ config: { ...s.config, ...patch } })),
       setTheater: (id, on) =>

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
 import { filterWatched, primeIdsForWatchChange, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
 import { fetchMovieCatalog, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
-import { applyCgvSeatHits, diffStarSeats, notifyCopy, putSeatHit, seatChangeAlert, type SeatHitMap } from "@/lib/cinema/seats";
+import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyCopy, putSeatHit, seatChangeAlert, type SeatHitMap } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { AlertItem, RankingMovie, Showtime, WatchConfig } from "@/lib/cinema/types";
 import { mailEnabled } from "@/lib/cinema/types";
@@ -25,6 +25,8 @@ export function CinemaApp() {
   const watchSig = useAppStore((s) => s.watchSig);
   const seatMap = useAppStore((s) => s.seatMap);
   const mergeSeatMap = useAppStore((s) => s.mergeSeatMap);
+  const overlayShows = useAppStore((s) => s.overlayShows);
+  const mergeOverlayShows = useAppStore((s) => s.mergeOverlayShows);
   const setWatchSig = useAppStore((s) => s.setWatchSig);
   const seenIds = useAppStore((s) => s.seenIds);
   const alerts = useAppStore((s) => s.alerts);
@@ -108,7 +110,11 @@ export function CinemaApp() {
     if (!scan && !catalogQuery.data) return null;
     const theaters = (scan?.theaters ?? []).map((t) => ({
       ...t,
-      showtimes: applyCgvSeatHits(t.showtimes, seatMap, true),
+      showtimes: applyCgvSeatHits(
+        mergeShowtimes(t.showtimes, overlayShows[t.theaterId] ?? []),
+        seatMap,
+        true,
+      ),
     }));
     const rankingSrc = catalogQuery.data?.ranking.length
       ? catalogQuery.data.ranking
@@ -123,7 +129,7 @@ export function CinemaApp() {
       showing: stampPosters(showingSrc),
       theaters,
     };
-  }, [scan, catalogQuery.data, seatMap]);
+  }, [scan, catalogQuery.data, seatMap, overlayShows]);
   const titles = useMemo(
     () => watchedTitleSet(viewScan?.ranking ?? [], config),
     [viewScan?.ranking, config],
@@ -141,7 +147,17 @@ export function CinemaApp() {
   useEffect(() => {
     const map = seatQuery.data?.map;
     if (map && Object.keys(map).length) mergeSeatMap(map);
-  }, [seatQuery.dataUpdatedAt, seatQuery.data, mergeSeatMap]);
+    const extra = seatQuery.data?.showtimes ?? [];
+    const byTheater = new Map<string, typeof extra>();
+    for (const show of extra) {
+      const list = byTheater.get(show.theaterId) ?? [];
+      list.push(show);
+      byTheater.set(show.theaterId, list);
+    }
+    for (const [id, rows] of byTheater) {
+      mergeOverlayShows(id as (typeof extra)[number]["theaterId"], rows);
+    }
+  }, [seatQuery.dataUpdatedAt, seatQuery.data, mergeSeatMap, mergeOverlayShows]);
 
   useEffect(() => {
     if (!scan) return;

@@ -59,7 +59,10 @@ const naverCaches = new Map<MegaboxId, NaverCache>();
 const naverPending = new Map<MegaboxId, Promise<Map<string, Showtime[]>>>();
 let megaFailStreak = 0;
 let megaFailAt = 0;
-const megaSeatCache = new Map<string, { at: number; map: SeatHitMap }>();
+const megaSeatCache = new Map<
+  string,
+  { at: number; map: SeatHitMap; showtimes?: Showtime[] }
+>();
 const MEGA_SEAT_TTL = 90_000;
 
 function isMegaboxId(id: string): id is MegaboxId {
@@ -118,7 +121,7 @@ export async function fetchMegaboxSeatmap(input?: {
   theaterId?: MegaboxId;
   days?: number;
   fresh?: boolean;
-}): Promise<SeatHitMap> {
+}): Promise<{ map: SeatHitMap; showtimes: Showtime[] }> {
   const days = Math.min(Math.max(input?.days ?? 7, 1), 14);
   const dates = kstDateKeys(days);
   const theaters: MegaboxId[] = input?.theaterId
@@ -126,6 +129,7 @@ export async function fetchMegaboxSeatmap(input?: {
     : (Object.keys(BRANCH) as MegaboxId[]);
   if (input?.fresh) megaFailStreak = 0;
   const map: SeatHitMap = {};
+  const showtimes: Showtime[] = [];
   const stale: SeatHitMap = {};
   for (const id of theaters) {
     for (const date of dates) {
@@ -139,24 +143,30 @@ export async function fetchMegaboxSeatmap(input?: {
     const cacheAge = hit ? Date.now() - hit.at : Number.POSITIVE_INFINITY;
     if (!input?.fresh && hit && cacheAge < MEGA_SEAT_TTL) {
       Object.assign(map, hit.map);
+      if (hit.showtimes?.length) showtimes.push(...hit.showtimes);
       return;
     }
     if (input?.fresh && hit && cacheAge < 20_000) {
       Object.assign(map, hit.map);
+      if (hit.showtimes?.length) showtimes.push(...hit.showtimes);
       return;
     }
     const rows = await fetchMegaboxSchedule(id, date, {
       ignoreCircuit: true,
-      timeoutMs: 6000,
+      timeoutMs: 8000,
     }).catch(() => null);
     if (!rows) {
-      if (hit) Object.assign(map, hit.map);
+      if (hit) {
+        Object.assign(map, hit.map);
+        if (hit.showtimes?.length) showtimes.push(...hit.showtimes);
+      }
       return;
     }
     const part: SeatHitMap = {};
     for (const row of rows) putSeatHit(part, row);
+    showtimes.push(...rows);
     if (Object.keys(part).length) {
-      megaSeatCache.set(cacheKey, { at: Date.now(), map: part });
+      megaSeatCache.set(cacheKey, { at: Date.now(), map: part, showtimes: rows });
       Object.assign(map, part);
       return;
     }
@@ -171,7 +181,7 @@ export async function fetchMegaboxSeatmap(input?: {
     await Promise.all(tasks.slice(i, i + size).map((fn) => fn()));
   }
   if (!Object.keys(map).length) Object.assign(map, stale);
-  return map;
+  return { map, showtimes };
 }
 
 export async function fetchMegaboxSchedule(

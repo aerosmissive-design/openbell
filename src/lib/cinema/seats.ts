@@ -44,6 +44,34 @@ export function describeSeatPing(result: {
   };
 }
 
+export function mergeShowtimes(
+  primary: Showtime[],
+  extra: Showtime[] = [],
+): Showtime[] {
+  if (!extra.length) return primary;
+  const keyOf = (row: Showtime) =>
+    `${row.theaterId}|${row.playDate}|${normTime(row.startTime)}|${normalizeTitle(row.movieTitle)}|${normalizeTitle(row.hallName)}`;
+  const map = new Map<string, Showtime>();
+  for (const row of extra) map.set(keyOf(row), row);
+  for (const row of primary) {
+    const key = keyOf(row);
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, row);
+      continue;
+    }
+    map.set(key, {
+      ...prev,
+      ...row,
+      restSeats: row.restSeats ?? prev.restSeats,
+      totalSeats: row.totalSeats ?? prev.totalSeats,
+      bookingUrl: row.bookingUrl || prev.bookingUrl,
+      movieNo: row.movieNo || prev.movieNo,
+    });
+  }
+  return [...map.values()];
+}
+
 export function applyCgvSeatHits(
   rows: Showtime[],
   map: SeatHitMap,

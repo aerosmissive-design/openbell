@@ -102,10 +102,19 @@ export function megaboxFormats(
 ): FormatId[] {
   const kind = (kindCd ?? "").toUpperCase();
   const hall = hallName.toUpperCase();
-  if (kind === "DBC" || hall.includes("DOLBY")) return ["dolby"];
-  if (kind === "MX4D" || hall.includes("MX4D")) return ["mx4d"];
-  if (kind === "LUMINEON" || hall.includes("MEGA | LED") || hall.includes("MEGA|LED"))
+  const compact = hall.replace(/[\s|/._-]+/g, "");
+  if (kind === "DBC" || compact.includes("DOLBY") || hall.includes("돌비")) {
+    return ["dolby"];
+  }
+  if (kind === "MX4D" || compact.includes("MX4D")) return ["mx4d"];
+  if (
+    kind === "LUMINEON" ||
+    compact.includes("MEGALED") ||
+    compact.includes("LUMINEON") ||
+    (hall.includes("메가") && compact.includes("LED"))
+  ) {
     return ["mega_led"];
+  }
   return ["other"];
 }
 
