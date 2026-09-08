@@ -30,7 +30,7 @@ export function FormatChips({
         className={cn(
           "min-h-9 rounded-full px-3 text-xs font-medium transition-colors duration-150",
           allOn
-            ? "bg-accent text-accent-fg"
+            ? "bg-pick text-fg ring-1 ring-border-strong"
             : "bg-surface-2 text-fg ring-1 ring-border",
         )}
       >
@@ -49,7 +49,7 @@ export function FormatChips({
             className={cn(
               "min-h-9 rounded-full px-3 text-xs transition-colors duration-150",
               on
-                ? "bg-accent text-accent-fg"
+                ? "bg-pick text-fg ring-1 ring-border-strong"
                 : "bg-surface-2 text-fg ring-1 ring-border",
             )}
           >
@@ -123,7 +123,7 @@ function SettingsTheaterRow({
           }}
           className={cn(
             "min-h-11 min-w-0 flex-1 rounded-lg px-3 py-2 text-left",
-            allOn ? "bg-accent/20" : "",
+            allOn ? "bg-pick ring-1 ring-border-strong" : "",
           )}
         >
           <p className="truncate text-sm font-bold text-fg">{theater.name}</p>

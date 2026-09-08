@@ -535,7 +535,7 @@ function TheaterBlock({
           onClick={toggleAllFormats}
           className={cn(
             "flex min-h-11 min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left",
-            allOn ? "bg-accent/20" : "bg-surface-2 ring-1 ring-border",
+            allOn ? "bg-pick ring-1 ring-border-strong" : "bg-surface-2 ring-1 ring-border",
           )}
         >
           <div className="min-w-0">

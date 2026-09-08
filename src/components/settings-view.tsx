@@ -1100,22 +1100,33 @@ function Steps({ items }: { items: ReactNode[] }) {
 
 function AlertPathStatus() {
   const gasWebUrl = useAppStore((s) => s.config.gasWebUrl);
-  const [line, setLine] = useState("현황을 확인하는 중…");
-  const [kind, setKind] = useState<"both" | "grok" | "gas" | "wait">("wait");
+  const [kind, setKind] = useState<"both" | "grok" | "gas" | "wait" | "none">(
+    "wait",
+  );
+  const [summary, setSummary] = useState("현황을 확인하는 중…");
+  const [grokLine, setGrokLine] = useState("확인 중");
+  const [gasLine, setGasLine] = useState("확인 중");
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       const url = gasWebUrl.trim();
-      let tickAlive = false;
+      let grokReachable = false;
+      let grokAlive = false;
+      let ageMs: number | null = null;
       try {
         const res = await fetch("/api/watch-alive", {
           signal: AbortSignal.timeout(8000),
         });
-        const json = (await res.json()) as { alive?: boolean };
-        tickAlive = Boolean(json.alive);
+        const json = (await res.json()) as {
+          alive?: boolean;
+          ageMs?: number | null;
+        };
+        grokReachable = res.ok;
+        grokAlive = Boolean(json.alive);
+        ageMs = typeof json.ageMs === "number" ? json.ageMs : null;
       } catch {
-        tickAlive = false;
+        grokReachable = false;
       }
       let gasOk = false;
       if (url) {
@@ -1125,30 +1136,45 @@ function AlertPathStatus() {
         gasOk = gas.status === "ok";
       }
       if (cancelled) return;
-      if (tickAlive && gasOk) {
+      const grokOn = grokReachable;
+      const nextGrok = !grokReachable
+        ? "확인 못 함"
+        : grokAlive
+          ? ageMs != null
+            ? `작동 중 · ${Math.max(1, Math.round(ageMs / 60000))}분 전 조회`
+            : "작동 중"
+          : "연결됨 · 다음 주기 대기";
+      const nextGas = !url
+        ? "없음"
+        : gasOk
+          ? "작동 중"
+          : "최신화 필요";
+      setGrokLine(nextGrok);
+      setGasLine(nextGas);
+      if (grokOn && gasOk) {
         setKind("both");
-        setLine("그록 서버와 구글 스크립트가 둘 다 알림을 보냅니다.");
+        setSummary("그록 서버와 구글 스크립트가 둘 다 알림을 보냅니다.");
         return;
       }
-      if (tickAlive) {
+      if (grokOn) {
         setKind("grok");
-        setLine(
+        setSummary(
           url
-            ? "그록 서버로 돌아가고 있습니다. 스크립트는 최신화하면 같이 보냅니다."
-            : "그록 서버로 돌아가고 있습니다. 구글 스크립트가 없습니다.",
+            ? "그록 서버만 알림을 보냅니다. 스크립트를 최신화하면 같이 갑니다."
+            : "그록 서버만 알림을 보냅니다. 구글 스크립트가 없습니다.",
         );
         return;
       }
       if (gasOk) {
         setKind("gas");
-        setLine("구글 스크립트가 알림을 보냅니다.");
+        setSummary("구글 스크립트만 알림을 보냅니다. 그록 서버는 확인하지 못했습니다.");
         return;
       }
-      setKind("grok");
-      setLine(
+      setKind("none");
+      setSummary(
         url
-          ? "알림 경로를 아직 못 읽었습니다. 스크립트를 최신화해 주세요."
-          : "그록 서버 주기를 아직 못 읽었습니다. 구글 스크립트가 없습니다.",
+          ? "그록 서버와 구글 스크립트를 아직 확인하지 못했습니다."
+          : "그록 서버를 아직 확인하지 못했습니다. 구글 스크립트가 없습니다.",
       );
     }
     void load();
@@ -1174,7 +1200,13 @@ function AlertPathStatus() {
       <p className="text-[11px] font-medium tracking-[0.16em] text-muted">
         알림 경로
       </p>
-      <p className="mt-1.5">{line}</p>
+      <p className="mt-1.5 font-medium text-fg">{summary}</p>
+      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+        <dt className="text-muted">그록 서버</dt>
+        <dd className="text-fg">{grokLine}</dd>
+        <dt className="text-muted">구글 스크립트</dt>
+        <dd className="text-fg">{gasLine}</dd>
+      </dl>
     </div>
   );
 }
