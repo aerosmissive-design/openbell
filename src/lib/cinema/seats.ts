@@ -221,13 +221,22 @@ export function screeningNo(show: Showtime, all: Showtime[]): number {
   return idx >= 0 ? idx + 1 : 0;
 }
 
+export function formatPlayDate(ymd: string) {
+  const s = String(ymd || "");
+  if (s.length < 8) return s;
+  const month = Number(s.slice(4, 6));
+  const day = Number(s.slice(6, 8));
+  if (!month || !day) return s;
+  return `${month}월 ${day}일`;
+}
+
 export function showAlertBody(
   show: Showtime,
   all: Showtime[],
   extra = "",
 ) {
   const n = screeningNo(show, all);
-  const bits = [show.theaterName, show.hallName];
+  const bits = [formatPlayDate(show.playDate), show.theaterName, show.hallName];
   if (n) bits.push(`${n}회`);
   bits.push(show.startTime);
   if (extra) bits.push(extra);

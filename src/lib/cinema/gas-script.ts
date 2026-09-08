@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260908-xoauth2";
+export const GAS_SOURCE_STAMP = "20260908-v33";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -888,10 +888,22 @@ function withRound_(row, live) {
   return row;
 }
 
+function prettyDate_(ymd) {
+  var s = String(ymd || "");
+  if (s.length >= 8) {
+    return Number(s.slice(4, 6)) + "월 " + Number(s.slice(6, 8)) + "일";
+  }
+  return s;
+}
+
+function alertMeta_(a) {
+  return [prettyDate_(a.date), a.theater, a.hall, a.round ? a.round + "회" : "", a.time].filter(Boolean).join(" · ");
+}
+
 function alertLine_(a) {
   var bits = [];
   if (a.title) bits.push(a.title);
-  var meta = [a.theater, a.hall, a.round ? a.round + "회" : "", a.date, a.time].filter(Boolean).join(" · ");
+  var meta = alertMeta_(a);
   if (meta) bits.push(meta);
   if (a.restSeats != null) {
     bits.push("잔여 " + a.restSeats + (a.delta != null ? " (+" + a.delta + ")" : ""));
@@ -916,7 +928,7 @@ function buildMailHtml_(subject, body, alerts) {
     return a && (a.title || a.url || a.theater);
   });
   const rows = items.map(function (a) {
-    const meta = [a.theater, a.hall, a.round ? a.round + "회" : "", a.date, a.time].filter(Boolean).join(" · ");
+    const meta = alertMeta_(a);
     var extra = "";
     if (a.restSeats != null) {
       extra = "잔여 " + a.restSeats + (a.delta != null ? " (+" + a.delta + ")" : "");
@@ -987,7 +999,7 @@ function sendX_(subject, body, alerts) {
   if (items.length) {
     items.slice(0, 3).forEach(function (a) {
       if (a.title) lines.push(a.title);
-      var meta = [a.theater, a.hall, a.round ? a.round + "회" : "", a.time].filter(Boolean).join(" · ");
+      var meta = alertMeta_(a);
       if (meta) lines.push(meta);
       if (a.url) lines.push(String(a.url));
     });

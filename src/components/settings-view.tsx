@@ -50,6 +50,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const [canOauth, setCanOauth] = useState(false);
   const [showStages, setShowStages] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
+  const [remoteStamp, setRemoteStamp] = useState<string | null>(null);
   const wizardAbort = useRef<AbortController | null>(null);
   const setTab = useAppStore((s) => s.setTab);
   const [redirectUri, setRedirectUri] = useState("");
@@ -66,19 +67,20 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
 
   useEffect(() => {
     const url = config.gasWebUrl.trim();
-    if (!url) return;
+    if (!url) {
+      setRemoteStamp(null);
+      return;
+    }
     let cancelled = false;
     void pullGasMeta({ data: { url } })
       .then((meta) => {
         if (cancelled) return;
-        if (meta.status === "ok" && meta.stamp === GAS_SOURCE_STAMP) {
+        if (meta.status !== "ok") return;
+        setRemoteStamp(meta.stamp || "");
+        if (meta.stamp === GAS_SOURCE_STAMP) {
           if (config.gasSourceStamp !== GAS_SOURCE_STAMP) {
             setConfig({ gasSourceStamp: GAS_SOURCE_STAMP });
           }
-          return;
-        }
-        if (config.gasSourceStamp === GAS_SOURCE_STAMP) {
-          setConfig({ gasSourceStamp: "" });
         }
       })
       .catch(() => {});
@@ -325,7 +327,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           스크립트 복사
         </button>
         {(config.gasWebUrl.trim() || config.gasScriptId.trim()) &&
-        config.gasSourceStamp !== GAS_SOURCE_STAMP ? (
+        ((remoteStamp != null && remoteStamp !== GAS_SOURCE_STAMP) ||
+          (remoteStamp == null &&
+            Boolean(config.gasSourceStamp) &&
+            config.gasSourceStamp !== GAS_SOURCE_STAMP)) ? (
           <p className="mt-2 text-sm text-danger">
             변경되었습니다. 업데이트해주십시오
           </p>
@@ -514,7 +519,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           !user
             ? "로그인 필요"
             : mailEnabled(config)
-              ? `켜짐 · ${loginEmail || config.email}`
+              ? `연결됨 · ${loginEmail || config.email}`
               : "꺼짐"
         }
         open={showMail}
@@ -820,7 +825,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       <ChannelCard
         embedded
         title="X로 올리기"
-        summary={xEnabled(config) ? "켜짐 · @aerosmissive2" : "꺼짐"}
+        summary={xEnabled(config) ? "연결됨 · @aerosmissive2" : "꺼짐"}
         open={showX}
         onToggle={() => setShowX((v) => !v)}
       >
@@ -1130,10 +1135,15 @@ function AlertPathStatus() {
       }
       let gasOk = false;
       if (url) {
-        const gas = await pullGasAlertStatus({ data: { url } }).catch(() => ({
-          status: "error" as const,
-        }));
-        gasOk = gas.status === "ok";
+        const [gas, meta] = await Promise.all([
+          pullGasAlertStatus({ data: { url } }).catch(() => ({
+            status: "error" as const,
+          })),
+          pullGasMeta({ data: { url } }).catch(() => ({
+            status: "error" as const,
+          })),
+        ]);
+        gasOk = gas.status === "ok" || meta.status === "ok";
       }
       if (cancelled) return;
       const grokOn = grokReachable;
@@ -1148,7 +1158,7 @@ function AlertPathStatus() {
         ? "없음"
         : gasOk
           ? "작동 중"
-          : "최신화 필요";
+          : "확인 못 함";
       setGrokLine(nextGrok);
       setGasLine(nextGas);
       if (grokOn && gasOk) {
@@ -1160,7 +1170,7 @@ function AlertPathStatus() {
         setKind("grok");
         setSummary(
           url
-            ? "그록 서버만 알림을 보냅니다. 스크립트를 최신화하면 같이 갑니다."
+            ? "그록 서버만 알림을 보냅니다. 구글 스크립트는 아직 확인하지 못했습니다."
             : "그록 서버만 알림을 보냅니다. 구글 스크립트가 없습니다.",
         );
         return;

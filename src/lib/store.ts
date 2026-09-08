@@ -205,6 +205,8 @@ export const useAppStore = create<AppState>()(
             },
             scanSources: normalizeScanSources(snap.config.scanSources),
             ranks: clampStoredRanks(snap.config.ranks),
+            gasSourceStamp:
+              snap.config.gasSourceStamp || s.config.gasSourceStamp,
           },
           queue: snap.queue.slice(0, 40),
           alerts: snap.alerts.slice(0, 2000),
