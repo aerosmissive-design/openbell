@@ -3,6 +3,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { AppProviders } from "@/components/providers";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
+import "@/lib/reload-stale-chunk";
 import "../styles.css";
 import appCss from "../styles.css?url";
 
