@@ -34,7 +34,7 @@ export const Route = createFileRoute("/go")({
 function GoFallback() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center bg-bg px-5">
-      <p className="font-display text-2xl italic text-fg">예매 링크가 없습니다</p>
+      <p className="text-2xl font-bold text-fg">예매 링크가 없습니다</p>
       <a href="/" className="mt-4 text-sm text-muted underline-offset-2 hover:underline">
         오픈벨로 돌아가기
       </a>

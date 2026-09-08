@@ -5,13 +5,14 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
   loadCloudSettings,
   mergeNotifyFromGas,
-  mergeSnapshots,
   publishToGas,
   pullGasNotify,
   saveCloudSettings,
   type CloudSnapshot,
   type GasPushResult,
 } from "@/lib/cinema/cloud";
+import { DEFAULT_WATCH } from "@/lib/cinema/gas-script";
+import { gasWatchFingerprint, pushLinkedGasSource } from "@/lib/cinema/gas-provision";
 import { useAppStore } from "@/lib/store";
 
 function localSnapshot(): CloudSnapshot {
@@ -39,9 +40,7 @@ export function describeGasPush(gas: GasPushResult | undefined): string | null {
   if (!gas) return null;
   if (gas.status === "ok") return "구글 스크립트에 반영했습니다.";
   if (gas.status === "skipped") return null;
-  if (gas.status === "need-script") {
-    return "스크립트가 예전 버전입니다. 설정에서 코드를 다시 붙여넣고 저장하세요. 설치는 다시 실행하지 마세요.";
-  }
+  if (gas.status === "need-script") return null;
   return gas.message;
 }
 
@@ -92,6 +91,7 @@ export function CloudSync() {
   const [hydrated, setHydrated] = useState(false);
   const skipSave = useRef(true);
   const pulledFor = useRef<string | null>(null);
+  const lastWatch = useRef("");
 
   useEffect(() => {
     const api = useAppStore.persist;
@@ -117,18 +117,35 @@ export function CloudSync() {
     pulledFor.current = userId;
     let cancelled = false;
     skipSave.current = true;
-    const before = JSON.stringify(useAppStore.getState().config);
     loadCloudSettings()
       .then(async (remote) => {
         if (cancelled) return;
-        const after = JSON.stringify(useAppStore.getState().config);
-        if (after !== before) {
-          await flushSettings(true);
+        const ownerId = useAppStore.getState().ownerId;
+        useAppStore.getState().setOwnerId(userId);
+        if (remote.snapshot) {
+          hydrateCloud(remote.snapshot);
+          await persistQuiet(remote.snapshot);
           return;
         }
-        const merged = mergeSnapshots(remote.snapshot, localSnapshot());
-        hydrateCloud(merged);
-        await persistQuiet(merged);
+        if (ownerId && ownerId !== userId) {
+          const fresh: CloudSnapshot = {
+            config: {
+              ...DEFAULT_WATCH,
+              theme: useAppStore.getState().config.theme,
+            },
+            queue: [],
+            alerts: [],
+            onlyAlerted: false,
+            primed: false,
+            seenIds: [],
+            seenDates: [],
+            watchSig: "",
+          };
+          hydrateCloud(fresh);
+          await persistQuiet(fresh);
+          return;
+        }
+        await persistQuiet(localSnapshot());
       })
       .catch(() => {})
       .finally(() => {
@@ -146,11 +163,17 @@ export function CloudSync() {
     if (!ready || !hydrated) return;
     if (skipSave.current) {
       skipSave.current = false;
+      lastWatch.current = gasWatchFingerprint();
       return;
     }
     const timer = window.setTimeout(() => {
       void flushSettings(Boolean(userId)).catch(() => {});
-    }, 700);
+      const sig = gasWatchFingerprint();
+      if (sig === lastWatch.current) return;
+      lastWatch.current = sig;
+      if (!useAppStore.getState().config.gasWebUrl.trim()) return;
+      void pushLinkedGasSource().catch(() => {});
+    }, 900);
     return () => window.clearTimeout(timer);
   }, [
     config,

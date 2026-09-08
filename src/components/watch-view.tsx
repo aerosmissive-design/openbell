@@ -1,15 +1,17 @@
-import { RefreshCw, Star } from "lucide-react";
+import { ChevronDown, RefreshCw, Search, Star, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { intentFromShowtime } from "@/lib/cinema/auto-booking";
-import { selectedMovies, watchedTitleSet } from "@/lib/cinema/match";
-import { describeSeatPing } from "@/lib/cinema/seats";
-import { pullTheaterSeats } from "@/lib/cinema/scan";
+import { selectedMovies, titlesMatch, titleInSet, watchedTitleSet } from "@/lib/cinema/match";
+import { applyCgvSeatHits, mergeShowtimes, summarizeSeatDelta } from "@/lib/cinema/seats";
+import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { MovieTab, RankingMovie, ScanProps, Showtime, TheaterId } from "@/lib/cinema/types";
-import { CHART_SIZE, sourceLabel } from "@/lib/cinema/types";
+import { CHART_SIZE } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn, formatPlayDate, kstDateKeys, normalizeTitle } from "@/lib/utils";
+import { SourceStatus } from "./source-status";
+import { FormatChips } from "./theater-picks";
 
 export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanProps) {
   const config = useAppStore((s) => s.config);
@@ -21,9 +23,14 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
   const onlyAlerted = useAppStore((s) => s.onlyAlerted);
   const setOnlyAlerted = useAppStore((s) => s.setOnlyAlerted);
   const movieTab = config.movieTab ?? "chart";
-  const movies = selectedMovies(scan?.ranking ?? [], scan?.showing ?? [], config);
+  const movies = selectedMovies(
+    scan?.ranking ?? [],
+    scan?.showing ?? [],
+    config,
+    scan?.catalog ?? [],
+  );
   const titles = watchedTitleSet(scan?.ranking ?? [], config);
-  const enabledTheaters = THEATERS.filter((t) => config.theaters[t.id]);
+  const enabledTheaters = THEATERS;
   const alertedShows = new Set(alerts.map(alertShowKey));
   const catalog = (
     movieTab === "showing" ? (scan?.showing ?? []) : (scan?.ranking ?? [])
@@ -34,10 +41,10 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
       const result = scan?.theaters.find((t) => t.theaterId === theater.id);
       const formats = config.formats[theater.id] ?? [];
       const shows = (result?.showtimes ?? []).filter((s) => {
-        if (formats.length && !s.formats.some((f) => formats.includes(f))) {
+        if (!formats.length || !s.formats.some((f) => formats.includes(f))) {
           return false;
         }
-        if (titles.size && !titles.has(normalizeTitle(s.movieTitle))) return false;
+        if (titles.size && !titleInSet(s.movieTitle, titles)) return false;
         if (onlyAlerted && !alertedShows.has(showAlertKey(s))) return false;
         return true;
       });
@@ -86,9 +93,10 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
         </div>
         <p className="mb-3 text-xs leading-relaxed text-faint">
           {movieTab === "chart"
-            ? "예매율 1~9위입니다. 포스터를 누르면 알림설정. 새 회차가 열리면 텔레그램으로 옵니다."
+            ? "예매율 1~9위입니다. 포스터를 누르면 알림설정. 아래 검색으로 차트 밖 영화도 넣을 수 있습니다."
             : "이미 개봉한 영화만, 예매율 순 9편입니다. 포스터를 누르면 알림설정입니다."}
         </p>
+        <MovieSearch catalog={scan?.catalog ?? []} />
         {loading && !scan ? (
           <div className="grid grid-cols-3 gap-2">
             {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
@@ -118,6 +126,10 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
             ))}
           </div>
         )}
+        <ExtraWatchStrip
+          catalog={scan?.catalog ?? []}
+          visible={catalog}
+        />
         <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md bg-surface px-3 text-sm text-fg shadow-border">
           <input
             type="checkbox"
@@ -140,14 +152,7 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
           알림 탭에 뜬 회차가 아직 없습니다.
         </p>
       ) : (
-      <div
-        className={cn(
-          "grid grid-cols-1 items-start gap-3",
-          theaterRows.length === 2 && "md:grid-cols-2",
-          theaterRows.length === 3 && "md:grid-cols-3",
-          theaterRows.length >= 4 && "md:grid-cols-2",
-        )}
-      >
+      <div className="flex flex-col gap-3">
       {theaterRows.map(({ theater, result, shows }) => (
           <TheaterBlock
             key={theater.id}
@@ -155,8 +160,18 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
             ok={result?.ok ?? true}
             error={onlyAlerted ? null : (result?.error ?? null)}
             source={result?.source ?? ""}
+            seatSource={result?.seatSource ?? "none"}
             movies={movies}
             shows={shows}
+            allShows={result?.showtimes ?? []}
+            otherOpens={theaterRows
+              .filter((row) => row.theater.id !== theater.id)
+              .flatMap((row) =>
+                row.shows.map((s) => ({
+                  theaterName: row.theater.shortName,
+                  show: s,
+                })),
+              )}
             alertedShows={alertedShows}
             onlyAlerted={onlyAlerted}
             onQueue={(show) => {
@@ -174,6 +189,141 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
       ))}
       </div>
       )}
+    </div>
+  );
+}
+
+function MovieSearch({ catalog }: { catalog: RankingMovie[] }) {
+  const [query, setQuery] = useState("");
+  const watchTitles = useAppStore((s) => s.config.watchTitles);
+  const toggleWatchTitle = useAppStore((s) => s.toggleWatchTitle);
+  const q = query.trim();
+  const extraKeys = new Set(watchTitles.map((t) => normalizeTitle(t)));
+  const hits = q
+    ? catalog
+        .filter((m) => m.title.replace(/\s/g, "").includes(q.replace(/\s/g, "")))
+        .slice(0, 8)
+    : [];
+  return (
+    <div className="relative mb-3">
+      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="차트에서 영화 검색해 추가"
+        className="min-h-11 w-full rounded-md bg-surface pl-10 pr-3 text-sm text-fg shadow-border outline-none placeholder:text-faint"
+      />
+      {q ? (
+        <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md bg-surface shadow-border ring-1 ring-border">
+          {hits.length ? (
+            hits.map((movie) => {
+              const on = extraKeys.has(normalizeTitle(movie.title));
+              return (
+                <button
+                  key={`${movie.movieNo}-${movie.title}`}
+                  type="button"
+                  onClick={() => {
+                    toggleWatchTitle(movie.title);
+                    toast.success(
+                      on ? "추가 감시에서 뺐습니다." : `${movie.title}을 추가했습니다.`,
+                    );
+                    setQuery("");
+                  }}
+                  className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm text-fg hover:bg-pick"
+                >
+                  {movie.posterUrl ? (
+                    <img
+                      src={movie.posterUrl}
+                      alt=""
+                      className="size-9 shrink-0 rounded-sm object-cover"
+                    />
+                  ) : (
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-sm bg-bg text-[10px] text-muted">
+                      {movie.rank || "+"}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{movie.title}</span>
+                  <span className="shrink-0 text-[11px] text-muted">
+                    {on ? "빼기" : "추가"}
+                  </span>
+                </button>
+              );
+            })
+          ) : (
+            <p className="px-3 py-3 text-sm text-muted">맞는 영화가 없습니다.</p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExtraWatchStrip({
+  catalog,
+  visible,
+}: {
+  catalog: RankingMovie[];
+  visible: RankingMovie[];
+}) {
+  const watchTitles = useAppStore((s) => s.config.watchTitles);
+  const toggleWatchTitle = useAppStore((s) => s.toggleWatchTitle);
+  const visibleKeys = new Set(visible.map((m) => normalizeTitle(m.title)));
+  const extras = watchTitles
+    .map((title) => {
+      const hit = catalog.find(
+        (m) => normalizeTitle(m.title) === normalizeTitle(title),
+      );
+      return (
+        hit ?? {
+          rank: 0,
+          title,
+          movieNo: "",
+          bookingRate: null,
+          posterUrl: null,
+          releaseDate: null,
+          bookingOpen: false,
+          released: false,
+        }
+      );
+    })
+    .filter((m) => !visibleKeys.has(normalizeTitle(m.title)));
+  if (!extras.length) return null;
+  return (
+    <div className="mt-3">
+      <p className="mb-2 text-[11px] tracking-[0.12em] text-muted">추가 영화</p>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {extras.map((movie) => (
+          <button
+            key={movie.title}
+            type="button"
+            onClick={() => {
+              toggleWatchTitle(movie.title);
+              toast("추가 감시에서 뺐습니다.");
+            }}
+            className="relative w-[4.5rem] shrink-0 text-left"
+          >
+            <div className="relative aspect-[3/4] overflow-hidden rounded-md bg-surface-2 ring-2 ring-notify">
+              {movie.posterUrl ? (
+                <img
+                  src={movie.posterUrl}
+                  alt=""
+                  className="size-full object-cover"
+                />
+              ) : (
+                <div className="flex size-full items-center justify-center px-1 text-center text-[10px] text-muted">
+                  {movie.title}
+                </div>
+              )}
+              <span className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-bg/80 text-muted">
+                <X className="size-2.5" strokeWidth={2.5} />
+              </span>
+            </div>
+            <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-fg">
+              {movie.title}
+            </p>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -218,7 +368,7 @@ function MovieCard({
             )}
           />
         ) : (
-          <div className="flex size-full items-center justify-center font-display text-2xl italic text-faint">
+          <div className="flex size-full items-center justify-center text-2xl font-semibold text-faint">
             {movie.rank || "·"}
           </div>
         )}
@@ -258,8 +408,11 @@ function TheaterBlock({
   ok,
   error,
   source,
+  seatSource,
   movies,
   shows,
+  allShows,
+  otherOpens,
   alertedShows,
   onlyAlerted,
   onQueue,
@@ -268,46 +421,80 @@ function TheaterBlock({
   ok: boolean;
   error: string | null;
   source: string;
+  seatSource: string;
   movies: RankingMovie[];
   shows: Showtime[];
+  allShows: Showtime[];
+  otherOpens: { theaterName: string; show: Showtime }[];
   alertedShows: Set<string>;
   onlyAlerted: boolean;
   onQueue: (show: Showtime) => void;
 }) {
   const theater = THEATERS.find((t) => t.id === theaterId);
   const formats = useAppStore((s) => s.config.formats[theaterId] ?? []);
+  const setTheaterFormats = useAppStore((s) => s.setTheaterFormats);
   const gasWebUrl = useAppStore((s) => s.config.gasWebUrl);
   const daysAhead = useAppStore((s) => s.config.daysAhead);
   const mergeSeatMap = useAppStore((s) => s.mergeSeatMap);
+  const mergeOverlayShows = useAppStore((s) => s.mergeOverlayShows);
   const [seatBusy, setSeatBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   if (!theater) return null;
   const current = theater;
   const missingSeats =
     ok && shows.length > 0 && !shows.some((s) => s.restSeats != null);
+  const formatSummary = theater.formats
+    .filter((f) => formats.includes(f.id))
+    .map((f) => f.label)
+    .join(" · ");
 
-  async function refreshSeats() {
+  async function refreshTheater() {
     setSeatBusy(true);
     try {
-      const result = await pullTheaterSeats({
-        url: gasWebUrl.trim() || undefined,
-        theaterId,
-        daysAhead: Math.min(Math.max(daysAhead || 7, 1), 7),
-        fresh: false,
-      });
-      const note = describeSeatPing(result);
-      if (note.ok) {
-        mergeSeatMap(result.map ?? {});
-        toast.success(`${current.shortName} 잔여석을 붙였습니다.`);
-        return;
+      const days = Math.min(Math.max(daysAhead || 7, 1), 14);
+      const gas = gasWebUrl.trim() || undefined;
+      const [scan, result] = await Promise.all([
+        scanCinema({
+          data: {
+            theaters: [theaterId],
+            daysAhead: days,
+            gasWebUrl: gas,
+            sources: { official: true, naver: true, gas: true },
+          },
+        }),
+        pullTheaterSeats({
+          url: gas,
+          theaterId,
+          daysAhead: days,
+          fresh: true,
+        }),
+      ]);
+      const timetable = (scan.theaters ?? []).find((row) => row.theaterId === theaterId);
+      if (timetable?.showtimes?.length) {
+        mergeOverlayShows(theaterId, timetable.showtimes);
       }
-      if (shows.some((s) => s.restSeats != null)) {
-        toast("공홈이 잠깐 안 됩니다. 화면에 있는 잔여석을 유지합니다.");
-        return;
+      const map = result.map ?? {};
+      if (Object.keys(map).length) mergeSeatMap(map);
+      const overlay = (result.showtimes ?? []).filter(
+        (row) => row.theaterId === theaterId,
+      );
+      if (overlay.length) mergeOverlayShows(theaterId, overlay);
+      const next = applyCgvSeatHits(
+        mergeShowtimes(allShows, [...(timetable?.showtimes ?? []), ...overlay]),
+        { ...useAppStore.getState().seatMap, ...map },
+        true,
+      );
+      const delta = summarizeSeatDelta(allShows, next);
+      if (delta.shows > 0) {
+        toast.success(
+          `${current.shortName} ${delta.shows}회차에 잔여석 ${delta.seats}석이 붙었습니다.`,
+        );
+      } else {
+        toast.success(`${current.shortName} 시간표를 다시 받았습니다.`);
       }
-      toast.error(note.text);
     } catch (err) {
       if (shows.some((s) => s.restSeats != null)) {
-        toast("공홈이 잠깐 안 됩니다. 화면에 있는 잔여석을 유지합니다.");
+        toast("공홈이 잠깐 안 됩니다. 화면에 있는 값을 유지합니다.");
         return;
       }
       toast.error(err instanceof Error ? err.message : "불러오지 못했습니다.");
@@ -316,99 +503,142 @@ function TheaterBlock({
     }
   }
 
+  function toggleAllFormats() {
+    const ids = current.formats.map((f) => f.id);
+    const allOn = ids.length > 0 && ids.every((id) => formats.includes(id));
+    setTheaterFormats(current.id, allOn ? [] : ids);
+  }
+
+  const allOn =
+    current.formats.length > 0 &&
+    current.formats.every((f) => formats.includes(f.id));
+  const someOn = formats.length > 0;
+
   return (
-    <section className="rise-in flex flex-col overflow-hidden rounded-xl bg-surface p-3 shadow-border md:h-[72vh]">
-      <header className="rounded-lg bg-surface-2 px-3 py-2.5 ring-1 ring-border">
-        <div className="flex items-center justify-between gap-2">
+    <section
+      className={cn(
+        "rise-in flex flex-col overflow-hidden rounded-xl p-3 shadow-border transition-colors",
+        allOn
+          ? "bg-pick ring-1 ring-border-strong"
+          : someOn
+            ? "bg-surface-2 ring-1 ring-border"
+            : "bg-surface",
+      )}
+    >
+      <header className="flex items-start gap-2">
+        <button
+          type="button"
+          onClick={toggleAllFormats}
+          className={cn(
+            "flex min-h-11 min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left",
+            allOn ? "bg-accent/20" : "bg-surface-2 ring-1 ring-border",
+          )}
+        >
           <div className="min-w-0">
-            <h2 className="truncate font-display text-xl italic leading-tight text-fg">
+            <h2 className="truncate text-xl font-bold leading-tight text-fg">
               {theater.name}
             </h2>
+            <div className="mt-1.5">
+              <SourceStatus
+                source={source}
+                seatSource={seatSource}
+                ok={ok}
+                quiet
+              />
+            </div>
             <p className="mt-1 truncate text-xs text-muted">
-              {theater.area}
-              {ok ? ` · ${sourceLabel(source)}` : " · 조회 실패"}
+              {ok ? formatSummary || "특별관 없음" : "조회 실패"}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              void refreshSeats();
-            }}
-            disabled={seatBusy}
-            className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md bg-bg px-3 text-xs text-fg ring-1 ring-border-strong disabled:opacity-40"
-          >
-            <RefreshCw
-              className={cn("size-3.5", seatBusy && "animate-spin")}
-              strokeWidth={1.75}
-            />
-            잔여석
-          </button>
-        </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="inline-flex min-h-11 shrink-0 items-center gap-1 self-center rounded-md bg-bg px-3 text-xs text-muted ring-1 ring-border"
+        >
+          {open ? "접기" : "펼치기"}
+          <ChevronDown
+            className={cn("size-4 transition-transform", open && "rotate-180")}
+            strokeWidth={1.75}
+          />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void refreshTheater();
+          }}
+          disabled={seatBusy}
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 self-center rounded-md bg-bg px-3 text-xs text-fg ring-1 ring-border-strong disabled:opacity-40"
+        >
+          <RefreshCw
+            className={cn("size-3.5", seatBusy && "animate-spin")}
+            strokeWidth={1.75}
+          />
+          새로고침
+        </button>
       </header>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {theater.formats
-          .filter((f) => formats.includes(f.id))
-          .map((f) => (
-            <span
-              key={f.id}
-              className="rounded-full bg-surface-2 px-2 py-1 text-[10px] text-muted"
-            >
-              {f.label}
-            </span>
-          ))}
-      </div>
 
-      {missingSeats ? (
-        <p className="mt-3 text-xs leading-relaxed text-faint">
-          잔여석은 오른쪽 「잔여석」을 누르면 이 극장만 다시 붙습니다.
-        </p>
-      ) : null}
+      {open ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <FormatChips theaterId={theater.id} />
 
-      {error ? (
-        <div className="mt-4 rounded-md bg-bg px-3 py-3">
-          <p className="text-sm text-danger">시간표를 못 가져왔습니다.</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted">{error}</p>
-          <a
-            href={theater.bookingUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 inline-flex min-h-9 items-center text-xs text-fg underline-offset-2 hover:underline"
-          >
-            극장 페이지 열기
-          </a>
-        </div>
-      ) : null}
+          {missingSeats ? (
+            <p className="mt-3 text-xs leading-relaxed text-faint">
+              잔여석은 오른쪽 「새로고침」을 누르면 이 극장의 시간표와 좌석을 같이 다시 받습니다.
+            </p>
+          ) : null}
 
-      {ok ? (
-        <div className="mt-3 space-y-3 md:min-h-0 md:flex-1 md:overflow-y-auto md:pr-0.5">
-          {movies
-            .map((movie) => {
-              const list = shows
-                .filter((s) => normalizeTitle(s.movieTitle) === normalizeTitle(movie.title))
-                .sort((a, b) =>
-                  a.playDate === b.playDate
-                    ? a.startTime.localeCompare(b.startTime)
-                    : a.playDate.localeCompare(b.playDate),
-                );
-              return { movie, list };
-            })
-            .filter(({ list }) => !onlyAlerted || list.length > 0)
-            .sort((a, b) => {
-              const aHit = a.list.some((s) => alertedShows.has(showAlertKey(s))) ? 0 : 1;
-              const bHit = b.list.some((s) => alertedShows.has(showAlertKey(s))) ? 0 : 1;
-              return aHit - bHit;
-            })
-            .map(({ movie, list }) => (
-              <MovieTimes
-                key={movie.movieNo || movie.rank}
-                movie={movie}
-                shows={list}
-                alertedShows={alertedShows}
-                onQueue={onQueue}
-              />
-            ))}
-          {!movies.length ? (
-            <p className="text-sm text-muted">상영 랭킹을 불러오는 중입니다.</p>
+          {error ? (
+            <div className="mt-4 rounded-md bg-bg px-3 py-3">
+              <p className="text-sm text-danger">시간표를 못 가져왔습니다.</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">{error}</p>
+              <a
+                href={theater.bookingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex min-h-9 items-center text-xs text-fg underline-offset-2 hover:underline"
+              >
+                극장 페이지 열기
+              </a>
+            </div>
+          ) : null}
+
+          {ok ? (
+            <div className="mt-3 space-y-3">
+              {movies
+                .map((movie) => {
+                  const list = shows
+                    .filter((s) => titlesMatch(s.movieTitle, movie.title))
+                    .sort((a, b) =>
+                      a.playDate === b.playDate
+                        ? a.startTime.localeCompare(b.startTime)
+                        : a.playDate.localeCompare(b.playDate),
+                    );
+                  const elsewhere = otherOpens.filter((row) =>
+                    titlesMatch(row.show.movieTitle, movie.title),
+                  );
+                  return { movie, list, elsewhere };
+                })
+                .filter(({ list, elsewhere }) => !onlyAlerted || list.length > 0)
+                .sort((a, b) => {
+                  const aHit = a.list.some((s) => alertedShows.has(showAlertKey(s))) ? 0 : 1;
+                  const bHit = b.list.some((s) => alertedShows.has(showAlertKey(s))) ? 0 : 1;
+                  return aHit - bHit;
+                })
+                .map(({ movie, list, elsewhere }) => (
+                  <MovieTimes
+                    key={movie.movieNo || movie.rank}
+                    movie={movie}
+                    shows={list}
+                    elsewhere={elsewhere}
+                    alertedShows={alertedShows}
+                    onQueue={onQueue}
+                  />
+                ))}
+              {!movies.length ? (
+                <p className="text-sm text-muted">상영 랭킹을 불러오는 중입니다.</p>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -419,11 +649,13 @@ function TheaterBlock({
 function MovieTimes({
   movie,
   shows,
+  elsewhere,
   alertedShows,
   onQueue,
 }: {
   movie: RankingMovie;
   shows: Showtime[];
+  elsewhere: { theaterName: string; show: Showtime }[];
   alertedShows: Set<string>;
   onQueue: (show: Showtime) => void;
 }) {
@@ -441,10 +673,23 @@ function MovieTimes({
       </div>
       {shows.length === 0 ? (
         <div className="mt-2 rounded-md bg-bg px-3 py-3">
-          <p className="text-sm text-wait">미오픈 · 감시 중</p>
-          {movie.releaseDate ? (
-            <p className="mt-1 text-[11px] text-faint">개봉 {formatPlayDate(movie.releaseDate)}</p>
-          ) : null}
+          {elsewhere.length ? (
+            <>
+              <p className="text-sm text-open">
+                {summarizeElsewhere(elsewhere)}
+              </p>
+              <p className="mt-1 text-[11px] text-faint">
+                이 극장에는 아직 없습니다. 위 극장 카드를 펼치세요.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-wait">미오픈 · 감시 중</p>
+              {movie.releaseDate ? (
+                <p className="mt-1 text-[11px] text-faint">개봉 {formatPlayDate(movie.releaseDate)}</p>
+              ) : null}
+            </>
+          )}
         </div>
       ) : (
         <ul className="mt-2 flex flex-col gap-1.5">
@@ -526,6 +771,18 @@ function StarBtn({
       />
     </button>
   );
+}
+
+function summarizeElsewhere(
+  rows: { theaterName: string; show: Showtime }[],
+) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    counts.set(row.theaterName, (counts.get(row.theaterName) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([name, n]) => `${name} ${n}회 오픈`)
+    .join(" · ");
 }
 
 function alertShowKey(alert: { theaterId: string; movieTitle: string; playDate: string; startTime: string; hallName: string }) {

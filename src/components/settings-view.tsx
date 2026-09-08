@@ -1,26 +1,41 @@
 import { ExternalLink } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { authEnabled, signOut } from "@/lib/auth/client";
+import { authEnabled, signIn, signOut } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { extractKakaoCode, kakaoRedirectUri } from "@/lib/cinema/kakao";
-import { exchangeKakaoCode, peekTelegramChat, pullCgvSeats, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";
-import { describeSeatPing } from "@/lib/cinema/seats";
+import {
+  attachInstalledScript,
+  connectedEditorUrl,
+  currentGasScript,
+  ensureGasSyncKey,
+  existingScriptEditorUrl,
+  forgetGasLink,
+  gasHomeUrl,
+  gasIsLinked,
+  peekGasOauthClient,
+  pushLinkedGasSource,
+  syncGasScript,
+  waitForGasBind,
+} from "@/lib/cinema/gas-provision";
+import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
+import { pullGasMeta } from "@/lib/cinema/cloud";
+import { describeGasPush, flushSettings } from "./cloud-sync";
+import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
-import type { ScanResult, ScanStage } from "@/lib/cinema/types";
-import { SCAN_STAGE_META, mailEnabled, normalizeScanSources, sourceLabel } from "@/lib/cinema/types";
+import type { ScanResult } from "@/lib/cinema/types";
+import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
 import { THEME_MODES } from "@/lib/theme";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
+import { SettingsTheaterPicks } from "./theater-picks";
 
 export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const config = useAppStore((s) => s.config);
   const setConfig = useAppStore((s) => s.setConfig);
-  const setTheater = useAppStore((s) => s.setTheater);
-  const toggleFormat = useAppStore((s) => s.toggleFormat);
   const pushAlerts = useAppStore((s) => s.pushAlerts);
   const { user } = useCurrentUserState();
   const loginEmail = user?.primaryEmail?.trim() ?? "";
@@ -29,25 +44,50 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const [showKakao, setShowKakao] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
-  const [pingingSeats, setPingingSeats] = useState(false);
-  const [seatHint, setSeatHint] = useState("");
-  const mergeSeatMap = useAppStore((s) => s.mergeSeatMap);
+  const [provisioning, setProvisioning] = useState(false);
+  const [wizard, setWizard] = useState(false);
+  const [canOauth, setCanOauth] = useState(false);
+  const [showStages, setShowStages] = useState(false);
+  const wizardAbort = useRef<AbortController | null>(null);
   const setTab = useAppStore((s) => s.setTab);
   const [redirectUri, setRedirectUri] = useState("");
-  const sources = normalizeScanSources(config.scanSources);
-
-  function toggleSource(id: ScanStage, on: boolean) {
-    const next = { ...sources, [id]: on };
-    if (!next.official && !next.naver && !next.gas) {
-      toast.error("조회 단계는 하나 이상 켜 두세요.");
-      return;
-    }
-    setConfig({ scanSources: next });
-  }
 
   useEffect(() => {
     setRedirectUri(kakaoRedirectUri());
   }, []);
+
+  useEffect(() => {
+    void peekGasOauthClient()
+      .then((id) => setCanOauth(Boolean(id)))
+      .catch(() => setCanOauth(false));
+  }, []);
+
+  useEffect(() => {
+    const url = config.gasWebUrl.trim();
+    if (!url) return;
+    let cancelled = false;
+    void pullGasMeta({ data: { url } })
+      .then((meta) => {
+        if (cancelled) return;
+        if (meta.status === "ok" && meta.stamp === GAS_SOURCE_STAMP) {
+          if (config.gasSourceStamp !== GAS_SOURCE_STAMP) {
+            setConfig({ gasSourceStamp: GAS_SOURCE_STAMP });
+          }
+          return;
+        }
+        if (config.gasSourceStamp === GAS_SOURCE_STAMP) {
+          setConfig({ gasSourceStamp: "" });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [config.gasWebUrl]);
+
+  function markScriptCurrent() {
+    setConfig({ gasSourceStamp: GAS_SOURCE_STAMP });
+  }
 
   async function sendTestMail() {
     const email = loginEmail || config.email.trim();
@@ -96,30 +136,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
     }
   }
 
-  async function loadCgvSeats() {
-    setPingingSeats(true);
-    setSeatHint("CGV 잔여석을 불러오는 중…");
-    try {
-      const result = await pullCgvSeats({
-        url: config.gasWebUrl.trim() || undefined,
-      });
-      const note = describeSeatPing(result);
-      setSeatHint(note.ok ? "" : note.text);
-      if (note.ok) {
-        mergeSeatMap(result.map ?? {});
-        setTab("watch");
-        toast.success(note.text);
-        return;
-      }
-      toast.error(note.text);
-    } catch (err) {
-      setSeatHint(err instanceof Error ? err.message : "불러오지 못했습니다.");
-      toast.error(err instanceof Error ? err.message : "불러오지 못했습니다.");
-    } finally {
-      setPingingSeats(false);
-    }
-  }
-
   async function enableNotify() {
     if (typeof Notification === "undefined") {
       setConfig({ browserNotify: true });
@@ -149,6 +165,134 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
+  function copyGasScript() {
+    return navigator.clipboard
+      .writeText(currentGasScript())
+      .then(() => true)
+      .catch(() => false);
+  }
+
+  function listenForCopiedInstall() {
+    wizardAbort.current?.abort();
+    const ac = new AbortController();
+    wizardAbort.current = ac;
+    const started = Date.now();
+    setWizard(true);
+    setProvisioning(true);
+    void (async () => {
+      try {
+        await waitForGasBind(ensureGasSyncKey(), ac.signal, started, loginEmail);
+        await flushSettings(Boolean(loginEmail));
+        markScriptCurrent();
+        setWizard(false);
+        toast.success("설치한 스크립트를 찾았습니다. 이제 최신화가 이 스크립트를 고칩니다.");
+      } catch (err) {
+        if (ac.signal.aborted) return;
+        const message = err instanceof Error ? err.message : "스크립트를 찾지 못했습니다.";
+        if (message !== "취소했습니다.") toast.error(message);
+      } finally {
+        if (!ac.signal.aborted) setProvisioning(false);
+      }
+    })();
+  }
+
+  function openConnected(url: string) {
+    window.open(url, "openbell-connected");
+  }
+
+  async function pushWatchWindow() {
+    const gas = await flushSettings(Boolean(loginEmail));
+    const live = describeGasPush(gas);
+    const source = await pushLinkedGasSource();
+    if (source.status === "ok") {
+      toast.success("구글 스크립트 코드를 지금 설정으로 고쳤습니다.");
+      return;
+    }
+    if (live) toast.success(live);
+  }
+
+  function startSyncScript() {
+    if (authEnabled && !loginEmail) {
+      void signIn("grok-google", { callbackURL: "/" }).catch((err) =>
+        toast.error(err instanceof Error ? err.message : "로그인하지 못했습니다."),
+      );
+      return;
+    }
+    setProvisioning(true);
+    void (async () => {
+      try {
+        await flushSettings(Boolean(loginEmail));
+        const found = await attachInstalledScript(loginEmail);
+        if (found) {
+          wizardAbort.current?.abort();
+          setWizard(false);
+          markScriptCurrent();
+          openConnected(await connectedEditorUrl(loginEmail));
+          toast.success("설치한 스크립트를 찾았습니다. 이 스크립트와 동기화합니다.");
+          return;
+        }
+        wizardAbort.current?.abort();
+        const ac = new AbortController();
+        wizardAbort.current = ac;
+        const linked = gasIsLinked();
+        void copyGasScript();
+        if (!linked && !canOauth) {
+          openConnected(gasHomeUrl(loginEmail));
+          setWizard(true);
+          toast.success(
+            "코드를 복사했습니다. 오픈벨에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
+          );
+        }
+        const result = await syncGasScript();
+        if (result.mode === "oauth") {
+          setWizard(false);
+          await flushSettings(Boolean(loginEmail));
+          if (result.scriptId) {
+            openConnected(existingScriptEditorUrl(result.scriptId, loginEmail));
+          } else {
+            openConnected(await connectedEditorUrl(loginEmail));
+          }
+          toast.success(
+            result.created
+              ? "스크립트를 만들었습니다. 위쪽 함수를 설치 로 실행하세요."
+              : "연결된 스크립트를 열었습니다.",
+          );
+          markScriptCurrent();
+          return;
+        }
+        if (result.mode === "upgrade" || result.mode === "editor") {
+          setWizard(false);
+          await flushSettings(Boolean(loginEmail));
+          openConnected(await connectedEditorUrl(loginEmail));
+          toast.success("연결된 스크립트를 열었습니다. 저장하면 반영됩니다.");
+          markScriptCurrent();
+          return;
+        }
+        const hit = await waitForGasBind(
+          ensureGasSyncKey(),
+          ac.signal,
+          undefined,
+          loginEmail,
+        );
+        await flushSettings(Boolean(loginEmail));
+        setWizard(false);
+        markScriptCurrent();
+        openConnected(await connectedEditorUrl(loginEmail));
+        toast.success("연결됐습니다. 다시 누르면 이 스크립트만 엽니다.");
+        void hit;
+      } catch (err) {
+        if (err instanceof Error && err.message === "취소했습니다.") return;
+        const message = err instanceof Error ? err.message : "최신화하지 못했습니다.";
+        toast.error(message);
+        if (message.includes("앱스 스크립트 API")) {
+          window.open("https://script.google.com/home/usersettings", "_blank", "noopener");
+        }
+      } finally {
+        setProvisioning(false);
+      }
+    })();
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-xl bg-surface p-4 shadow-border">
@@ -176,116 +320,146 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           ))}
         </div>
       </section>
+      <SettingsTheaterPicks onChange={() => void pushWatchWindow()} />
       <CloudSettingsCard />
+
       <section className="rounded-xl bg-surface p-4 shadow-border">
-        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">극장</h2>
-        <div className="mt-3 flex flex-col gap-4">
-          {THEATERS.map((theater) => (
-            <div key={theater.id}>
-              <Switch
-                checked={config.theaters[theater.id]}
-                onCheckedChange={(on) => setTheater(theater.id, on)}
-                label={theater.name}
-              />
-              {config.theaters[theater.id] ? (
-                <div className="mt-2 flex flex-wrap gap-1.5 pl-0">
-                  {theater.formats.map((format) => {
-                    const on = (config.formats[theater.id] ?? []).includes(format.id);
-                    return (
-                      <button
-                        key={format.id}
-                        type="button"
-                        onClick={() => toggleFormat(theater.id, format.id)}
-                        className={cn(
-                          "min-h-9 rounded-full px-3 text-xs transition-colors duration-150",
-                          on
-                            ? "bg-accent text-accent-fg"
-                            : "bg-surface-2 text-fg ring-1 ring-border",
-                        )}
-                      >
-                        {format.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 rounded-md bg-bg px-3 py-3">
-          <p className="text-sm text-fg">CGV 잔여석</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            CGV 공홈은 막혀 있어 시간표는 네이버에서 바로 가져옵니다. 잔여석은
-            감시 탭 각 CGV 옆 「잔여석」을 눌러도 되고, 아래 버튼으로 한 번에
-            붙여도 됩니다.
+        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
+          구글 스크립트
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          복사한 코드를 붙여넣고 설치하면 그 스크립트를 찾아 붙입니다. 그록이
+          살아 있으면 알림은 그록이 보내고, 스크립트는 예비로 시간표만
+          받습니다. 그록이 멈추면 스크립트가 알림을 이어 갑니다.
+        </p>
+        <button
+          type="button"
+          disabled={provisioning}
+          className="mt-3 min-h-11 w-full rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong disabled:opacity-60"
+          onClick={startSyncScript}
+        >
+          {provisioning
+            ? wizard
+              ? "설치되면 붙습니다…"
+              : "같은 스크립트를 고치는 중…"
+            : "스크립트 자동 최신화"}
+        </button>
+        <button
+          type="button"
+          className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border"
+          onClick={() => {
+            void copyGasScript().then((ok) => {
+              if (!ok) {
+                toast.error("복사하지 못했습니다.");
+                return;
+              }
+              toast.success(
+                `스크립트를 복사했습니다. ${config.intervalMin}분 · ${config.daysAhead}일. 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.`,
+              );
+              markScriptCurrent();
+              listenForCopiedInstall();
+            });
+          }}
+        >
+          스크립트 복사
+        </button>
+        {(config.gasWebUrl.trim() || config.gasScriptId.trim()) &&
+        config.gasSourceStamp !== GAS_SOURCE_STAMP ? (
+          <p className="mt-2 text-sm text-danger">
+            변경되었습니다. 업데이트해주십시오
           </p>
-          <Button
-            className="mt-3 w-full"
-            disabled={pingingSeats}
-            onClick={() => {
-              void loadCgvSeats();
-            }}
-          >
-            {pingingSeats ? "불러오는 중…" : "CGV 잔여석 불러오기"}
-          </Button>
-          {seatHint ? (
-            <p className="mt-2 text-xs leading-relaxed text-muted">{seatHint}</p>
-          ) : null}
-        </div>
+        ) : null}
+        {wizard ? (
+          <ol className="mt-3 rounded-md bg-bg px-3 py-3 text-sm leading-relaxed text-fg ring-1 ring-border">
+            <li>1. 열린 오픈벨에서 기존 코드를 지우고 붙여넣기 → 저장</li>
+            <li>2. 위쪽 함수를 설치 로 바꿔 실행 (권한 허용)</li>
+            <li className="mt-1 text-muted">
+              새 프로젝트·휴지통 복원은 열지 마세요. 배포는 설치가 합니다.
+            </li>
+          </ol>
+        ) : null}
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
-          조회 순서
+          극장 및 잔여석 현황
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          위에서부터 순서대로 봅니다. 그 단계가 막히거나 비어 있으면 다음으로
-          넘어갑니다.
+          상영시간과 잔여석을 어디서 받았는지입니다. 세 단계는 항상 켜져 있고,
+          막히면 다음으로 넘어갑니다.
         </p>
-        <p className="mt-1.5 text-xs leading-relaxed text-faint">
-          잔여석 버튼은 이 순서를 그대로 쓰지 않습니다. 메가박스는 공홈, CGV는
-          좌석 조회, 둘 다 실패하면 구글 캐시만 봅니다. 네이버와 용아맥에는
-          남은 좌석 숫자가 없습니다.
-        </p>
-        <div className="mt-3 flex flex-col gap-3">
-          {SCAN_STAGE_META.map((stage) => (
-            <div
-              key={stage.id}
-              className="rounded-md bg-bg px-3 py-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm text-fg">
-                    <span className="mr-1.5 tabular-nums text-muted">
-                      {stage.step}.
-                    </span>
-                    {stage.title}
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-faint">
-                    {stage.body}
-                  </p>
-                </div>
-                <Switch
-                  checked={sources[stage.id]}
-                  onCheckedChange={(on) => toggleSource(stage.id, on)}
-                />
-              </div>
-            </div>
-          ))}
+        <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
+          <p className="text-xs text-muted">극장</p>
+          <p className="text-xs text-muted">극장 현황</p>
+          <p className="text-xs text-muted">잔여석 현황</p>
+          {THEATERS.map((theater) => {
+            const row = lastScan?.theaters.find((t) => t.theaterId === theater.id);
+            return (
+              <Fragment key={theater.id}>
+                <p className="text-fg">{theater.shortName}</p>
+                <p className="text-muted">
+                  {timetableSourceLabel(row?.source ?? "", row?.ok ?? true)}
+                </p>
+                <p className="text-muted">{seatSourceLabel(row?.seatSource)}</p>
+              </Fragment>
+            );
+          })}
         </div>
-        {lastScan?.theaters.length ? (
-          <p className="mt-3 text-xs leading-relaxed text-faint">
-            방금 조회:{" "}
-            {lastScan.theaters
-              .map((t) => {
-                const name =
-                  THEATERS.find((x) => x.id === t.theaterId)?.shortName ??
-                  t.theaterId;
-                const tag = t.ok ? sourceLabel(t.source) : "실패";
-                return `${name} ${tag}`;
-              })
-              .join(" · ")}
-          </p>
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setShowStages((v) => !v)}
+            className="inline-flex min-h-11 items-baseline gap-2 bg-transparent p-0 text-right text-fg"
+          >
+            <span className="text-sm">조회는 이렇게 됩니다</span>
+            <span className="text-xs text-muted">{showStages ? "접기" : "펼치기"}</span>
+          </button>
+        </div>
+        {showStages ? (
+          <div className="mt-2 flex flex-col gap-5 text-sm leading-relaxed">
+            <div>
+              <p className="font-medium text-fg">극장 현황</p>
+              <p className="mt-1 text-muted">
+                몇 시에 무슨 관이 있는지는 이 순서로 받습니다.
+              </p>
+              <ol className="mt-2 flex flex-col gap-2 text-fg">
+                {TIMETABLE_HELP.map((stage) => (
+                  <li key={stage.step}>
+                    {stage.step}. {stage.title}
+                    <span className="mt-0.5 block text-muted">{stage.body}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div>
+              <p className="font-medium text-fg">잔여석 현황</p>
+              <p className="mt-1 text-muted">
+                좌석 숫자는 시간표와 따로, 이 순서로 붙입니다.
+              </p>
+              <ol className="mt-2 flex flex-col gap-2 text-fg">
+                {SEAT_HELP.map((stage) => (
+                  <li key={stage.step}>
+                    {stage.step}. {stage.title}
+                    <span className="mt-0.5 block text-muted">{stage.body}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div>
+              <p className="font-medium text-fg">무비차트 현황</p>
+              <p className="mt-1 text-muted">
+                감시 탭 위 포스터 9칸은 이 순서로 받습니다.
+              </p>
+              <ol className="mt-2 flex flex-col gap-2 text-fg">
+                {CHART_HELP.map((stage) => (
+                  <li key={stage.step}>
+                    {stage.step}. {stage.title}
+                    <span className="mt-0.5 block text-muted">{stage.body}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
         ) : null}
       </section>
 
@@ -296,7 +470,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             <button
               key={n}
               type="button"
-              onClick={() => setConfig({ intervalMin: n })}
+              onClick={() => {
+                setConfig({ intervalMin: n });
+                void pushWatchWindow();
+              }}
               className={cn(
                 "min-h-11 rounded-md text-sm tabular-nums",
                 config.intervalMin === n
@@ -324,7 +501,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             <button
               key={n}
               type="button"
-              onClick={() => setConfig({ daysAhead: n })}
+              onClick={() => {
+                setConfig({ daysAhead: n });
+                void pushWatchWindow();
+              }}
               className={cn(
                 "min-h-11 rounded-md text-sm",
                 config.daysAhead === n
@@ -343,8 +523,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           앱을 꺼도 알림
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          로그인만 하면 됩니다. 아래 채널을 켜 두면 화면을 닫아도 서버가
-          5분마다 조회해 보냅니다.
+          로그인이 메인입니다. 화면을 닫아도 서버가 조회해 메일·텔레그램·카톡을
+          보냅니다. 구글 스크립트는 예비라, 그록이 멈춰도 이어서 보냅니다.
         </p>
         <div className="mt-3">
           <Switch
@@ -716,6 +896,7 @@ function CloudSettingsCard() {
   async function logout() {
     setSigningOut(true);
     try {
+      forgetGasLink();
       await signOut("/");
     } catch (err) {
       setSigningOut(false);
@@ -736,9 +917,8 @@ function CloudSettingsCard() {
             <p>{user.primaryEmail}</p>
           ) : null}
           <p>
-            로그인만 하면 별표·메일·텔레그램·카톡이 이 계정에 저장됩니다.
-            고치면 바로 반영되고, 앱을 꺼도 알림이 갑니다. 스크립트는 필요
-            없습니다.
+            로그인하면 별표·메일·텔레그램·카톡이 이 계정에 저장됩니다. 알림
+            메인은 그록 서버이고, 구글 스크립트는 예비입니다.
           </p>
           {authEnabled ? (
             <Button
@@ -808,7 +988,7 @@ function Steps({ items }: { items: ReactNode[] }) {
     <ol className="mt-3 flex flex-col gap-2.5">
       {items.map((item, i) => (
         <li key={i} className="flex gap-3 text-sm leading-relaxed text-muted">
-          <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] font-medium tabular-nums text-fg">
+          <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-medium tabular-nums text-fg">
             {i + 1}
           </span>
           <div className="min-w-0 pt-px">{item}</div>

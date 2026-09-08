@@ -1,5 +1,5 @@
 import { getSql } from "@/lib/db";
-import { snapshotFromRow, type CloudSnapshot } from "./cloud";
+import { snapshotFromRow, pingGasHeartbeat, type CloudSnapshot } from "./cloud";
 import { ensureUserSettingsSchema } from "./settings-schema.server";
 import {
   filterWatched,
@@ -8,8 +8,9 @@ import {
   watchSignature,
 } from "./match";
 import { runScan } from "./scan-impl.server";
+import { diffStarSeats, notifyCopy, seatChangeAlert } from "./seats";
 import { THEATERS } from "./theaters";
-import type { AlertItem, Showtime, TheaterId, WatchConfig } from "./types";
+import type { AlertItem, BookingIntent, Showtime, TheaterId, WatchConfig } from "./types";
 import { mailEnabled } from "./types";
 
 const THEATER_IDS = THEATERS.map((t) => t.id);
@@ -47,13 +48,14 @@ function canNotify(config: WatchConfig) {
   );
 }
 
-async function sendTelegram(token: string, chatId: string, text: string) {
+async function sendTelegram(token: string, chatId: string, text: string, html?: boolean) {
   const res = await fetch(`https://api.telegram.org/bot${token.trim()}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       chat_id: /^-?\d+$/.test(chatId.trim()) ? Number(chatId.trim()) : chatId.trim(),
       text,
+      parse_mode: html ? "HTML" : undefined,
       disable_web_page_preview: true,
     }),
     signal: AbortSignal.timeout(10000),
@@ -98,26 +100,29 @@ async function sendKakao(restKey: string, refreshToken: string, text: string, ur
 }
 
 async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
-  const text = items
-    .slice(0, 8)
-    .map((a) => `· ${a.movieTitle}\n  ${a.body}\n  ${a.bookingUrl}`)
-    .join("\n\n");
-  const message = `[오픈벨] ${items.length}건 오픈\n\n${text}`;
+  const { subject, text, telegramHtml } = notifyCopy(items);
   const jobs: Promise<unknown>[] = [];
   if (config.telegramToken && config.telegramChatId) {
     jobs.push(
-      sendTelegram(config.telegramToken, config.telegramChatId, message).catch(() => null),
+      sendTelegram(
+        config.telegramToken,
+        config.telegramChatId,
+        telegramHtml,
+        true,
+      ).catch(() => null),
     );
   }
   if (config.kakaoRestKey && config.kakaoRefreshToken) {
-    jobs.push(
-      sendKakao(
-        config.kakaoRestKey,
-        config.kakaoRefreshToken,
-        message,
-        items[0]?.bookingUrl || "https://www.megabox.co.kr",
-      ).catch(() => null),
-    );
+    for (const item of items.slice(0, 8)) {
+      jobs.push(
+        sendKakao(
+          config.kakaoRestKey,
+          config.kakaoRefreshToken,
+          `${item.title}\n${item.body}`.slice(0, 200),
+          item.bookingUrl || "https://www.megabox.co.kr",
+        ).catch(() => null),
+      );
+    }
   }
   if (config.webhookUrl.trim()) {
     jobs.push(
@@ -134,9 +139,10 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
       import("./mail.server").then(({ sendOpenbellMail }) =>
         sendOpenbellMail({
           to: config.email,
-          subject: `[오픈벨] ${items.length}건 오픈`,
-          text: message,
+          subject,
+          text,
           url: items[0]?.bookingUrl,
+          items,
           gasWebUrl: config.gasWebUrl,
           gmailAppPassword: config.gmailAppPassword,
         }),
@@ -149,7 +155,14 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
 async function persistWatch(
   userId: string,
   snap: CloudSnapshot,
-  extras: { primed: boolean; seenIds: string[]; seenDates: string[]; watchSig: string; alerts: AlertItem[] },
+  extras: {
+    primed: boolean;
+    seenIds: string[];
+    seenDates: string[];
+    watchSig: string;
+    alerts: AlertItem[];
+    queue: BookingIntent[];
+  },
 ) {
   const sql = await getSql();
   const prefs = {
@@ -161,9 +174,14 @@ async function persistWatch(
   };
   await sql.query(
     `update user_settings
-     set alerts = $1::jsonb, prefs = $2::jsonb, updated_at = now()
-     where user_id = $3`,
-    [JSON.stringify(extras.alerts.slice(0, 2000)), JSON.stringify(prefs), userId],
+     set alerts = $1::jsonb, prefs = $2::jsonb, queue = $3::jsonb, updated_at = now()
+     where user_id = $4`,
+    [
+      JSON.stringify(extras.alerts.slice(0, 2000)),
+      JSON.stringify(prefs),
+      JSON.stringify(extras.queue.slice(0, 40)),
+      userId,
+    ],
   );
 }
 
@@ -182,9 +200,24 @@ export async function runWatchTick() {
     queue: unknown;
     alerts: unknown;
     prefs: unknown;
-  }>("select user_id, config, queue, alerts, prefs from user_settings");
+    account_email: string | null;
+  }>(
+    `select us.user_id, us.config, us.queue, us.alerts, us.prefs, u.email as account_email
+     from user_settings us
+     left join "user" u on u.id = us.user_id`,
+  );
   const accounts = rows
-    .map((row) => ({ userId: row.user_id, snap: snapshotFromRow(row) }))
+    .map((row) => {
+      const snap = snapshotFromRow(row);
+      const email = String(row.account_email || snap.config.email || "").trim();
+      return {
+        userId: row.user_id,
+        snap: {
+          ...snap,
+          config: { ...snap.config, email },
+        },
+      };
+    })
     .filter((row) => canNotify(row.snap.config));
   if (!accounts.length) {
     return { skipped: false as const, users: 0, sent: 0 };
@@ -193,10 +226,13 @@ export async function runWatchTick() {
     14,
     Math.max(7, ...accounts.map((a) => a.snap.config.daysAhead || 7)),
   );
+  const gasWebUrl =
+    accounts.map((a) => a.snap.config.gasWebUrl.trim()).find(Boolean) || undefined;
   const scan = await runScan({
     daysAhead,
     theaters: THEATER_IDS as TheaterId[],
-    sources: { official: true, naver: true, gas: false },
+    gasWebUrl,
+    sources: { official: true, naver: true, gas: Boolean(gasWebUrl) },
   });
   const allShows = scan.theaters.flatMap((t) => t.showtimes);
   let sent = 0;
@@ -213,12 +249,14 @@ export async function runWatchTick() {
     );
     const sig = watchSignature(config);
     if (!snap.primed) {
+      const primedQueue = diffStarSeats(snap.queue, allShows).nextQueue;
       await persistWatch(userId, snap, {
         primed: true,
         seenIds: uniqueCap([...snap.seenIds, ...watched.map((s) => s.id)], 2500),
         seenDates: snap.seenDates,
         watchSig: sig,
         alerts: snap.alerts,
+        queue: primedQueue,
       });
       continue;
     }
@@ -236,7 +274,8 @@ export async function runWatchTick() {
       [...snap.seenIds, ...extraSeen, ...fresh.map((s) => s.id)],
       2500,
     );
-    const items = fresh.map(toAlert);
+    const { nextQueue, changes } = diffStarSeats(snap.queue, allShows);
+    const items = [...fresh.map(toAlert), ...changes.map(seatChangeAlert)];
     if (items.length) {
       await notifyChannels(config, items);
       sent += items.length;
@@ -250,8 +289,22 @@ export async function runWatchTick() {
       ),
       watchSig: nextSig,
       alerts: [...items, ...snap.alerts],
+      queue: nextQueue,
     });
   }
+    const beats = new Set(
+      accounts
+        .map((a) => a.snap.config.gasWebUrl.trim())
+        .filter(Boolean),
+    );
+    await Promise.all(
+      [...beats].map((url) => {
+        const key =
+          accounts.find((a) => a.snap.config.gasWebUrl.trim() === url)?.snap
+            .config.gasSyncKey || "";
+        return pingGasHeartbeat(url, key);
+      }),
+    );
     return { skipped: false as const, users: accounts.length, sent };
   } catch (err) {
     lastRunAt = 0;

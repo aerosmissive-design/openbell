@@ -7,6 +7,7 @@ import type {
   AlertItem,
   BookingIntent,
   FormatId,
+  Showtime,
   TheaterId,
   WatchConfig,
 } from "@/lib/cinema/types";
@@ -25,15 +26,20 @@ type AppState = {
   queue: BookingIntent[];
   onlyAlerted: boolean;
   watchSig: string;
+  ownerId: string | null;
   seatTick: number;
   seatMap: SeatHitMap;
+  overlayShows: Record<string, Showtime[]>;
   setOnlyAlerted: (on: boolean) => void;
   setWatchSig: (sig: string) => void;
+  setOwnerId: (id: string | null) => void;
   bumpSeatTick: () => void;
   mergeSeatMap: (map: SeatHitMap) => void;
+  mergeOverlayShows: (theaterId: TheaterId, shows: Showtime[]) => void;
   setConfig: (patch: Partial<WatchConfig>) => void;
   setTheater: (id: TheaterId, on: boolean) => void;
   toggleFormat: (id: TheaterId, format: FormatId) => void;
+  setTheaterFormats: (id: TheaterId, formats: FormatId[]) => void;
   toggleRank: (rank: number) => void;
   toggleWatchTitle: (title: string) => void;
   markPrimed: (ids: string[], dates?: string[]) => void;
@@ -42,6 +48,7 @@ type AppState = {
   clearAlerts: () => void;
   enqueue: (item: BookingIntent) => void;
   dequeue: (id: string) => void;
+  replaceQueue: (queue: BookingIntent[]) => void;
   patchQueueSeats: (
     id: string,
     restSeats: number | null,
@@ -72,13 +79,23 @@ export const useAppStore = create<AppState>()(
       queue: [],
       onlyAlerted: false,
       watchSig: "",
+      ownerId: null,
       seatTick: 0,
       seatMap: {},
+      overlayShows: {},
       setOnlyAlerted: (on) => set({ onlyAlerted: on }),
       setWatchSig: (sig) => set({ watchSig: sig }),
+      setOwnerId: (id) => set({ ownerId: id }),
       bumpSeatTick: () => set((s) => ({ seatTick: s.seatTick + 1 })),
       mergeSeatMap: (map) =>
         set((s) => ({ seatMap: { ...s.seatMap, ...map } })),
+      mergeOverlayShows: (theaterId, shows) =>
+        set((s) => ({
+          overlayShows: {
+            ...s.overlayShows,
+            [theaterId]: shows,
+          },
+        })),
       setConfig: (patch) =>
         set((s) => ({ config: { ...s.config, ...patch } })),
       setTheater: (id, on) =>
@@ -86,6 +103,17 @@ export const useAppStore = create<AppState>()(
           config: {
             ...s.config,
             theaters: { ...s.config.theaters, [id]: on },
+            formats: on
+              ? s.config.formats
+              : { ...s.config.formats, [id]: [] },
+          },
+        })),
+      setTheaterFormats: (id, formats) =>
+        set((s) => ({
+          config: {
+            ...s.config,
+            formats: { ...s.config.formats, [id]: formats },
+            theaters: { ...s.config.theaters, [id]: formats.length > 0 },
           },
         })),
       toggleFormat: (id, format) =>
@@ -98,6 +126,7 @@ export const useAppStore = create<AppState>()(
             config: {
               ...s.config,
               formats: { ...s.config.formats, [id]: next },
+              theaters: { ...s.config.theaters, [id]: next.length > 0 },
             },
           };
         }),
@@ -121,7 +150,7 @@ export const useAppStore = create<AppState>()(
             ? s.config.watchTitles.filter(
                 (t) => t.toLowerCase() !== key.toLowerCase(),
               )
-            : [...s.config.watchTitles, key];
+            : [...s.config.watchTitles, key].slice(0, 24);
           return { config: { ...s.config, watchTitles } };
         }),
       markPrimed: (ids, dates) =>
@@ -148,6 +177,7 @@ export const useAppStore = create<AppState>()(
         })),
       dequeue: (id) =>
         set((s) => ({ queue: s.queue.filter((q) => q.id !== id) })),
+      replaceQueue: (queue) => set({ queue: queue.slice(0, 40) }),
       patchQueueSeats: (id, restSeats, totalSeats) =>
         set((s) => ({
           queue: s.queue.map((q) =>
@@ -161,7 +191,7 @@ export const useAppStore = create<AppState>()(
           ),
         })),
       hydrateCloud: (snap) =>
-        set({
+        set((s) => ({
           config: {
             ...DEFAULT_WATCH,
             ...snap.config,
@@ -183,10 +213,11 @@ export const useAppStore = create<AppState>()(
           seenIds: uniqueCap(snap.seenIds, 2500),
           seenDates: uniqueCap(snap.seenDates, 40),
           watchSig: snap.watchSig,
-        }),
+          ownerId: s.ownerId,
+        })),
     }),
     {
-      name: "openbell-v1",
+      name: "openbell-v2",
       partialize: (s) => ({
         config: s.config,
         primed: s.primed,
@@ -196,6 +227,7 @@ export const useAppStore = create<AppState>()(
         queue: s.queue,
         onlyAlerted: s.onlyAlerted,
         watchSig: s.watchSig,
+        ownerId: s.ownerId,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;
@@ -205,10 +237,13 @@ export const useAppStore = create<AppState>()(
           config: {
             ...DEFAULT_WATCH,
             ...(p.config ?? {}),
-            theaters: {
-              ...DEFAULT_WATCH.theaters,
-              ...((p.config && p.config.theaters) || {}),
-            },
+            theaters: syncTheatersFromFormats(
+              {
+                ...DEFAULT_FORMATS,
+                ...((p.config && p.config.formats) || {}),
+              },
+              p.config?.theaters,
+            ),
             formats: {
               ...DEFAULT_FORMATS,
               ...((p.config && p.config.formats) || {}),
@@ -237,4 +272,28 @@ function clampStoredRanks(raw: number[] | undefined): number[] {
     (n) => n >= 1 && n <= CHART_SIZE,
   );
   return ranks.length ? ranks : DEFAULT_WATCH.ranks;
+}
+
+function syncTheatersFromFormats(
+  formats: Record<string, FormatId[] | undefined>,
+  theaters?: Partial<Record<TheaterId, boolean>>,
+): Record<TheaterId, boolean> {
+  const ids: TheaterId[] = [
+    "cgv_yongsan",
+    "cgv_yeongdeungpo",
+    "megabox_coex",
+    "megabox_namyangju",
+  ];
+  const out: Record<TheaterId, boolean> = {
+    megabox_coex: true,
+    megabox_namyangju: true,
+    cgv_yongsan: true,
+    cgv_yeongdeungpo: true,
+    ...theaters,
+  };
+  for (const id of ids) {
+    const list = formats[id];
+    if (Array.isArray(list)) out[id] = list.length > 0;
+  }
+  return out;
 }

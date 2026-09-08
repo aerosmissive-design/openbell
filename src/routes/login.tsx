@@ -20,7 +20,7 @@ function Login() {
         <p className="font-display text-[11px] tracking-[0.18em] text-muted">
           특별관 예매 알람
         </p>
-        <h1 className="mt-2 font-display text-4xl italic text-fg">오픈벨</h1>
+        <h1 className="mt-2 text-4xl font-bold text-fg">오픈벨</h1>
         <p className="mt-4 text-sm leading-relaxed text-muted">
           로그인하면 별표·감시 영화·텔레그램·카톡·메일이 따라오고, 앱을 꺼도
           알림이 갑니다. 웹앱 주소는 필요 없습니다.

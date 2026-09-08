@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as GoRouteImport } from './routes/go'
 import { Route as KakaoRouteImport } from './routes/kakao'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ApiGasBindRouteImport } from './routes/api/gas-bind'
 import { Route as ApiWatchTickRouteImport } from './routes/api/watch-tick'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -36,6 +37,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGasBindRoute = ApiGasBindRouteImport.update({
+  id: '/api/gas-bind',
+  path: '/api/gas-bind',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWatchTickRoute = ApiWatchTickRouteImport.update({
   id: '/api/watch-tick',
   path: '/api/watch-tick',
@@ -52,6 +58,7 @@ export interface FileRoutesByFullPath {
   '/go': typeof GoRoute
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
+  '/api/gas-bind': typeof ApiGasBindRoute
   '/api/watch-tick': typeof ApiWatchTickRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -60,6 +67,7 @@ export interface FileRoutesByTo {
   '/go': typeof GoRoute
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
+  '/api/gas-bind': typeof ApiGasBindRoute
   '/api/watch-tick': typeof ApiWatchTickRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -69,21 +77,36 @@ export interface FileRoutesById {
   '/go': typeof GoRoute
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
+  '/api/gas-bind': typeof ApiGasBindRoute
   '/api/watch-tick': typeof ApiWatchTickRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/go' | '/kakao' | '/login' | '/api/watch-tick' | '/api/auth/$'
+    | '/'
+    | '/go'
+    | '/kakao'
+    | '/login'
+    | '/api/gas-bind'
+    | '/api/watch-tick'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/go' | '/kakao' | '/login' | '/api/watch-tick' | '/api/auth/$'
+  to:
+    | '/'
+    | '/go'
+    | '/kakao'
+    | '/login'
+    | '/api/gas-bind'
+    | '/api/watch-tick'
+    | '/api/auth/$'
   id:
     | '__root__'
     | '/'
     | '/go'
     | '/kakao'
     | '/login'
+    | '/api/gas-bind'
     | '/api/watch-tick'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -93,6 +116,7 @@ export interface RootRouteChildren {
   GoRoute: typeof GoRoute
   KakaoRoute: typeof KakaoRoute
   LoginRoute: typeof LoginRoute
+  ApiGasBindRoute: typeof ApiGasBindRoute
   ApiWatchTickRoute: typeof ApiWatchTickRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -127,6 +151,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/gas-bind': {
+      id: '/api/gas-bind'
+      path: '/api/gas-bind'
+      fullPath: '/api/gas-bind'
+      preLoaderRoute: typeof ApiGasBindRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/watch-tick': {
       id: '/api/watch-tick'
       path: '/api/watch-tick'
@@ -149,6 +180,7 @@ const rootRouteChildren: RootRouteChildren = {
   GoRoute: GoRoute,
   KakaoRoute: KakaoRoute,
   LoginRoute: LoginRoute,
+  ApiGasBindRoute: ApiGasBindRoute,
   ApiWatchTickRoute: ApiWatchTickRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

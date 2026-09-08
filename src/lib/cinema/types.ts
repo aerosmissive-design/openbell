@@ -56,6 +56,7 @@ export type TheaterScan = {
   error: string | null;
   showtimes: Showtime[];
   source: string;
+  seatSource: string;
 };
 
 export type ScanResult = {
@@ -63,6 +64,7 @@ export type ScanResult = {
   playDates: string[];
   ranking: RankingMovie[];
   showing: RankingMovie[];
+  catalog: RankingMovie[];
   theaters: TheaterScan[];
 };
 
@@ -125,6 +127,8 @@ export type WatchConfig = {
   kakaoRefreshToken: string;
   gasWebUrl: string;
   gasSyncKey: string;
+  gasScriptId: string;
+  gasSourceStamp: string;
   scanSources: ScanSources;
   theme: ThemeMode;
 };
@@ -158,37 +162,93 @@ export function mailEnabled(config: WatchConfig) {
 }
 
 export function sourceLabel(source: string) {
-  if (source === "official" || source === "cgv" || source === "megabox-schedule") {
-    return "공홈";
-  }
-  if (source === "naver-place") return "네이버";
-  if (source === "gas-cache") return "구글";
-  if (source === "yongsan-channel") return "용아맥";
-  return "연결됨";
+  return sourcePlace(source) || "연결됨";
 }
 
-export const SCAN_STAGE_META: {
-  id: ScanStage;
-  step: string;
-  title: string;
-  body: string;
-}[] = [
+export function sourcePlace(source: string) {
+  if (source === "official" || source === "cgv" || source === "megabox-schedule") {
+    return "극장 공홈";
+  }
+  if (source === "naver-place") return "네이버";
+  if (source === "gas-cache") return "구글 스크립트";
+  if (source === "yongsan-channel") return "용아맥 채널";
+  if (source === "cgv-relay") return "CGV 우회조회";
+  return "";
+}
+
+export function timetableSourceLabel(source: string, ok: boolean) {
+  if (!ok) return "실패";
+  return sourcePlace(source) || "없음";
+}
+
+export function seatSourceLabel(source?: string) {
+  if (!source || source === "none") return "없음";
+  return sourcePlace(source) || "없음";
+}
+
+export function inferSeatSource(input: {
+  theaterId: string;
+  seatSource?: string;
+  source?: string;
+  hasSeats: boolean;
+}) {
+  if (input.seatSource && input.seatSource !== "none") return input.seatSource;
+  if (!input.hasSeats) return "none";
+  if (input.theaterId.startsWith("cgv")) return "cgv-relay";
+  if (input.source === "gas-cache") return "gas-cache";
+  return "official";
+}
+
+export const TIMETABLE_HELP = [
   {
-    id: "official",
     step: "1",
     title: "극장 공홈",
-    body: "메가박스 공식 시간표입니다. CGV 공홈은 막혀 있어 이 단계는 건너뜁니다.",
+    body: "메가박스 공식 시간표입니다. 이 앱 서버에서 CGV 공홈은 막혀 있어 건너뜁니다.",
   },
   {
-    id: "naver",
     step: "2",
     title: "네이버",
-    body: "공홈이 막히거나 비어 있으면 네이버 플레이스 시간표로 넘어갑니다. CGV는 여기서 시작합니다. 잔여석은 없습니다.",
+    body: "공홈이 막히거나 비면 네이버 플레이스 시간표로 넘어갑니다. CGV는 웹에서 여기서 시작합니다.",
   },
   {
-    id: "gas",
     step: "3",
     title: "구글·기타",
-    body: "그래도 없으면 구글에 받아 둔 시간표를 씁니다. 용산 IMAX는 팬들이 상영 시간을 올리는 공개 텔레그램 채널(용아맥)도 봅니다. 채널에는 잔여석이 없습니다.",
+    body: "구글 스크립트가 구글 계정으로 CGV 공홈(모바일·API)을 다시 받아 옵니다. 그래도 없으면 받아 둔 시간표를 쓰고, 용산은 용아맥 채널도 봅니다.",
+  },
+];
+
+export const SEAT_HELP = [
+  {
+    step: "1",
+    title: "극장 공홈",
+    body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 앱 서버에선 막혀 건너뜁니다.",
+  },
+  {
+    step: "2",
+    title: "CGV 우회조회",
+    body: "용산·영등포 잔여석은 CGV 시간표를 대신 받아 주는 우회조회로 붙입니다.",
+  },
+  {
+    step: "3",
+    title: "구글 스크립트",
+    body: "구글 스크립트가 CGV 공홈에서 받은 좌석을 붙입니다. 네이버와 용아맥에는 잔여석이 없습니다.",
+  },
+];
+
+export const CHART_HELP = [
+  {
+    step: "1",
+    title: "메가박스 차트",
+    body: "무비차트 9칸과 현재상영작 9칸은 메가박스 공식 영화 목록(예매율·개봉일)에서 받습니다.",
+  },
+  {
+    step: "2",
+    title: "시간표로 채움",
+    body: "차트 호출이 실패하면 극장 시간표에 잡힌 제목으로 칸을 채웁니다.",
+  },
+  {
+    step: "3",
+    title: "직접 추가",
+    body: "돋보기로 고른 영화는 차트와 별개로 아래에 붙습니다. 구글 스크립트와 CGV 공홈은 이 차트에 쓰이지 않습니다.",
   },
 ];

@@ -68,7 +68,7 @@ function KakaoCallback() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center bg-bg px-5 py-10">
       <p className="text-xs tracking-[0.18em] text-muted">오픈벨</p>
-      <h1 className="mt-2 font-display text-3xl italic text-fg">카카오 연결</h1>
+      <h1 className="mt-2 text-3xl font-bold text-fg">카카오 연결</h1>
       {status === "wait" ? (
         <p className="mt-4 text-sm leading-relaxed text-muted">연결하는 중입니다.</p>
       ) : null}

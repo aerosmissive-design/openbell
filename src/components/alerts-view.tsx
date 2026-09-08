@@ -11,9 +11,10 @@ export function AlertsView() {
   if (!alerts.length) {
     return (
       <div className="rounded-xl bg-surface px-5 py-10 text-center shadow-border">
-        <p className="font-display text-xl italic text-fg">아직 오픈 없음</p>
+        <p className="text-xl font-bold text-fg">아직 오픈 없음</p>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          알림 설정한 영화의 새 회차(날짜·시간)가 열리면 여기와 메일로 옵니다.
+          새 회차가 열리거나 별표 회차의 잔여석이 변하면 여기와 메일·텔레그램으로
+          옵니다.
         </p>
       </div>
     );

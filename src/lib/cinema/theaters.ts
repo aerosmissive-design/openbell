@@ -10,32 +10,6 @@ export const THEATERS: {
   formats: { id: FormatId; label: string }[];
 }[] = [
   {
-    id: "megabox_coex",
-    chain: "megabox",
-    shortName: "코엑스",
-    name: "메가박스 코엑스",
-    area: "서울 강남",
-    bookingUrl: "https://www.megabox.co.kr/theater/time?brchNo=1351",
-    formats: [
-      { id: "dolby", label: "돌비 시네마" },
-      { id: "mx4d", label: "MX4D" },
-      { id: "mega_led", label: "메가 LED" },
-      { id: "other", label: "그 외 관" },
-    ],
-  },
-  {
-    id: "megabox_namyangju",
-    chain: "megabox",
-    shortName: "남양주",
-    name: "메가박스 남양주",
-    area: "남양주 스페이스원",
-    bookingUrl: "https://www.megabox.co.kr/theater/time?brchNo=0019",
-    formats: [
-      { id: "dolby", label: "돌비 시네마" },
-      { id: "other", label: "그 외 관" },
-    ],
-  },
-  {
     id: "cgv_yongsan",
     chain: "cgv",
     shortName: "용산",
@@ -64,6 +38,32 @@ export const THEATERS: {
       { id: "4dx", label: "4DX" },
       { id: "atmos", label: "돌비 애트모스" },
       { id: "imax", label: "IMAX" },
+    ],
+  },
+  {
+    id: "megabox_coex",
+    chain: "megabox",
+    shortName: "코엑스",
+    name: "메가박스 코엑스",
+    area: "서울 강남",
+    bookingUrl: "https://www.megabox.co.kr/theater/time?brchNo=1351",
+    formats: [
+      { id: "dolby", label: "돌비 시네마" },
+      { id: "mx4d", label: "MX4D" },
+      { id: "mega_led", label: "메가 LED" },
+      { id: "other", label: "그 외 관" },
+    ],
+  },
+  {
+    id: "megabox_namyangju",
+    chain: "megabox",
+    shortName: "남양주",
+    name: "메가박스 남양주",
+    area: "남양주 스페이스원",
+    bookingUrl: "https://www.megabox.co.kr/theater/time?brchNo=0019",
+    formats: [
+      { id: "dolby", label: "돌비 시네마" },
+      { id: "other", label: "그 외 관" },
     ],
   },
 ];
@@ -102,10 +102,19 @@ export function megaboxFormats(
 ): FormatId[] {
   const kind = (kindCd ?? "").toUpperCase();
   const hall = hallName.toUpperCase();
-  if (kind === "DBC" || hall.includes("DOLBY")) return ["dolby"];
-  if (kind === "MX4D" || hall.includes("MX4D")) return ["mx4d"];
-  if (kind === "LUMINEON" || hall.includes("MEGA | LED") || hall.includes("MEGA|LED"))
+  const compact = hall.replace(/[\s|/._-]+/g, "");
+  if (kind === "DBC" || compact.includes("DOLBY") || hall.includes("돌비")) {
+    return ["dolby"];
+  }
+  if (kind === "MX4D" || compact.includes("MX4D")) return ["mx4d"];
+  if (
+    kind === "LUMINEON" ||
+    compact.includes("MEGALED") ||
+    compact.includes("LUMINEON") ||
+    (hall.includes("메가") && compact.includes("LED"))
+  ) {
     return ["mega_led"];
+  }
   return ["other"];
 }
 
@@ -131,4 +140,34 @@ export function cgvFormats(hallName: string): FormatId[] {
     out.push("atmos");
   }
   return out.length ? out : ["other"];
+}
+
+const CGV_CAPACITY: Partial<
+  Record<TheaterId, Record<number, { hall: string; formats: FormatId[] }>>
+> = {
+  cgv_yeongdeungpo: {
+    387: { hall: "IMAX관", formats: ["imax"] },
+    144: { hall: "4DX관", formats: ["4dx"] },
+    195: { hall: "4관[DOLBY ATMOS] (Laser)", formats: ["atmos"] },
+    240: { hall: "SCREENX관 (리클라이너) with PRIVATE BOX", formats: ["screenx"] },
+  },
+  cgv_yongsan: {
+    144: { hall: "4DX관", formats: ["4dx"] },
+    624: { hall: "SCREENX관 (리클라이너)", formats: ["screenx"] },
+  },
+};
+
+export function cgvHallFromCapacity(
+  theaterId: TheaterId,
+  hallName: string,
+  totalSeats: number | null,
+): { hall: string; formats: FormatId[] } {
+  const named = hallName ? cgvFormats(hallName) : (["other"] as FormatId[]);
+  if (named.some((f) => f !== "other")) {
+    return { hall: hallName, formats: named };
+  }
+  const hit =
+    totalSeats != null ? CGV_CAPACITY[theaterId]?.[totalSeats] : undefined;
+  if (hit) return hit;
+  return { hall: hallName || "일반", formats: ["other"] };
 }

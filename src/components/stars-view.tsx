@@ -9,10 +9,10 @@ export function StarsView() {
   if (!queue.length) {
     return (
       <div className="rounded-xl bg-surface px-5 py-10 text-center shadow-border">
-        <p className="font-display text-xl italic text-fg">별표한 회차 없음</p>
+        <p className="text-xl font-bold text-fg">별표한 회차 없음</p>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          감시 탭에서 별표를 누르면 여기 모입니다. 잔여 좌석이 늘면 알림과
-          메일로 알려 드립니다.
+          감시 탭에서 별표를 누르면 여기 모입니다. 잔여석이 늘거나 줄면
+          메일·카톡·텔레그램으로 알려 드립니다.
         </p>
       </div>
     );
@@ -24,7 +24,7 @@ export function StarsView() {
         별표 {queue.length}건
       </h2>
       <p className="text-sm leading-relaxed text-muted">
-        예매를 누르면 극장 화면으로 갑니다. 잔여가 늘면 알려 드립니다.
+        예매를 누르면 극장 화면으로 갑니다. 잔여석이 늘거나 줄면 알려 드립니다.
       </p>
       <ul className="flex flex-col gap-2">
         {queue.map((item) => (

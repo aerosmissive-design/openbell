@@ -39,6 +39,7 @@ const TelegramInput = z.object({
   token: z.string().min(10),
   chatId: z.string().min(1),
   text: z.string().min(1).max(3500),
+  html: z.boolean().optional(),
 });
 
 type TgChat = {
@@ -144,6 +145,7 @@ export const sendTelegram = createServerFn({ method: "POST" })
     const sent = await telegramCall(token, "sendMessage", {
       chat_id: /^-?\d+$/.test(chatId) ? Number(chatId) : chatId,
       text: data.text,
+      parse_mode: data.html ? "HTML" : undefined,
       disable_web_page_preview: true,
     });
     if (!sent.ok) {
@@ -278,6 +280,15 @@ const MailInput = z.object({
   subject: z.string().min(1).max(120),
   text: z.string().min(1).max(4000),
   url: z.string().optional(),
+  items: z
+    .array(
+      z.object({
+        title: z.string(),
+        body: z.string(),
+        bookingUrl: z.string(),
+      }),
+    )
+    .optional(),
   gasWebUrl: z.string().optional(),
   gmailAppPassword: z.string().max(80).optional(),
 });
@@ -291,6 +302,7 @@ export const sendAlertEmail = createServerFn({ method: "POST" })
       subject: data.subject,
       text: data.text,
       url: data.url,
+      items: data.items,
       gasWebUrl: data.gasWebUrl,
       gmailAppPassword: data.gmailAppPassword,
     });
@@ -363,6 +375,14 @@ const GasSeatmapInput = z.object({
   daysAhead: z.number().min(1).max(14).optional(),
 });
 
+export const pingGasBeat = createServerFn({ method: "POST" })
+  .validator(z.object({ url: z.string().min(8), key: z.string().optional() }))
+  .handler(async ({ data }) => {
+    const { pingGasHeartbeat } = await import("./cloud");
+    await pingGasHeartbeat(data.url, data.key || "");
+    return { ok: true as const };
+  });
+
 export const pingGasSeatmap = createServerFn({ method: "POST" })
   .validator(GasSeatmapInput)
   .handler(async ({ data }) => {
@@ -397,3 +417,32 @@ export async function pullCgvSeats(input?: {
 }) {
   return pullTheaterSeats({ ...input, fresh: true });
 }
+
+export const claimGasBind = createServerFn({ method: "POST" })
+  .validator(z.object({ key: z.string().min(8), email: z.string().optional() }))
+  .handler(async ({ data }) => {
+    const { claimGasBind: claim } = await import("./gas-bind.server");
+    return claim(data.key, data.email);
+  });
+
+export const getGasOauthClient = createServerFn({ method: "POST" })
+  .validator(z.object({}))
+  .handler(async () => {
+    const { gasOauthClientId } = await import("./gas-provision.server");
+    return gasOauthClientId();
+  });
+
+const ProvisionInput = z.object({
+  accessToken: z.string().min(10),
+  source: z.string().min(20),
+  scriptId: z.string().optional(),
+  createNew: z.boolean().optional(),
+});
+
+export const provisionGasScript = createServerFn({ method: "POST" })
+  .validator(ProvisionInput)
+  .handler(async ({ data }) => {
+    const { provisionGasProject } = await import("./gas-provision.server");
+    return provisionGasProject(data);
+  });
+

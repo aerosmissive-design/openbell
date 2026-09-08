@@ -2,6 +2,30 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
+export const GAS_SOURCE_STAMP = "20260908-formats";
+
+export function buildGasManifest(): string {
+  return JSON.stringify({
+    timeZone: "Asia/Seoul",
+    runtimeVersion: "V8",
+    exceptionLogging: "STACKDRIVER",
+    webapp: {
+      executeAs: "USER_DEPLOYING",
+      access: "ANYONE_ANONYMOUS",
+    },
+    executionApi: {
+      access: "ANYONE",
+    },
+    oauthScopes: [
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/script.scriptapp",
+      "https://www.googleapis.com/auth/script.external_request",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/script.projects",
+    ],
+  });
+}
+
 export function buildGasScript(config: WatchConfig, queue: BookingIntent[] = []): string {
   const theaters = THEATERS.filter((t) => config.theaters[t.id]).map((t) => t.id);
   const formats = config.formats;
@@ -14,21 +38,35 @@ export function buildGasScript(config: WatchConfig, queue: BookingIntent[] = [])
   const kakaoRestKey = config.kakaoRestKey || "";
   const kakaoRefreshToken = config.kakaoRefreshToken || "";
   const minutes = config.intervalMin <= 1 ? 1 : config.intervalMin <= 5 ? 5 : 10;
-  const appUrl =
+  const theaterNames =
+    THEATERS.filter((t) => config.theaters[t.id])
+      .map((t) => t.shortName)
+      .join(", ") || "없음";
+  const extraLabel = extraTitles.length ? extraTitles.join(", ") : "없음";
+  const teleLabel = telegramChatId ? "켜짐" : "끔";
+  const kakaoLabel = kakaoRefreshToken ? "켜짐" : "끔";
+  const liveOrigin =
     typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
+  const appUrl =
+    liveOrigin.startsWith("https://") && !/localhost|127\.0\.0\.1/.test(liveOrigin)
+      ? liveOrigin
+      : "https://openbell.grok.me";
   return `/**
  * 오픈벨
  *
- * 1) https://script.google.com 에서 예전에 만든 오픈벨 프로젝트 열기
- *    (없으면 새 프로젝트)
- * 2) 코드를 전부 지우고 이 파일 붙여넣기 → 저장
- * 3) 위쪽 함수를 설치 로 고르고 실행 (한 번만)
- *    권한: 검토 → 고급 → 프로젝트로 이동 → 허용
- * 4) 설치 완료 메일이 한 통 오면 끝. 시계(트리거)는 만지지 마세요.
+ * 주기: ${minutes}분마다
+ * 며칠: ${config.daysAhead}일 뒤까지
+ * 극장: ${theaterNames}
+ * 순위: ${ranks.join(", ") || "없음"}
+ * 추가 영화: ${extraLabel}
+ * 메일: ${email}
+ * 텔레그램: ${teleLabel}
+ * 카카오: ${kakaoLabel}
  *
- * 설치가 예전 알림을 지우고 5분마다 감시합니다.
- * 이미 열린 회차는 넘어가고, 새로 열린 n월 n일 n시만 메일로 옵니다.
+ * 처음: 전부 지우고 붙여넣기 → 저장 → 위쪽 함수 설치 실행
+ * 그다음: 오픈벨 설정만 바꾸면 이 스크립트에 반영됩니다.
  */
+const SCRIPT_STAMP = ${JSON.stringify(GAS_SOURCE_STAMP)};
 const CONFIG = {
   email: ${JSON.stringify(email)},
   ranks: ${JSON.stringify(ranks)},
@@ -36,6 +74,7 @@ const CONFIG = {
   theaters: ${JSON.stringify(theaters)},
   formats: ${JSON.stringify(formats)},
   daysAhead: ${JSON.stringify(config.daysAhead)},
+  intervalMin: ${minutes},
   telegramToken: ${JSON.stringify(telegramToken)},
   telegramChatId: ${JSON.stringify(telegramChatId)},
   webhookUrl: ${JSON.stringify(webhookUrl)},
@@ -53,6 +92,8 @@ const CONFIG = {
   )},
 };
 
+const GAS_MANIFEST = ${buildGasManifest()};
+
 function applyLiveConfig_() {
   try {
     var props = PropertiesService.getScriptProperties();
@@ -67,7 +108,7 @@ function applyLiveConfig_() {
       kakaoRestKey: 1,
       kakaoRefreshToken: 1,
     };
-    ["email","ranks","extraTitles","theaters","formats","daysAhead","telegramToken","telegramChatId","webhookUrl","kakaoRestKey","kakaoRefreshToken","scanSources","queued","syncKey"].forEach(function (k) {
+    ["email","ranks","extraTitles","theaters","formats","daysAhead","intervalMin","telegramToken","telegramChatId","webhookUrl","kakaoRestKey","kakaoRefreshToken","scanSources","queued","syncKey"].forEach(function (k) {
       if (extra[k] === undefined || extra[k] === null) return;
       if (secrets[k] && !String(extra[k]).trim()) return;
       CONFIG[k] = extra[k];
@@ -75,9 +116,160 @@ function applyLiveConfig_() {
   } catch (e) {}
 }
 
+function scanDays_() {
+  var n = Number(CONFIG.daysAhead || 7);
+  if (!(n >= 1)) n = 7;
+  if (n > 30) n = 30;
+  return n;
+}
+
+function triggerMinutes_() {
+  var n = Number(CONFIG.intervalMin || 5);
+  if (n <= 1) return 1;
+  if (n <= 5) return 5;
+  return 10;
+}
+
+function ensureTrigger_() {
+  var want = triggerMinutes_();
+  var props = PropertiesService.getScriptProperties();
+  var have = String(props.getProperty("trigMin") || "");
+  var triggers = ScriptApp.getProjectTriggers();
+  var found = 0;
+  triggers.forEach(function (t) {
+    if (t.getHandlerFunction() === "checkOpenSeats") found += 1;
+  });
+  if (have === String(want) && found === 1) return;
+  triggers.forEach(function (t) {
+    ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("checkOpenSeats").timeBased().everyMinutes(want).create();
+  props.setProperty("trigMin", String(want));
+}
+
 function jsonOut_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function bindUrlToApp_() {
+  if (!CONFIG.syncKey) return;
+  var web = "";
+  try { web = ScriptApp.getService().getUrl() || ""; } catch (e) {}
+  if (!web) web = ensureWebApp_() || "";
+  var email = "";
+  try { email = Session.getActiveUser().getEmail() || ""; } catch (e2) {}
+  if (!email) email = CONFIG.email || "";
+  var payload = JSON.stringify({
+    key: CONFIG.syncKey,
+    url: web || "",
+    id: ScriptApp.getScriptId(),
+    email: email,
+  });
+  var bases = [];
+  if (CONFIG.appUrl) bases.push(String(CONFIG.appUrl).replace(/\\/$/, ""));
+  bases.push("https://openbell.grok.me");
+  var seen = {};
+  bases.forEach(function (base) {
+    if (!base || seen[base]) return;
+    seen[base] = 1;
+    try {
+      UrlFetchApp.fetch(base + "/api/gas-bind", {
+        method: "post",
+        contentType: "application/json",
+        payload: payload,
+        muteHttpExceptions: true,
+      });
+    } catch (e) {}
+  });
+}
+
+function scriptApiHeaders_() {
+  return { Authorization: "Bearer " + ScriptApp.getOAuthToken() };
+}
+
+function ensureWebApp_() {
+  var id = ScriptApp.getScriptId();
+  var headers = scriptApiHeaders_();
+  var ver = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/versions", {
+    method: "post",
+    contentType: "application/json",
+    headers: headers,
+    payload: JSON.stringify({ description: "openbell" }),
+    muteHttpExceptions: true
+  });
+  var verJson = {};
+  try { verJson = JSON.parse(ver.getContentText()); } catch (err) {}
+  var versionNumber = Number(verJson.versionNumber || 0);
+  if (!versionNumber) return "";
+  var listed = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/deployments", {
+    headers: headers,
+    muteHttpExceptions: true
+  });
+  var listedJson = {};
+  try { listedJson = JSON.parse(listed.getContentText()); } catch (err) {}
+  var deployments = listedJson.deployments || [];
+  var web = null;
+  for (var i = 0; i < deployments.length; i++) {
+    var eps = deployments[i].entryPoints || [];
+    for (var j = 0; j < eps.length; j++) {
+      if (eps[j].webApp && eps[j].webApp.url) {
+        web = deployments[i];
+        break;
+      }
+    }
+    if (web) break;
+  }
+  var url = "";
+  if (web && web.deploymentId) {
+    var patched = UrlFetchApp.fetch(
+      "https://script.googleapis.com/v1/projects/" + id + "/deployments/" + web.deploymentId + "?updateMask=deploymentConfig",
+      {
+        method: "patch",
+        contentType: "application/json",
+        headers: headers,
+        payload: JSON.stringify({
+          deploymentConfig: {
+            scriptId: id,
+            versionNumber: versionNumber,
+            manifestFileName: "appsscript",
+            description: "openbell web"
+          }
+        }),
+        muteHttpExceptions: true
+      }
+    );
+    try {
+      var patchedJson = JSON.parse(patched.getContentText());
+      var eps2 = (patchedJson.entryPoints || []);
+      for (var k = 0; k < eps2.length; k++) {
+        if (eps2[k].webApp && eps2[k].webApp.url) url = eps2[k].webApp.url;
+      }
+    } catch (err2) {}
+  } else {
+    var created = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/deployments", {
+      method: "post",
+      contentType: "application/json",
+      headers: headers,
+      payload: JSON.stringify({
+        versionNumber: versionNumber,
+        manifestFileName: "appsscript",
+        description: "openbell web"
+      }),
+      muteHttpExceptions: true
+    });
+    try {
+      var createdJson = JSON.parse(created.getContentText());
+      var eps3 = (createdJson.entryPoints || []);
+      for (var m = 0; m < eps3.length; m++) {
+        if (eps3[m].webApp && eps3[m].webApp.url) url = eps3[m].webApp.url;
+      }
+    } catch (err3) {}
+  }
+  if (!url) {
+    try { url = ScriptApp.getService().getUrl() || ""; } catch (err4) {}
+  }
+  return String(url || "").replace(/\\/dev$/, "/exec");
 }
 
 function 설치() {
@@ -85,13 +277,8 @@ function 설치() {
   if (CONFIG.syncKey) {
     PropertiesService.getScriptProperties().setProperty("syncKey", CONFIG.syncKey);
   }
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger("checkOpenSeats")
-    .timeBased()
-    .everyMinutes(${minutes})
-    .create();
+  ensureWebApp_();
+  ensureTrigger_();
   var report = { names: [], found: 0, error: "", cgvFound: 0, cgvErr: "" };
   try {
     report = scan_(true);
@@ -110,11 +297,14 @@ function 설치() {
     time: "",
     url: CONFIG.appUrl || "https://www.megabox.co.kr/booking",
   }]);
+  bindUrlToApp_();
 }
 
 function checkOpenSeats() {
   applyLiveConfig_();
+  ensureTrigger_();
   const report = scan_(false);
+  if (grokIsMain_()) return;
   if (report.alerts && report.alerts.length) {
     const body = report.alerts.map(function (a) {
       return "· " + a.title + "\\n  " + a.theater + " / " + a.hall + "\\n  " + a.date + " " + a.time + "\\n  바로예매 " + a.url;
@@ -127,6 +317,14 @@ function checkOpenSeats() {
     }).join("\\n\\n");
     notify_("[오픈벨] 좌석 늘음 " + report.seatAlerts.length + "건 — 지금 예매하세요", body, report.seatAlerts);
   }
+}
+
+function grokIsMain_() {
+  var raw = PropertiesService.getScriptProperties().getProperty("grokBeat");
+  var at = Number(raw || 0);
+  if (!at) return false;
+  var wait = Math.max(triggerMinutes_() * 3, 15) * 60 * 1000;
+  return Date.now() - at < wait;
 }
 
 function scan_(primeOnly) {
@@ -159,23 +357,46 @@ function scan_(primeOnly) {
   var cgvFound = 0;
   const byId = {};
   const qseats = JSON.parse(props.getProperty("qseats") || "{}");
+  var live = [];
+  try { live = fetchLiveTimetable_(scanDays_(), ""); } catch (e) {}
+  var have = {};
+  live.forEach(function (row) {
+    if (row && row.theaterId) have[row.theaterId] = true;
+  });
   CONFIG.theaters.forEach(function (theaterId) {
-    kstDates_(CONFIG.daysAhead).forEach(function (playDate) {
-      const rows = theaterId.indexOf("cgv_") === 0
+    if (have[theaterId]) return;
+    kstDates_(scanDays_()).forEach(function (playDate) {
+      const rows = String(theaterId).indexOf("cgv_") === 0
         ? fetchCgv_(theaterId, playDate)
         : fetchMegabox_(theaterId, playDate);
-      if (theaterId.indexOf("cgv_") === 0) cgvFound += rows.length;
       rows.forEach(function (row) {
-        byId[row.id] = row;
-        if (watchedTitles.length && watchedTitles.indexOf(normalize_(row.title)) < 0) return;
-        const allowed = CONFIG.formats[theaterId] || [];
-        if (allowed.length && !row.formats.some(function (f) { return allowed.indexOf(f) >= 0; })) return;
-        found += 1;
-        if (seen[row.id]) return;
-        seen[row.id] = true;
-        if (!primeOnly && primed) alerts.push(row);
+        live.push({
+          id: row.id,
+          theaterId: theaterId,
+          theater: row.theater,
+          title: row.title,
+          date: row.date,
+          time: row.time,
+          hall: row.hall,
+          formats: row.formats,
+          restSeats: row.restSeats,
+          totalSeats: row.totalSeats,
+          url: row.url,
+        });
       });
     });
+  });
+  live.forEach(function (row) {
+    if (!row || !row.id) return;
+    byId[row.id] = row;
+    if (row.theaterId && String(row.theaterId).indexOf("cgv_") === 0) cgvFound += 1;
+    if (watchedTitles.length && !titleWatched_(row.title, watchedTitles)) return;
+    const allowed = CONFIG.formats[row.theaterId] || [];
+    if (!allowed.length || !(row.formats || []).some(function (f) { return allowed.indexOf(f) >= 0; })) return;
+    found += 1;
+    if (seen[row.id]) return;
+    seen[row.id] = true;
+    if (!primeOnly && primed) alerts.push(row);
   });
   (CONFIG.queued || []).forEach(function (q) {
     const row = byId[q.id];
@@ -272,6 +493,26 @@ function doGet(e) {
   if (op === "ping") {
     return ContentService.createTextOutput("ok");
   }
+  if (op === "beat") {
+    if (CONFIG.syncKey && String(p.key || "") !== String(CONFIG.syncKey)) {
+      return jsonOut_({ ok: false });
+    }
+    PropertiesService.getScriptProperties().setProperty("grokBeat", String(Date.now()));
+    return jsonOut_({ ok: true });
+  }
+  if (op === "install") {
+    설치();
+    return jsonOut_({ ok: true });
+  }
+  if (op === "bind") {
+    bindUrlToApp_();
+    return jsonOut_({ ok: true });
+  }
+  if (op === "meta") {
+    var web = "";
+    try { web = ScriptApp.getService().getUrl() || ""; } catch (err) {}
+    return jsonOut_({ ok: true, url: web, id: ScriptApp.getScriptId(), stamp: SCRIPT_STAMP });
+  }
   if (op === "test") {
     testNotify();
     return ContentService.createTextOutput("ok");
@@ -301,8 +542,17 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
   if (op === "shows") {
+    if (p.fresh === "1" || p.fresh === "true") {
+      return ContentService.createTextOutput(JSON.stringify(refreshShowcache_(PropertiesService.getScriptProperties())))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     return ContentService.createTextOutput(JSON.stringify(loadShowcache_()))
       .setMimeType(ContentService.MimeType.JSON);
+  }
+  if (op === "mega" || op === "live") {
+    var days = Math.min(Math.max(Number(p.days || 7), 1), 10);
+    var theater = p.theater || p.theaterId || "";
+    return jsonOut_(fetchLiveTimetable_(days, theater));
   }
   if (op === "pack") {
     return ContentService.createTextOutput(JSON.stringify({
@@ -311,6 +561,7 @@ function doGet(e) {
     })).setMimeType(ContentService.MimeType.JSON);
   }
   if (op === "sync") return handleSync_(e);
+  if (op === "upgrade") return handleUpgrade_(e);
   if (op === "config") {
     applyLiveConfig_();
     return jsonOut_({
@@ -329,6 +580,7 @@ function doGet(e) {
 function doPost(e) {
   var p = (e && e.parameter) || {};
   if (p.op === "sync") return handleSync_(e);
+  if (p.op === "upgrade") return handleUpgrade_(e);
   return doGet(e);
 }
 
@@ -374,8 +626,118 @@ function handleSync_(e) {
     });
     props.setProperty("liveConfig", JSON.stringify(body.config));
     applyLiveConfig_();
+    try { ensureTrigger_(); } catch (err2) {}
   }
   return jsonOut_({ ok: true });
+}
+
+function handleUpgrade_(e) {
+  var p = (e && e.parameter) || {};
+  var props = PropertiesService.getScriptProperties();
+  var phase = String(p.phase || "");
+  var incomingKey = String(p.key || "");
+  var stored = props.getProperty("syncKey") || CONFIG.syncKey || "";
+  if (phase === "start") {
+    if (stored && incomingKey && stored !== incomingKey) return jsonOut_({ ok: false, error: "key" });
+    if (incomingKey) props.setProperty("syncKey", incomingKey);
+    props.setProperty("upBuf", "");
+    return jsonOut_({ ok: true, phase: "start" });
+  }
+  if (phase === "chunk") {
+    props.setProperty("upBuf", (props.getProperty("upBuf") || "") + String(p.d || ""));
+    return jsonOut_({ ok: true, phase: "chunk" });
+  }
+  if (phase === "end") {
+    var source = props.getProperty("upBuf") || "";
+    try { props.deleteProperty("upBuf"); } catch (err) {}
+    if (!source) return jsonOut_({ ok: false, error: "empty" });
+    return jsonOut_(upgradeSelf_(source));
+  }
+  return jsonOut_({ ok: false, error: "phase" });
+}
+
+function upgradeSelf_(source) {
+  var id = ScriptApp.getScriptId();
+  var token = ScriptApp.getOAuthToken();
+  var headers = { Authorization: "Bearer " + token };
+  var put = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/content", {
+    method: "put",
+    contentType: "application/json",
+    headers: headers,
+    payload: JSON.stringify({
+      files: [
+        { name: "appsscript", type: "JSON", source: JSON.stringify(GAS_MANIFEST) },
+        { name: "Code", type: "SERVER_JS", source: source }
+      ]
+    }),
+    muteHttpExceptions: true
+  });
+  if (put.getResponseCode() >= 300) {
+    return { ok: false, error: "content", detail: String(put.getContentText()).slice(0, 300) };
+  }
+  var ver = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/versions", {
+    method: "post",
+    contentType: "application/json",
+    headers: headers,
+    payload: JSON.stringify({ description: "openbell" }),
+    muteHttpExceptions: true
+  });
+  var verJson = {};
+  try { verJson = JSON.parse(ver.getContentText()); } catch (err) {}
+  var versionNumber = Number(verJson.versionNumber || 0);
+  if (!versionNumber) {
+    return { ok: false, error: "version", detail: String(ver.getContentText()).slice(0, 300) };
+  }
+  var listed = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/deployments", {
+    headers: headers,
+    muteHttpExceptions: true
+  });
+  var listedJson = {};
+  try { listedJson = JSON.parse(listed.getContentText()); } catch (err) {}
+  var deployments = listedJson.deployments || [];
+  var web = null;
+  for (var i = 0; i < deployments.length; i++) {
+    var eps = deployments[i].entryPoints || [];
+    for (var j = 0; j < eps.length; j++) {
+      if (eps[j].webApp && eps[j].webApp.url) {
+        web = deployments[i];
+        break;
+      }
+    }
+    if (web) break;
+  }
+  if (!web || !web.deploymentId) {
+    var created = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/deployments", {
+      method: "post",
+      contentType: "application/json",
+      headers: headers,
+      payload: JSON.stringify({
+        versionNumber: versionNumber,
+        manifestFileName: "appsscript",
+        description: "openbell web"
+      }),
+      muteHttpExceptions: true
+    });
+    return { ok: created.getResponseCode() < 300, version: versionNumber };
+  }
+  var patched = UrlFetchApp.fetch(
+    "https://script.googleapis.com/v1/projects/" + id + "/deployments/" + web.deploymentId + "?updateMask=deploymentConfig",
+    {
+      method: "patch",
+      contentType: "application/json",
+      headers: headers,
+      payload: JSON.stringify({
+        deploymentConfig: {
+          scriptId: id,
+          versionNumber: versionNumber,
+          manifestFileName: "appsscript",
+          description: "openbell web"
+        }
+      }),
+      muteHttpExceptions: true
+    }
+  );
+  return { ok: patched.getResponseCode() < 300, version: versionNumber };
 }
 
 function notify_(subject, body, alerts) {
@@ -503,10 +865,11 @@ function sendKakao_(subject, alerts) {
   const text = (first.title
     ? "[오픈벨] " + first.title + "\\n" + [first.theater, first.hall, first.date, first.time].filter(Boolean).join(" · ")
     : subject).substring(0, 200);
+  const extra = a.restSeats != null
+    ? "잔여 " + a.restSeats + (a.delta != null ? " (+" + a.delta + ")" : "")
+    : "";
   const rawLink = first.url || "https://www.megabox.co.kr/booking";
-  const link = CONFIG.appUrl
-    ? CONFIG.appUrl + "/go?u=" + encodeURIComponent(rawLink)
-    : rawLink;
+  const link = rawLink;
   const tokenRes = UrlFetchApp.fetch("https://kauth.kakao.com/oauth/token", {
     method: "post",
     payload: {
@@ -559,6 +922,116 @@ function fetchMegabox_(theaterId, playDate) {
     } catch (e) {}
   }
   return [];
+}
+
+function fetchLiveTimetable_(days, theaterId) {
+  const dates = kstDates_(scanDays_());
+  const want = String(theaterId || "");
+  const megaIds = ["megabox_coex", "megabox_namyangju"].filter(function (id) {
+    return !want || want === id;
+  });
+  const cgvIds = ["cgv_yongsan", "cgv_yeongdeungpo"].filter(function (id) {
+    return !want || want === id;
+  });
+  const reqs = [];
+  const meta = [];
+  megaIds.forEach(function (id) {
+    const brch = id === "megabox_coex" ? "1351" : "0019";
+    dates.forEach(function (playDate) {
+      reqs.push({
+        url: "https://www.megabox.co.kr/on/oh/ohc/Brch/schedulePage.do",
+        method: "post",
+        payload: { brchNo: brch, brchNo1: brch, playDe: playDate, masterType: "brch" },
+        muteHttpExceptions: true,
+        followRedirects: true,
+      });
+      meta.push({ kind: "mega", theaterId: id, playDate: playDate, brch: brch });
+    });
+  });
+  cgvIds.forEach(function (id) {
+    const site = CGV_SITES_[id];
+    if (!site) return;
+    dates.forEach(function (playDate) {
+      reqs.push({
+        url: "https://mcp.aka.page/api/cgv/timetable?playDate=" + playDate + "&theaterCode=" + site.siteNo + "&limit=200",
+        muteHttpExceptions: true,
+        followRedirects: true,
+      });
+      meta.push({ kind: "cgv", theaterId: id, playDate: playDate, siteNo: site.siteNo });
+    });
+  });
+  const out = [];
+  if (!reqs.length) return out;
+  try {
+    const resps = UrlFetchApp.fetchAll(reqs);
+    resps.forEach(function (res, i) {
+      const info = meta[i];
+      try {
+        if (info.kind === "mega") {
+          const json = JSON.parse(res.getContentText());
+          const list = (((json.megaMap) || {}).movieFormList) || [];
+          list.forEach(function (row) {
+            const hall = decode_(row.theabExpoNm || "");
+            const title = decode_(row.rpstMovieNm || row.movieNm || "");
+            const time = row.playStartTime;
+            if (!title || !time) return;
+            out.push({
+              id: "megabox:" + info.brch + ":" + info.playDate + ":" + time + ":" + hall,
+              theaterId: info.theaterId,
+              theater: info.theaterId === "megabox_coex" ? "메가박스 코엑스" : "메가박스 남양주",
+              title: title,
+              date: info.playDate,
+              time: time,
+              hall: hall,
+              formats: megaFormats_(row.theabKindCd, hall),
+              restSeats: typeof row.restSeatCnt === "number" ? row.restSeatCnt : null,
+              totalSeats: typeof row.totSeatCnt === "number" ? row.totSeatCnt : null,
+              url: megaboxUrl_(info.brch, info.playDate, row.movieNo || row.rpstMovieNo || "", row.playSchdlNo),
+            });
+          });
+          return;
+        }
+        const json = JSON.parse(res.getContentText());
+        const rows = (((json.data) || {}).timetable) || [];
+        const site = CGV_SITES_[info.theaterId];
+        rows.forEach(function (row) {
+          const title = String(row.movieName || "").trim();
+          const time = String(row.startTime || "").trim();
+          if (!title || !time) return;
+          const total = typeof row.totalSeats === "number" ? row.totalSeats : null;
+          const guessed = cgvHallFromSeats_(info.theaterId, row.screenName || "", total);
+          out.push({
+            id: "cgv:" + info.siteNo + ":" + info.playDate + ":" + time + ":" + guessed.hall + ":" + title,
+            theaterId: info.theaterId,
+            theater: site ? site.name : info.theaterId,
+            title: title,
+            date: info.playDate,
+            time: time,
+            hall: guessed.hall,
+            formats: guessed.formats,
+            restSeats: typeof row.remainingSeats === "number" ? row.remainingSeats : null,
+            totalSeats: total,
+            url: row.movieCode
+              ? "https://cgv.co.kr/cnm/movieBook/movie?movNo=" + row.movieCode + "&scnYmd=" + info.playDate + "&siteNo=" + info.siteNo
+              : (site ? site.book : "") + "&date=" + info.playDate,
+          });
+        });
+      } catch (e) {}
+    });
+  } catch (e) {}
+  return out;
+}
+
+function cgvHallFromSeats_(theaterId, hall, total) {
+  const named = cgvFormats_(hall);
+  if (named.length && named[0] !== "other") return { hall: hall, formats: named };
+  const table = theaterId === "cgv_yeongdeungpo"
+    ? { 387: { hall: "IMAX관", formats: ["imax"] }, 144: { hall: "4DX관", formats: ["4dx"] }, 195: { hall: "4관[DOLBY ATMOS] (Laser)", formats: ["atmos"] }, 240: { hall: "SCREENX관 (리클라이너) with PRIVATE BOX", formats: ["screenx"] } }
+    : theaterId === "cgv_yongsan"
+      ? { 144: { hall: "4DX관", formats: ["4dx"] }, 624: { hall: "SCREENX관 (리클라이너)", formats: ["screenx"] } }
+      : {};
+  if (total != null && table[total]) return table[total];
+  return { hall: hall || "일반", formats: ["other"] };
 }
 
 function fetchMegaboxOfficial_(theaterId, playDate) {
@@ -1013,7 +1486,7 @@ function refreshCgvSeatmap_(props) {
     if (String(theaterId).indexOf("cgv_") !== 0) return;
     const site = CGV_SITES_[theaterId];
     if (!site) return;
-    kstDates_(Math.min(CONFIG.daysAhead || 7, 7)).forEach(function (playDate) {
+    kstDates_(scanDays_()).forEach(function (playDate) {
       reqs.push({
         url: "https://mcp.aka.page/api/cgv/timetable?playDate=" + playDate + "&theaterCode=" + site.siteNo + "&limit=200",
         muteHttpExceptions: true,
@@ -1068,7 +1541,7 @@ function loadShowcache_() {
 function refreshShowcache_(props) {
   const out = [];
   CONFIG.theaters.forEach(function (theaterId) {
-    kstDates_(Math.min(CONFIG.daysAhead || 7, 7)).forEach(function (playDate) {
+    kstDates_(scanDays_()).forEach(function (playDate) {
       const rows = String(theaterId).indexOf("cgv_") === 0
         ? fetchCgv_(theaterId, playDate)
         : fetchMegabox_(theaterId, playDate);
@@ -1157,9 +1630,10 @@ function cgvRow_(playDate, time, hall, title, url, theaterId) {
 function megaFormats_(kind, hall) {
   const k = String(kind || "").toUpperCase();
   const h = String(hall || "").toUpperCase();
-  if (k === "DBC" || h.indexOf("DOLBY") >= 0) return ["dolby"];
-  if (k === "MX4D" || h.indexOf("MX4D") >= 0) return ["mx4d"];
-  if (k === "LUMINEON" || h.indexOf("LED") >= 0) return ["mega_led"];
+  const compact = h.replace(/[\\s|/._-]+/g, "");
+  if (k === "DBC" || compact.indexOf("DOLBY") >= 0 || h.indexOf("돌비") >= 0) return ["dolby"];
+  if (k === "MX4D" || compact.indexOf("MX4D") >= 0) return ["mx4d"];
+  if (k === "LUMINEON" || compact.indexOf("MEGALED") >= 0 || compact.indexOf("LUMINEON") >= 0 || (h.indexOf("메가") >= 0 && compact.indexOf("LED") >= 0) || compact.indexOf("LED") >= 0 && compact.indexOf("MEGA") >= 0) return ["mega_led"];
   return ["other"];
 }
 
@@ -1190,6 +1664,18 @@ function kstDates_(n) {
 
 function normalize_(s) {
   return String(s || "").replace(/[^0-9A-Za-z가-힣]/g, "").toLowerCase();
+}
+function titleWatched_(title, watchedTitles) {
+  var n = normalize_(title);
+  if (!watchedTitles || !watchedTitles.length) return true;
+  if (!n) return false;
+  for (var i = 0; i < watchedTitles.length; i++) {
+    var w = String(watchedTitles[i] || "");
+    if (!w) continue;
+    if (n === w) return true;
+    if (w.length >= 2 && (n.indexOf(w) >= 0 || w.indexOf(n) >= 0)) return true;
+  }
+  return false;
 }
 
 function decode_(s) {
@@ -1230,7 +1716,7 @@ export const DEFAULT_WATCH: WatchConfig = {
   },
   formats: DEFAULT_FORMATS,
   intervalMin: 5,
-  daysAhead: 7,
+  daysAhead: 15,
   browserNotify: true,
   telegramToken: "",
   telegramChatId: "",
@@ -1242,6 +1728,8 @@ export const DEFAULT_WATCH: WatchConfig = {
   kakaoRefreshToken: "",
   gasWebUrl: "",
   gasSyncKey: "",
+  gasScriptId: "",
+  gasSourceStamp: "",
   scanSources: { ...DEFAULT_SCAN_SOURCES },
   theme: "dark",
 };

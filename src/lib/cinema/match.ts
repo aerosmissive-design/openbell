@@ -62,6 +62,25 @@ export function primeIdsForWatchChange(
     .map((s) => s.id);
 }
 
+export function titlesMatch(a: string, b: string) {
+  const x = normalizeTitle(a);
+  const y = normalizeTitle(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const short = Math.min(x.length, y.length);
+  if (short >= 2 && (x.includes(y) || y.includes(x))) return true;
+  return false;
+}
+
+export function titleInSet(title: string, titles: Set<string>) {
+  const key = normalizeTitle(title);
+  if (titles.has(key)) return true;
+  for (const t of titles) {
+    if (titlesMatch(title, t)) return true;
+  }
+  return false;
+}
+
 export function watchedMovies(ranking: RankingMovie[], ranks: number[]) {
   return ranking.filter((m) => ranks.includes(m.rank));
 }
@@ -81,15 +100,31 @@ export function selectedMovies(
   ranking: RankingMovie[],
   showing: RankingMovie[],
   config: WatchConfig,
+  catalog: RankingMovie[] = [],
 ) {
   const titles = watchedTitleSet(ranking, config);
   const seen = new Set<string>();
   const out: RankingMovie[] = [];
-  for (const movie of [...ranking, ...showing]) {
+  for (const movie of [...ranking, ...showing, ...catalog]) {
     const key = normalizeTitle(movie.title);
     if (!titles.has(key) || seen.has(key)) continue;
     seen.add(key);
     out.push(movie);
+  }
+  for (const raw of config.watchTitles ?? []) {
+    const key = normalizeTitle(raw);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      rank: 0,
+      title: raw,
+      movieNo: "",
+      bookingRate: null,
+      posterUrl: null,
+      releaseDate: null,
+      bookingOpen: false,
+      released: false,
+    });
   }
   return out.sort((a, b) => (a.rank || 999) - (b.rank || 999));
 }
@@ -107,11 +142,11 @@ export function isWatchedShow(
 ) {
   if (!config.theaters[show.theaterId]) return false;
   const formats = config.formats[show.theaterId] ?? [];
-  if (formats.length && !show.formats.some((f) => formats.includes(f))) {
+  if (!formats.length || !show.formats.some((f) => formats.includes(f))) {
     return false;
   }
   if (titles.size === 0) return true;
-  return titles.has(normalizeTitle(show.movieTitle));
+  return titleInSet(show.movieTitle, titles);
 }
 
 export function filterWatched(

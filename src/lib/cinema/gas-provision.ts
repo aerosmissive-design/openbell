@@ -1,0 +1,328 @@
+import { buildGasScript } from "./gas-script";
+import { pullGasMeta, upgradeExistingGas } from "./cloud";
+import { claimGasBind, getGasOauthClient, provisionGasScript } from "./scan";
+import { useAppStore } from "@/lib/store";
+
+const SCOPES = [
+  "https://www.googleapis.com/auth/script.projects",
+  "https://www.googleapis.com/auth/script.deployments",
+  "https://www.googleapis.com/auth/drive.metadata.readonly",
+].join(" ");
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (resp: {
+              access_token?: string;
+              error?: string;
+              error_description?: string;
+            }) => void;
+            error_callback?: (err: { type?: string; message?: string }) => void;
+          }) => { requestAccessToken: (opts?: { prompt?: string }) => void };
+        };
+      };
+    };
+  }
+}
+
+function loadGsi(): Promise<void> {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(
+      'script[src="https://accounts.google.com/gsi/client"]',
+    );
+    if (existing) {
+      if (window.google?.accounts?.oauth2) {
+        resolve();
+        return;
+      }
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () =>
+        reject(new Error("구글 로그인 모듈을 불러오지 못했습니다.")),
+      );
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () =>
+      reject(new Error("구글 로그인 모듈을 불러오지 못했습니다."));
+    document.head.appendChild(script);
+  });
+}
+
+function requestGoogleToken(clientId: string, prompt?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!window.google?.accounts?.oauth2) {
+      reject(new Error("구글 로그인 모듈이 없습니다."));
+      return;
+    }
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: SCOPES,
+      callback: (resp) => {
+        if (resp.access_token) {
+          resolve(resp.access_token);
+          return;
+        }
+        reject(
+          new Error(
+            resp.error_description ||
+              (resp.error === "access_denied"
+                ? "구글 권한을 허용해야 스크립트를 만듭니다."
+                : "구글 권한을 받지 못했습니다."),
+          ),
+        );
+      },
+      error_callback: (err) => {
+        reject(
+          new Error(err.message || "구글 팝업이 막혔습니다. 팝업을 허용해 주세요."),
+        );
+      },
+    });
+    client.requestAccessToken(prompt ? { prompt } : {});
+  });
+}
+
+export function ensureGasSyncKey() {
+  const store = useAppStore.getState();
+  let syncKey = store.config.gasSyncKey;
+  if (!syncKey) {
+    syncKey = crypto.randomUUID();
+    store.setConfig({ gasSyncKey: syncKey });
+  }
+  return syncKey;
+}
+
+export function currentGasScript() {
+  ensureGasSyncKey();
+  return buildGasScript(useAppStore.getState().config, useAppStore.getState().queue);
+}
+
+export function gasWatchFingerprint() {
+  const { config, queue } = useAppStore.getState();
+  return JSON.stringify({
+    intervalMin: config.intervalMin,
+    daysAhead: config.daysAhead,
+    ranks: config.ranks,
+    theaters: config.theaters,
+    formats: config.formats,
+    watchTitles: config.watchTitles,
+    email: config.email,
+    emailNotify: config.emailNotify,
+    telegramToken: config.telegramToken,
+    telegramChatId: config.telegramChatId,
+    kakaoRestKey: config.kakaoRestKey,
+    kakaoRefreshToken: config.kakaoRefreshToken,
+    webhookUrl: config.webhookUrl,
+    gasWebUrl: config.gasWebUrl,
+    gasSyncKey: config.gasSyncKey,
+    queued: queue.map((item) => item.showtimeId),
+  });
+}
+
+export async function pushLinkedGasSource() {
+  const { gasWebUrl, gasSyncKey } = useAppStore.getState().config;
+  const url = gasWebUrl.trim();
+  const key = gasSyncKey.trim();
+  if (!url || !key) return { status: "skipped" as const, reason: "no-url" };
+  return upgradeExistingGas({
+    data: { url, key, source: currentGasScript() },
+  });
+}
+
+export function gasIsLinked() {
+  const { gasWebUrl, gasScriptId } = useAppStore.getState().config;
+  return Boolean(gasWebUrl.trim() || gasScriptId.trim());
+}
+
+const LAST_SCRIPT_ID_KEY = "openbell-last-gas-id";
+
+function rememberLastScriptId(scriptId: string) {
+  const id = String(scriptId || "").trim();
+  if (!id || typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(LAST_SCRIPT_ID_KEY, id);
+  } catch {
+    // ignore
+  }
+}
+
+export function forgetGasLink() {
+  useAppStore.getState().setConfig({ gasWebUrl: "", gasScriptId: "" });
+  try {
+    localStorage.removeItem(LAST_SCRIPT_ID_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function lastKnownScriptId() {
+  const fromConfig = useAppStore.getState().config.gasScriptId.trim();
+  if (fromConfig) return fromConfig;
+  try {
+    return String(localStorage.getItem(LAST_SCRIPT_ID_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function saveGasTarget(url: string, scriptId: string) {
+  const prev = useAppStore.getState().config;
+  useAppStore.getState().setConfig({
+    gasWebUrl: url || prev.gasWebUrl,
+    gasScriptId: scriptId || prev.gasScriptId,
+  });
+  rememberLastScriptId(scriptId || prev.gasScriptId);
+}
+
+export async function peekGasOauthClient() {
+  return String((await getGasOauthClient({ data: {} })) || "").trim();
+}
+
+async function oauthSync(createNew: boolean, scriptId?: string) {
+  const clientId = await peekGasOauthClient();
+  if (!clientId) return null;
+  await loadGsi();
+  const token = await requestGoogleToken(clientId, createNew ? "consent" : undefined);
+  const result = await provisionGasScript({
+    data: {
+      accessToken: token,
+      source: currentGasScript(),
+      scriptId: scriptId || undefined,
+      createNew,
+    },
+  });
+  saveGasTarget(result.url, result.scriptId);
+  const installUrl = `${result.url}${result.url.includes("?") ? "&" : "?"}op=install`;
+  return { url: result.url, scriptId: result.scriptId, installUrl };
+}
+
+export async function waitForGasBind(
+  syncKey: string,
+  signal: AbortSignal,
+  sinceMs?: number,
+  email?: string,
+) {
+  while (!signal.aborted) {
+    const hit = await claimGasBind({
+      data: { key: syncKey, email: email || undefined },
+    });
+    if (hit.status === "ok" && (hit.url || hit.scriptId)) {
+      const created = Date.parse(String(hit.createdAt || ""));
+      if (!sinceMs || (Number.isFinite(created) && created >= sinceMs - 5000)) {
+        saveGasTarget(hit.url, hit.scriptId);
+        return hit;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  throw new Error("취소했습니다.");
+}
+
+export async function refreshGasMeta(url: string) {
+  const meta = await pullGasMeta({ data: { url } });
+  if (meta.status !== "ok") return "";
+  if (meta.scriptId) saveGasTarget(meta.url || url, meta.scriptId);
+  return meta.scriptId;
+}
+
+function withGoogleAccount(target: string, email?: string) {
+  const mail = String(email || "").trim();
+  if (!mail) return target;
+  return (
+    "https://accounts.google.com/AccountChooser?Email=" +
+    encodeURIComponent(mail) +
+    "&continue=" +
+    encodeURIComponent(target)
+  );
+}
+
+export function existingScriptEditorUrl(scriptId: string, email?: string) {
+  return withGoogleAccount(
+    `https://script.google.com/home/projects/${encodeURIComponent(scriptId)}/edit`,
+    email,
+  );
+}
+
+export function gasHomeUrl(email?: string) {
+  return withGoogleAccount("https://script.google.com/home", email);
+}
+
+export async function connectedEditorUrl(email?: string) {
+  const { gasWebUrl, gasScriptId } = useAppStore.getState().config;
+  const url = gasWebUrl.trim();
+  if (url) {
+    const id = await refreshGasMeta(url);
+    if (id) return existingScriptEditorUrl(id, email);
+  }
+  if (gasScriptId.trim()) return existingScriptEditorUrl(gasScriptId.trim(), email);
+  return gasHomeUrl(email);
+}
+
+export async function attachInstalledScript(email?: string) {
+  const key = ensureGasSyncKey();
+  const hit = await claimGasBind({
+    data: { key, email: email || undefined },
+  });
+  if (hit.status !== "ok" || (!hit.url && !hit.scriptId)) return null;
+  saveGasTarget(hit.url, hit.scriptId);
+  return hit;
+}
+
+export async function syncGasScript(): Promise<
+  | { mode: "oauth"; created: boolean; installUrl: string; scriptId: string }
+  | { mode: "upgrade" }
+  | { mode: "wizard" }
+  | { mode: "editor"; editorUrl: string }
+> {
+  ensureGasSyncKey();
+  const store = useAppStore.getState();
+  const url = store.config.gasWebUrl.trim();
+
+  if (!url) {
+    const created = await oauthSync(true);
+    if (created) {
+      return {
+        mode: "oauth",
+        created: true,
+        installUrl: created.installUrl,
+        scriptId: created.scriptId,
+      };
+    }
+    return { mode: "wizard" };
+  }
+
+  const liveId = (await refreshGasMeta(url)) || store.config.gasScriptId.trim();
+  if (liveId) {
+    try {
+      const updated = await oauthSync(false, liveId);
+      if (updated) {
+        return {
+          mode: "oauth",
+          created: false,
+          installUrl: updated.installUrl,
+          scriptId: updated.scriptId || liveId,
+        };
+      }
+    } catch {
+      // 웹앱으로 이어서 고칩니다.
+    }
+  }
+
+  const pushed = await upgradeExistingGas({
+    data: { url, key: ensureGasSyncKey(), source: currentGasScript() },
+  });
+  if (pushed.status === "ok") return { mode: "upgrade" };
+
+  if (liveId) {
+    return { mode: "editor", editorUrl: existingScriptEditorUrl(liveId) };
+  }
+  throw new Error("연결된 스크립트를 찾지 못했습니다. 새 프로젝트는 만들지 않았습니다.");
+}

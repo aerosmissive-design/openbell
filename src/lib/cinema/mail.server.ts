@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { escapeAttr, escapeHtml } from "./seats";
 
 export type MailSendResult =
   | { ok: true; needsConfirm?: boolean }
@@ -8,16 +9,32 @@ function validEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
-function mailHtml(subject: string, text: string, url?: string) {
-  const button = url
-    ? `<p style="margin:20px 0 0"><a href="${url.replace(/"/g, "")}" style="display:inline-block;background:#1f5fd6;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:6px;font-size:14px">바로 예매</a></p>`
-    : "";
+function mailHtml(
+  subject: string,
+  text: string,
+  url?: string,
+  items?: Array<{ title: string; body: string; bookingUrl: string }>,
+) {
+  const cards = (items?.length ? items.slice(0, 8) : []).map((item) => {
+    const href = escapeAttr(item.bookingUrl);
+    return `<div style="margin:0 0 14px;padding:16px;background:#161617;border-radius:12px">
+      <p style="margin:0 0 6px;font-size:15px;font-weight:600;color:#f4f1ea">${escapeHtml(item.title)}</p>
+      <p style="margin:0 0 14px;font-size:13px;line-height:1.5;color:#9a958c">${escapeHtml(item.body)}</p>
+      ${href ? `<a href="${href}" style="display:inline-block;background:#1f5fd6;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:999px;font-size:13px;font-weight:600">바로 예매</a>` : ""}
+    </div>`;
+  });
+  const fallback = !cards.length
+    ? `<pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.55;color:#f4f1ea">${escapeHtml(text)}</pre>${
+        url
+          ? `<p style="margin:20px 0 0"><a href="${escapeAttr(url)}" style="display:inline-block;background:#1f5fd6;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:6px;font-size:14px">바로 예매</a></p>`
+          : ""
+      }`
+    : cards.join("");
   return `<!doctype html><html><body style="margin:0;background:#0c0c0d;color:#f4f1ea;font-family:ui-sans-serif,system-ui,sans-serif">
   <div style="max-width:560px;margin:0 auto;padding:28px 20px">
     <p style="letter-spacing:.18em;font-size:11px;color:#9a958c;margin:0">OPENBELL</p>
-    <h1 style="font-size:22px;margin:10px 0 16px;color:#f4f1ea">${subject.replace(/</g, "")}</h1>
-    <pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.55;color:#f4f1ea">${text.replace(/</g, "")}</pre>
-    ${button}
+    <h1 style="font-size:22px;margin:10px 0 18px;color:#f4f1ea">${escapeHtml(subject)}</h1>
+    ${fallback}
   </div>
 </body></html>`;
 }
@@ -27,6 +44,7 @@ export async function sendOpenbellMail(opts: {
   subject: string;
   text: string;
   url?: string;
+  items?: Array<{ title: string; body: string; bookingUrl: string }>;
   gasWebUrl?: string;
   gmailAppPassword?: string;
 }): Promise<MailSendResult> {
@@ -34,7 +52,7 @@ export async function sendOpenbellMail(opts: {
   if (!validEmail(to)) {
     return { ok: false, error: "이메일 주소가 올바르지 않습니다." };
   }
-  const html = mailHtml(opts.subject, opts.text, opts.url);
+  const html = mailHtml(opts.subject, opts.text, opts.url, opts.items);
   const viaGmail = await postGmailSmtp(
     to,
     opts.gmailAppPassword,

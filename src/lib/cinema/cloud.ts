@@ -20,6 +20,7 @@ export type CloudSnapshot = {
 
 export function hydrateConfig(raw: unknown): WatchConfig {
   const c = (raw ?? {}) as Partial<WatchConfig>;
+  const formats = { ...DEFAULT_WATCH.formats, ...(c.formats ?? {}) };
   return {
     ...DEFAULT_WATCH,
     ...c,
@@ -27,8 +28,10 @@ export function hydrateConfig(raw: unknown): WatchConfig {
     watchTitles: Array.isArray(c.watchTitles)
       ? c.watchTitles.map(String)
       : DEFAULT_WATCH.watchTitles,
-    theaters: { ...DEFAULT_WATCH.theaters, ...(c.theaters ?? {}) },
-    formats: { ...DEFAULT_WATCH.formats, ...(c.formats ?? {}) },
+    formats,
+    theaters: Object.fromEntries(
+      THEATERS.map((t) => [t.id, (formats[t.id] ?? []).length > 0]),
+    ) as WatchConfig["theaters"],
     scanSources: normalizeScanSources(c.scanSources),
     telegramToken: String(c.telegramToken ?? ""),
     telegramChatId: String(c.telegramChatId ?? ""),
@@ -43,6 +46,8 @@ export function hydrateConfig(raw: unknown): WatchConfig {
     kakaoRefreshToken: String(c.kakaoRefreshToken ?? ""),
     gasWebUrl: String(c.gasWebUrl ?? ""),
     gasSyncKey: String(c.gasSyncKey ?? ""),
+    gasScriptId: String(c.gasScriptId ?? ""),
+    gasSourceStamp: String(c.gasSourceStamp ?? ""),
     theme: normalizeTheme(c.theme),
   };
 }
@@ -118,6 +123,7 @@ export function mergeSnapshots(
       remote.config.kakaoRefreshToken || local.config.kakaoRefreshToken,
     gasWebUrl: remote.config.gasWebUrl || local.config.gasWebUrl,
     gasSyncKey: remote.config.gasSyncKey || local.config.gasSyncKey,
+    gasScriptId: remote.config.gasScriptId || local.config.gasScriptId,
     watchTitles: mergeTitles(
       remote.config.watchTitles ?? [],
       local.config.watchTitles ?? [],
@@ -142,6 +148,7 @@ function gasPayload(config: WatchConfig, queue: BookingIntent[]) {
     theaters: THEATERS.filter((t) => config.theaters[t.id]).map((t) => t.id),
     formats: config.formats,
     daysAhead: config.daysAhead,
+    intervalMin: config.intervalMin <= 1 ? 1 : config.intervalMin <= 5 ? 5 : 10,
     scanSources: normalizeScanSources(config.scanSources),
     syncKey: config.gasSyncKey,
     queued: queue.slice(0, 20).map((q) => ({
@@ -163,6 +170,30 @@ function gasPayload(config: WatchConfig, queue: BookingIntent[]) {
     if (value) payload[key] = value;
   }
   return payload;
+}
+
+export async function pingGasHeartbeat(url: string, key = "") {
+  const raw = String(url || "").trim();
+  if (!raw) return;
+  try {
+    const target = new URL(raw);
+    const host = target.hostname;
+    if (
+      !host.endsWith("script.google.com") &&
+      !host.endsWith("googleusercontent.com")
+    ) {
+      return;
+    }
+    target.searchParams.set("op", "beat");
+    if (key.trim()) target.searchParams.set("key", key.trim());
+    await fetch(target.toString(), {
+      method: "GET",
+      redirect: "follow",
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    // 예비 스크립트가 잠시 안 받아도 메인 알림은 그대로 갑니다.
+  }
 }
 
 async function fetchGasText(url: URL): Promise<string> {
@@ -266,6 +297,105 @@ async function pushGasConfig(
   }
 }
 
+async function chunkGasOp(
+  raw: string,
+  key: string,
+  op: "sync" | "upgrade",
+  payload: string,
+): Promise<GasPushResult> {
+  const target = parseGasUrl(raw);
+  if (!target) return { status: "error", message: "웹앱 주소가 올바르지 않습니다." };
+  const chunks: string[] = [];
+  for (let i = 0; i < payload.length; i += 1100) {
+    chunks.push(payload.slice(i, i + 1100));
+  }
+  try {
+    const start = new URL(target.toString());
+    start.searchParams.set("op", op);
+    start.searchParams.set("phase", "start");
+    start.searchParams.set("key", key);
+    start.searchParams.set("n", String(chunks.length));
+    const startText = await fetchGasText(start);
+    if (startText.trim() === "openbell" || startText.trim() === "ok") {
+      return { status: "need-script" };
+    }
+    let startJson: { ok?: boolean; error?: string } = {};
+    try {
+      startJson = JSON.parse(startText) as { ok?: boolean; error?: string };
+    } catch {
+      return { status: "need-script" };
+    }
+    if (startJson.error === "key") {
+      return {
+        status: "error",
+        message: "동기화 키가 다릅니다. 설정에서 코드를 다시 붙여넣으세요.",
+      };
+    }
+    if (!startJson.ok) return { status: "need-script" };
+
+    for (let i = 0; i < chunks.length; i++) {
+      const part = new URL(target.toString());
+      part.searchParams.set("op", op);
+      part.searchParams.set("phase", "chunk");
+      part.searchParams.set("i", String(i));
+      part.searchParams.set("d", chunks[i]);
+      const partText = await fetchGasText(part);
+      if (!looksJsonOk(partText)) return { status: "need-script" };
+    }
+
+    const end = new URL(target.toString());
+    end.searchParams.set("op", op);
+    end.searchParams.set("phase", "end");
+    end.searchParams.set("key", key);
+    const endText = await fetchGasText(end);
+    if (looksJsonOk(endText)) return { status: "ok" };
+    return { status: "need-script" };
+  } catch (err) {
+    return {
+      status: "error",
+      message: err instanceof Error ? err.message : "스크립트에 보내지 못했습니다.",
+    };
+  }
+}
+
+export const upgradeExistingGas = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      url: z.string().min(8),
+      key: z.string().min(8),
+      source: z.string().min(20),
+    }),
+  )
+  .handler(async ({ data }) => {
+    return chunkGasOp(data.url, data.key, "upgrade", data.source);
+  });
+
+export const pullGasMeta = createServerFn({ method: "POST" })
+  .validator(z.object({ url: z.string() }))
+  .handler(async ({ data }) => {
+    const parsed = parseGasUrl(data.url);
+    if (!parsed) return { status: "error" as const };
+    parsed.searchParams.set("op", "meta");
+    try {
+      const text = await fetchGasText(parsed);
+      const json = JSON.parse(text) as {
+        ok?: boolean;
+        id?: string;
+        url?: string;
+        stamp?: string;
+      };
+      if (!json?.ok || !json.id) return { status: "need-script" as const };
+      return {
+        status: "ok" as const,
+        scriptId: String(json.id),
+        url: String(json.url || ""),
+        stamp: String(json.stamp || ""),
+      };
+    } catch {
+      return { status: "need-script" as const };
+    }
+  });
+
 export function snapshotFromRow(row: {
   config: unknown;
   queue: unknown;
@@ -342,6 +472,14 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
     };
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
+    const account = await sql.query<{ email: string }>(
+      `select email from "user" where id = $1 limit 1`,
+      [context.userId],
+    );
+    const accountEmail = String(account[0]?.email ?? "").trim();
+    if (accountEmail) {
+      snapshot.config.email = accountEmail;
+    }
     await sql.query(
       `insert into user_settings (user_id, config, queue, alerts, prefs, updated_at)
        values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, now())
@@ -359,7 +497,7 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
         JSON.stringify(prefs),
       ],
     );
-    const gas = { status: "skipped" as const, reason: "login-only" };
+    const gas = await pushGasConfig(snapshot.config, snapshot.queue);
     return { ok: true as const, gas };
   });
 
