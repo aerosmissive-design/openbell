@@ -221,13 +221,53 @@ async function fetchGasText(url: URL): Promise<string> {
 }
 
 function looksJsonOk(text: string): boolean {
-  try {
-    const json = JSON.parse(text) as { ok?: boolean };
-    return Boolean(json && json.ok);
-  } catch {
-    return false;
-  }
+  const json = parseGasJson(text);
+  return Boolean(json && json.ok);
 }
+
+function parseGasJson(text: string): { ok?: boolean; [key: string]: unknown } | null {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed) as { ok?: boolean };
+  } catch {
+    /* ignore */
+  }
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(trimmed.slice(start, end + 1)) as { ok?: boolean };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function gasTextAlive(text: string) {
+  const trimmed = String(text || "").trim();
+  if (trimmed === "ok" || trimmed === "openbell") return true;
+  return looksJsonOk(trimmed);
+}
+
+export const pullGasAlive = createServerFn({ method: "POST" })
+  .validator(z.object({ url: z.string() }))
+  .handler(async ({ data }) => {
+    const parsed = parseGasUrl(data.url);
+    if (!parsed) return { status: "error" as const };
+    for (const op of ["ping", "meta", "status"] as const) {
+      const target = new URL(parsed.toString());
+      target.searchParams.set("op", op);
+      try {
+        const text = await fetchGasText(target);
+        if (gasTextAlive(text)) return { status: "ok" as const, via: op };
+      } catch {
+        /* next */
+      }
+    }
+    return { status: "error" as const };
+  });
 
 export type GasPushResult =
   | { status: "skipped"; reason: string }
@@ -393,16 +433,16 @@ export const pullGasMeta = createServerFn({ method: "POST" })
     parsed.searchParams.set("op", "meta");
     try {
       const text = await fetchGasText(parsed);
-      const json = JSON.parse(text) as {
+      const json = parseGasJson(text) as {
         ok?: boolean;
         id?: string;
         url?: string;
         stamp?: string;
-      };
-      if (!json?.ok || !json.id) return { status: "need-script" as const };
+      } | null;
+      if (!json?.ok) return { status: "need-script" as const };
       return {
         status: "ok" as const,
-        scriptId: String(json.id),
+        scriptId: String(json.id || ""),
         url: String(json.url || ""),
         stamp: String(json.stamp || ""),
       };
@@ -422,6 +462,9 @@ export type GasAlertStatus =
       beat: number;
       tick: number;
       intervalMin: number;
+      gasAlive?: boolean;
+      gasAgeMs?: number;
+      gasLastRun?: number;
     };
 
 export const pullGasAlertStatus = createServerFn({ method: "POST" })
@@ -432,7 +475,7 @@ export const pullGasAlertStatus = createServerFn({ method: "POST" })
     parsed.searchParams.set("op", "status");
     try {
       const text = await fetchGasText(parsed);
-      const json = JSON.parse(text) as {
+      const json = parseGasJson(text) as {
         ok?: boolean;
         grokMain?: boolean;
         remainMs?: number;
@@ -440,7 +483,10 @@ export const pullGasAlertStatus = createServerFn({ method: "POST" })
         beat?: number;
         tick?: number;
         intervalMin?: number;
-      };
+        gasAlive?: boolean;
+        gasAgeMs?: number;
+        gasLastRun?: number;
+      } | null;
       if (!json?.ok) return { status: "error", message: "status" };
       return {
         status: "ok",
@@ -450,6 +496,9 @@ export const pullGasAlertStatus = createServerFn({ method: "POST" })
         beat: Number(json.beat || 0),
         tick: Number(json.tick || 0),
         intervalMin: Number(json.intervalMin || 5),
+        gasAlive: Boolean(json.gasAlive),
+        gasAgeMs: Number(json.gasAgeMs || 0),
+        gasLastRun: Number(json.gasLastRun || 0),
       };
     } catch {
       return { status: "error", message: "status" };

@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260908-v33";
+export const GAS_SOURCE_STAMP = "20260908-alive";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -174,6 +174,19 @@ function jsonOut_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+function jsonpOut_(obj, cb) {
+  var name = String(cb || "");
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    return ContentService.createTextOutput(name + "(" + JSON.stringify(obj) + ")")
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return jsonOut_(obj);
+}
+
+function markGasRun_() {
+  PropertiesService.getScriptProperties().setProperty("gasLastRun", String(Date.now()));
+}
+
 function bindUrlToApp_() {
   if (!CONFIG.syncKey) return;
   var web = "";
@@ -296,6 +309,7 @@ function ensureWebApp_() {
 
 function 설치() {
   applyLiveConfig_();
+  markGasRun_();
   if (CONFIG.syncKey) {
     PropertiesService.getScriptProperties().setProperty("syncKey", CONFIG.syncKey);
   }
@@ -324,6 +338,7 @@ function 설치() {
 
 function checkOpenSeats() {
   applyLiveConfig_();
+  markGasRun_();
   ensureTrigger_();
   const report = scan_(false);
   if (report.alerts && report.alerts.length) {
@@ -363,6 +378,9 @@ function grokStatus_() {
   var tick = grokTickAt_();
   var wait = grokWaitMs_();
   var now = Date.now();
+  var last = Number(PropertiesService.getScriptProperties().getProperty("gasLastRun") || 0);
+  var interval = triggerMinutes_();
+  var gasWait = Math.max(interval * 3, 15) * 60 * 1000;
   return {
     ok: true,
     beat: beat,
@@ -370,7 +388,10 @@ function grokStatus_() {
     waitMs: wait,
     remainMs: beat ? Math.max(0, wait - (now - beat)) : 0,
     grokMain: grokIsMain_(),
-    intervalMin: triggerMinutes_(),
+    intervalMin: interval,
+    gasLastRun: last,
+    gasAgeMs: last ? now - last : 0,
+    gasAlive: last > 0 && now - last < gasWait
   };
 }
 
@@ -539,6 +560,7 @@ function doGet(e) {
   var p = (e && e.parameter) || {};
   var op = p.op;
   if (op === "ping") {
+    if (p.callback || p.cb) return jsonpOut_(grokStatus_(), p.callback || p.cb);
     return ContentService.createTextOutput("ok");
   }
   if (op === "beat") {
@@ -554,7 +576,7 @@ function doGet(e) {
     return jsonOut_({ ok: true });
   }
   if (op === "status") {
-    return jsonOut_(grokStatus_());
+    return jsonpOut_(grokStatus_(), p.callback || p.cb);
   }
   if (op === "install") {
     설치();

@@ -20,7 +20,8 @@ import {
   waitForGasBind,
 } from "@/lib/cinema/gas-provision";
 import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
-import { pullGasMeta, pullGasAlertStatus } from "@/lib/cinema/cloud";
+import { pullGasMeta } from "@/lib/cinema/cloud";
+import { probeGasHealth } from "@/lib/cinema/gas-health";
 import { describeGasPush, flushSettings } from "./cloud-sync";
 import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram, sendXPost } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
@@ -1134,16 +1135,14 @@ function AlertPathStatus() {
         grokReachable = false;
       }
       let gasOk = false;
+      let gasRecent = false;
+      let gasAgeMs: number | null = null;
       if (url) {
-        const [gas, meta] = await Promise.all([
-          pullGasAlertStatus({ data: { url } }).catch(() => ({
-            status: "error" as const,
-          })),
-          pullGasMeta({ data: { url } }).catch(() => ({
-            status: "error" as const,
-          })),
-        ]);
-        gasOk = gas.status === "ok" || meta.status === "ok";
+        const health = await probeGasHealth(url);
+        gasOk = Boolean(health?.ok);
+        gasRecent = Boolean(health?.gasAlive);
+        gasAgeMs =
+          health && health.gasAgeMs > 0 ? health.gasAgeMs : null;
       }
       if (cancelled) return;
       const grokOn = grokReachable;
@@ -1156,12 +1155,16 @@ function AlertPathStatus() {
           : "연결됨 · 다음 주기 대기";
       const nextGas = !url
         ? "없음"
-        : gasOk
-          ? "작동 중"
-          : "확인 못 함";
+        : gasRecent
+          ? gasAgeMs != null
+            ? `작동 중 · ${Math.max(1, Math.round(gasAgeMs / 60000))}분 전 감시`
+            : "작동 중"
+          : gasOk
+            ? "웹앱은 응답 · 감시 기록이 없습니다. 스크립트를 최신화하세요."
+            : "웹앱이 응답하지 않습니다";
       setGrokLine(nextGrok);
       setGasLine(nextGas);
-      if (grokOn && gasOk) {
+      if (grokOn && gasRecent) {
         setKind("both");
         setSummary("그록 서버와 구글 스크립트가 둘 다 알림을 보냅니다.");
         return;
@@ -1169,21 +1172,23 @@ function AlertPathStatus() {
       if (grokOn) {
         setKind("grok");
         setSummary(
-          url
-            ? "그록 서버만 알림을 보냅니다. 구글 스크립트는 아직 확인하지 못했습니다."
-            : "그록 서버만 알림을 보냅니다. 구글 스크립트가 없습니다.",
+          !url
+            ? "그록 서버만 알림을 보냅니다. 구글 스크립트가 없습니다."
+            : gasRecent
+              ? "그록 서버와 구글 스크립트가 둘 다 알림을 보냅니다."
+              : "그록 서버가 알림을 보냅니다. 구글 스크립트 감시는 아직 확인되지 않았습니다.",
         );
         return;
       }
-      if (gasOk) {
+      if (gasRecent) {
         setKind("gas");
-        setSummary("구글 스크립트만 알림을 보냅니다. 그록 서버는 확인하지 못했습니다.");
+        setSummary("구글 스크립트가 알림을 보냅니다. 그록 서버는 확인하지 못했습니다.");
         return;
       }
       setKind("none");
       setSummary(
         url
-          ? "그록 서버와 구글 스크립트를 아직 확인하지 못했습니다."
+          ? "그록 서버와 구글 스크립트 감시를 아직 확인하지 못했습니다."
           : "그록 서버를 아직 확인하지 못했습니다. 구글 스크립트가 없습니다.",
       );
     }
