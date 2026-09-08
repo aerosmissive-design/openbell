@@ -179,10 +179,13 @@ export function summarizeSeatDelta(before: Showtime[], after: Showtime[]) {
   return {
     shows: gains.length,
     seats: gains.reduce((sum, row) => sum + row.added, 0),
-    lines: gains.map((row) => {
-      const round = row.round ? `${row.round}회차` : "회차";
-      return `${row.show.theaterName} ${round}에서 ${row.added}석이 추가됐습니다`;
-    }),
+    lines: gains
+      .slice()
+      .sort((a, b) => a.round - b.round)
+      .map((row) => {
+        const round = row.round ? `${row.round}회차` : "회차";
+        return `• ${row.show.theaterName} ${round}에서 ${row.added}석이 추가됐습니다`;
+      }),
   };
 }
 

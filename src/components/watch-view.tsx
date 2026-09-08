@@ -486,8 +486,12 @@ function TheaterBlock({
       );
       const delta = summarizeSeatDelta(allShows, next);
       if (delta.lines.length) {
-        toast.success(delta.lines[0], {
-          description: delta.lines.slice(1).join("\n") || undefined,
+        toast.success("잔여석이 늘었습니다", {
+          description: (
+            <span className="mt-1 block whitespace-pre-line text-left leading-relaxed">
+              {delta.lines.join("\n")}
+            </span>
+          ),
         });
       } else {
         toast.success(`${current.shortName} 시간표를 다시 받았습니다.`);
