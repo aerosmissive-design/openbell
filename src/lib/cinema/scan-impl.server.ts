@@ -16,6 +16,7 @@ import type {
   TheaterScan,
 } from "./types";
 import { normalizeScanSources } from "./types";
+import { mergeMovieCatalog, moviesFromShowtimes } from "./match";
 
 type MegaboxId = "megabox_coex" | "megabox_namyangju";
 
@@ -137,7 +138,12 @@ export async function runScan(input: {
     playDates,
     ranking,
     showing,
-    catalog: catalog.catalog?.length ? catalog.catalog : [...ranking, ...showing],
+    catalog: mergeMovieCatalog(
+      catalog.catalog ?? [],
+      catalog.ranking,
+      catalog.showing,
+      moviesFromShowtimes(tagged.flatMap((t) => t.showtimes)),
+    ),
     theaters: tagged,
   };
 }

@@ -156,3 +156,39 @@ export function filterWatched(
 ) {
   return shows.filter((s) => isWatchedShow(s, config, titles));
 }
+
+export function mergeMovieCatalog(...lists: RankingMovie[][]) {
+  const out: RankingMovie[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const row of list) {
+      const key = normalizeTitle(row.title);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+export function moviesFromShowtimes(shows: Showtime[]): RankingMovie[] {
+  const out: RankingMovie[] = [];
+  const seen = new Set<string>();
+  for (const show of shows) {
+    const title = show.movieTitle.trim();
+    const key = normalizeTitle(title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      rank: 0,
+      title,
+      movieNo: show.movieNo || "",
+      bookingRate: null,
+      posterUrl: null,
+      releaseDate: show.playDate || null,
+      bookingOpen: true,
+      released: true,
+    });
+  }
+  return out;
+}

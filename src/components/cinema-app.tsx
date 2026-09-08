@@ -3,7 +3,7 @@ import { Bell, ScanLine, Settings2, Star } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
-import { filterWatched, primeIdsForWatchChange, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
+import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook, sendXPost } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, tweetCopy, type SeatHitMap } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
@@ -140,9 +140,13 @@ export function CinemaApp() {
       ranking: stampPosters(rankingSrc),
       showing: stampPosters(showingSrc),
       catalog: stampPosters(
-        catalogQuery.data?.catalog?.length
-          ? catalogQuery.data.catalog
-          : (scan?.catalog ?? [...rankingSrc, ...showingSrc]),
+        mergeMovieCatalog(
+          catalogQuery.data?.catalog ?? [],
+          scan?.catalog ?? [],
+          rankingSrc,
+          showingSrc,
+          moviesFromShowtimes(theaters.flatMap((t) => t.showtimes)),
+        ),
       ),
       theaters,
     };
@@ -280,7 +284,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.3
+                v3.3.3
               </span>
             </h1>
           </div>

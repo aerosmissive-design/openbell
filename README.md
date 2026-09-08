@@ -1,9 +1,13 @@
-# 오픈벨 (Openbell) v3.3
+# 오픈벨 (Openbell) v3.3.3
 
 CGV·메가박스 특별관 예매가 열리거나, 별표한 회차의 잔여석이 변하면 메일·텔레그램·카톡·X로 알려 주는 웹앱입니다.
 
 웹: https://openbell.grok.me · Vercel: https://openbell-fawn.vercel.app  
 저장소: https://github.com/aerosmissive-design/openbell
+
+## v3.3.3에서 달라진 점
+
+- 영화 검색이 메가박스 목록과 CGV·메가박스 시간표를 같이 봅니다. CGV에만 걸린 영화도 찾을 수 있습니다.
 
 ## v3.3에서 달라진 점
 
