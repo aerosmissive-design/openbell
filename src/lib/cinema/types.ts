@@ -125,6 +125,13 @@ export type WatchConfig = {
   gmailAppPassword: string;
   kakaoRestKey: string;
   kakaoRefreshToken: string;
+  xApiKey: string;
+  xApiSecret: string;
+  xAccessToken: string;
+  xAccessSecret: string;
+  xClientId: string;
+  xClientSecret: string;
+  xRefreshToken: string;
   gasWebUrl: string;
   gasSyncKey: string;
   gasScriptId: string;
@@ -159,6 +166,23 @@ export function normalizeScanSources(
 
 export function mailEnabled(config: WatchConfig) {
   return Boolean(config.emailNotify && config.email.trim());
+}
+
+export function xEnabled(
+  config: Pick<
+    WatchConfig,
+    | "xApiKey"
+    | "xApiSecret"
+    | "xAccessToken"
+    | "xAccessSecret"
+  >,
+) {
+  if (config.xAccessToken.trim()) return true;
+  return Boolean(
+    config.xApiKey.trim() &&
+      config.xApiSecret.trim() &&
+      config.xAccessSecret.trim(),
+  );
 }
 
 export function sourceLabel(source: string) {

@@ -175,23 +175,60 @@ export function countSeatHits(rows: Showtime[], map: SeatHitMap): number {
 }
 
 export function summarizeSeatDelta(before: Showtime[], after: Showtime[]) {
+  const gains = listSeatGains(before, after);
+  return {
+    shows: gains.length,
+    seats: gains.reduce((sum, row) => sum + row.added, 0),
+    lines: gains.map((row) => {
+      const round = row.round ? `${row.round}회차` : "회차";
+      return `${row.show.theaterName} ${round}에서 ${row.added}석이 추가됐습니다`;
+    }),
+  };
+}
+
+export function listSeatGains(before: Showtime[], after: Showtime[]) {
   const prev = new Map(before.map((row) => [row.id, row.restSeats]));
-  let shows = 0;
-  let seats = 0;
+  const rows: { show: Showtime; added: number; round: number }[] = [];
   for (const row of after) {
     if (typeof row.restSeats !== "number") continue;
     const last = prev.get(row.id);
-    if (typeof last !== "number") {
-      shows += 1;
-      seats += row.restSeats;
-      continue;
-    }
-    if (row.restSeats > last) {
-      shows += 1;
-      seats += row.restSeats - last;
-    }
+    let added = 0;
+    if (typeof last !== "number") added = row.restSeats;
+    else if (row.restSeats > last) added = row.restSeats - last;
+    if (added <= 0) continue;
+    rows.push({ show: row, added, round: screeningNo(row, after) });
   }
-  return { shows, seats };
+  return rows;
+}
+
+export function screeningNo(show: Showtime, all: Showtime[]): number {
+  const title = normalizeTitle(show.movieTitle);
+  const peers = all
+    .filter(
+      (row) =>
+        row.theaterId === show.theaterId &&
+        row.playDate === show.playDate &&
+        normalizeTitle(row.movieTitle) === title,
+    )
+    .sort((a, b) => {
+      const time = a.startTime.localeCompare(b.startTime);
+      return time || a.hallName.localeCompare(b.hallName);
+    });
+  const idx = peers.findIndex((row) => row.id === show.id);
+  return idx >= 0 ? idx + 1 : 0;
+}
+
+export function showAlertBody(
+  show: Showtime,
+  all: Showtime[],
+  extra = "",
+) {
+  const n = screeningNo(show, all);
+  const bits = [show.theaterName, show.hallName];
+  if (n) bits.push(`${n}회`);
+  bits.push(show.startTime);
+  if (extra) bits.push(extra);
+  return bits.filter(Boolean).join(" · ");
 }
 
 function seatLookupKeys(row: Showtime): string[] {
@@ -328,14 +365,18 @@ export function diffStarSeats(
   return { nextQueue, changes };
 }
 
-export function seatChangeAlert(change: SeatChange): AlertItem {
+export function seatChangeAlert(change: SeatChange, all: Showtime[] = []): AlertItem {
   const sign = change.delta > 0 ? "+" : "";
   return {
     id: `alert:seat:${change.show.id}:${change.prev}:${change.next}:${Date.now()}`,
     createdAt: new Date().toISOString(),
     kind: "seat",
     title: `${change.show.movieTitle} 잔여석 ${sign}${change.delta}`,
-    body: `${change.show.theaterName} · ${change.show.hallName} · ${change.show.startTime} · ${change.prev}석 → ${change.next}석 (${sign}${change.delta})`,
+    body: showAlertBody(
+      change.show,
+      all.length ? all : [change.show],
+      `${change.prev}석 → ${change.next}석 (${sign}${change.delta})`,
+    ),
     bookingUrl: change.show.bookingUrl,
     theaterId: change.show.theaterId,
     movieTitle: change.show.movieTitle,
@@ -372,6 +413,21 @@ export function notifyCopy(items: AlertItem[]): {
     })
     .join("\n\n")}`;
   return { subject, text, telegramHtml };
+}
+
+export function tweetCopy(items: AlertItem[]): string {
+  const rows = items.slice(0, 3);
+  const lines = ["홀드현알리미"];
+  for (const item of rows) {
+    lines.push(item.title);
+    if (item.body) lines.push(item.body);
+    if (item.bookingUrl) lines.push(item.bookingUrl);
+  }
+  if (items.length > rows.length) {
+    lines.push(`외 ${items.length - rows.length}건`);
+  }
+  const text = lines.filter(Boolean).join("\n");
+  return text.length > 270 ? `${text.slice(0, 267)}…` : text;
 }
 
 export function escapeHtml(value: string) {

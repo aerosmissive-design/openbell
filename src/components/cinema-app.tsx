@@ -4,11 +4,11 @@ import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
 import { filterWatched, primeIdsForWatchChange, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
-import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
-import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyCopy, putSeatHit, seatChangeAlert, type SeatHitMap } from "@/lib/cinema/seats";
+import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook, sendXPost } from "@/lib/cinema/scan";
+import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, tweetCopy, type SeatHitMap } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { AlertItem, RankingMovie, Showtime, WatchConfig } from "@/lib/cinema/types";
-import { mailEnabled, inferSeatSource } from "@/lib/cinema/types";
+import { mailEnabled, inferSeatSource, xEnabled } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn, formatClock, normalizeTitle } from "@/lib/utils";
 import { AlertsView } from "./alerts-view";
@@ -210,7 +210,12 @@ export function CinemaApp() {
     const fresh = watchedShows.filter((s) => !seen.has(s.id));
     if (!fresh.length) return;
     remember(fresh.map((s) => s.id));
-    const items = fresh.map(toAlert);
+    const items = fresh.map((show) =>
+      toAlert(
+        show,
+        (scan.theaters ?? []).flatMap((t) => t.showtimes),
+      ),
+    );
     pushAlerts(items);
     announce(items, config);
     setTab("alerts");
@@ -244,7 +249,7 @@ export function CinemaApp() {
     if (!dirty) return;
     replaceQueue(nextQueue);
     if (!changes.length) return;
-    const items = changes.map(seatChangeAlert);
+    const items = changes.map((change) => seatChangeAlert(change, all));
     pushAlerts(items);
     announce(items, config);
   }, [scan?.scannedAt, scan, queue, config, seatMap, replaceQueue, pushAlerts]);
@@ -253,9 +258,15 @@ export function CinemaApp() {
     const url = config.gasWebUrl.trim();
     if (!url || !scan?.scannedAt) return;
     void pingGasBeat({
-      data: { url, key: config.gasSyncKey || undefined },
+      data: { url, key: config.gasSyncKey || undefined, src: "page" },
     }).catch(() => null);
   }, [scan?.scannedAt, config.gasWebUrl, config.gasSyncKey]);
+
+  useEffect(() => {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission !== "default") return;
+    void Notification.requestPermission().catch(() => null);
+  }, []);
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-lg flex-col bg-bg md:max-w-5xl">
@@ -269,7 +280,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3
+                v3.2
               </span>
             </h1>
           </div>
@@ -387,13 +398,13 @@ function NavBtn({
   );
 }
 
-function toAlert(show: Showtime): AlertItem {
+function toAlert(show: Showtime, all: Showtime[]): AlertItem {
   return {
     id: `alert:${show.id}:${Date.now()}`,
     createdAt: new Date().toISOString(),
     kind: "open",
     title: `${show.movieTitle} 예매 오픈`,
-    body: `${show.theaterName} · ${show.hallName} · ${show.startTime}`,
+    body: showAlertBody(show, all),
     bookingUrl: show.bookingUrl,
     theaterId: show.theaterId,
     movieTitle: show.movieTitle,
@@ -410,10 +421,8 @@ function announce(items: AlertItem[], config: WatchConfig) {
   const head = items[0];
   if (!head) return;
   toast(head.title, { description: head.body });
-  if (config.browserNotify && typeof Notification !== "undefined") {
-    if (Notification.permission === "granted") {
-      new Notification(head.title, { body: head.body });
-    }
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    new Notification(head.title, { body: head.body });
   }
   const { subject, text, telegramHtml } = notifyCopy(items);
   if (config.telegramToken && config.telegramChatId) {
@@ -470,5 +479,30 @@ function announce(items: AlertItem[], config: WatchConfig) {
     }).catch((err: unknown) => {
       toast.error(err instanceof Error ? err.message : "메일 전송 실패");
     });
+  }
+  if (xEnabled(config)) {
+    void sendXPost({
+      data: {
+        accessToken: config.xAccessToken,
+        clientId: config.xClientId || undefined,
+        clientSecret: config.xClientSecret || undefined,
+        refreshToken: config.xRefreshToken || undefined,
+        apiKey: config.xApiKey || undefined,
+        apiSecret: config.xApiSecret || undefined,
+        accessSecret: config.xAccessSecret || undefined,
+        text: tweetCopy(items),
+      },
+    })
+      .then((posted) => {
+        if (posted.accessToken || posted.refreshToken) {
+          useAppStore.getState().setConfig({
+            xAccessToken: posted.accessToken || config.xAccessToken,
+            xRefreshToken: posted.refreshToken || config.xRefreshToken,
+          });
+        }
+      })
+      .catch((err: unknown) => {
+        toast.error(err instanceof Error ? err.message : "X 올리기 실패");
+      });
   }
 }

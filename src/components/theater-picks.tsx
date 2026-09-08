@@ -63,7 +63,7 @@ export function FormatChips({
 
 export function SettingsTheaterPicks({ onChange }: { onChange?: () => void }) {
   return (
-    <section className="rounded-xl bg-surface p-4 shadow-border">
+    <>
       <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
         감시 극장
       </h2>
@@ -80,7 +80,7 @@ export function SettingsTheaterPicks({ onChange }: { onChange?: () => void }) {
           />
         ))}
       </div>
-    </section>
+    </>
   );
 }
 

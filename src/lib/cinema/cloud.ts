@@ -44,6 +44,13 @@ export function hydrateConfig(raw: unknown): WatchConfig {
     gmailAppPassword: String(c.gmailAppPassword ?? ""),
     kakaoRestKey: String(c.kakaoRestKey ?? ""),
     kakaoRefreshToken: String(c.kakaoRefreshToken ?? ""),
+    xApiKey: String(c.xApiKey ?? ""),
+    xApiSecret: String(c.xApiSecret ?? ""),
+    xAccessToken: String(c.xAccessToken ?? ""),
+    xAccessSecret: String(c.xAccessSecret ?? ""),
+    xClientId: String(c.xClientId ?? ""),
+    xClientSecret: String(c.xClientSecret ?? ""),
+    xRefreshToken: String(c.xRefreshToken ?? ""),
     gasWebUrl: String(c.gasWebUrl ?? ""),
     gasSyncKey: String(c.gasSyncKey ?? ""),
     gasScriptId: String(c.gasScriptId ?? ""),
@@ -164,6 +171,13 @@ function gasPayload(config: WatchConfig, queue: BookingIntent[]) {
     "webhookUrl",
     "kakaoRestKey",
     "kakaoRefreshToken",
+    "xApiKey",
+    "xApiSecret",
+    "xAccessToken",
+    "xAccessSecret",
+    "xClientId",
+    "xClientSecret",
+    "xRefreshToken",
   ];
   for (const key of secrets) {
     const value = String(config[key] ?? "").trim();
@@ -172,7 +186,7 @@ function gasPayload(config: WatchConfig, queue: BookingIntent[]) {
   return payload;
 }
 
-export async function pingGasHeartbeat(url: string, key = "") {
+export async function pingGasHeartbeat(url: string, key = "", src = "page") {
   const raw = String(url || "").trim();
   if (!raw) return;
   try {
@@ -185,6 +199,7 @@ export async function pingGasHeartbeat(url: string, key = "") {
       return;
     }
     target.searchParams.set("op", "beat");
+    target.searchParams.set("src", src === "tick" ? "tick" : "page");
     if (key.trim()) target.searchParams.set("key", key.trim());
     await fetch(target.toString(), {
       method: "GET",
@@ -396,6 +411,51 @@ export const pullGasMeta = createServerFn({ method: "POST" })
     }
   });
 
+export type GasAlertStatus =
+  | { status: "skipped"; reason: string }
+  | { status: "error"; message: string }
+  | {
+      status: "ok";
+      grokMain: boolean;
+      remainMs: number;
+      waitMs: number;
+      beat: number;
+      tick: number;
+      intervalMin: number;
+    };
+
+export const pullGasAlertStatus = createServerFn({ method: "POST" })
+  .validator(z.object({ url: z.string() }))
+  .handler(async ({ data }): Promise<GasAlertStatus> => {
+    const parsed = parseGasUrl(data.url);
+    if (!parsed) return { status: "skipped", reason: "no-url" };
+    parsed.searchParams.set("op", "status");
+    try {
+      const text = await fetchGasText(parsed);
+      const json = JSON.parse(text) as {
+        ok?: boolean;
+        grokMain?: boolean;
+        remainMs?: number;
+        waitMs?: number;
+        beat?: number;
+        tick?: number;
+        intervalMin?: number;
+      };
+      if (!json?.ok) return { status: "error", message: "status" };
+      return {
+        status: "ok",
+        grokMain: Boolean(json.grokMain),
+        remainMs: Number(json.remainMs || 0),
+        waitMs: Number(json.waitMs || 0),
+        beat: Number(json.beat || 0),
+        tick: Number(json.tick || 0),
+        intervalMin: Number(json.intervalMin || 5),
+      };
+    } catch {
+      return { status: "error", message: "status" };
+    }
+  });
+
 export function snapshotFromRow(row: {
   config: unknown;
   queue: unknown;
@@ -517,6 +577,13 @@ export type GasNotify = {
   webhookUrl: string;
   kakaoRestKey: string;
   kakaoRefreshToken: string;
+  xApiKey: string;
+  xApiSecret: string;
+  xAccessToken: string;
+  xAccessSecret: string;
+  xClientId: string;
+  xClientSecret: string;
+  xRefreshToken: string;
 };
 
 export type GasPullResult =
@@ -541,6 +608,13 @@ export function mergeNotifyFromGas(
     webhookUrl: pick(local.webhookUrl, gas.webhookUrl),
     kakaoRestKey: pick(local.kakaoRestKey, gas.kakaoRestKey),
     kakaoRefreshToken: pick(local.kakaoRefreshToken, gas.kakaoRefreshToken),
+    xApiKey: pick(local.xApiKey, gas.xApiKey),
+    xApiSecret: pick(local.xApiSecret, gas.xApiSecret),
+    xAccessToken: pick(local.xAccessToken, gas.xAccessToken),
+    xAccessSecret: pick(local.xAccessSecret, gas.xAccessSecret),
+    xClientId: pick(local.xClientId, gas.xClientId),
+    xClientSecret: pick(local.xClientSecret, gas.xClientSecret),
+    xRefreshToken: pick(local.xRefreshToken, gas.xRefreshToken),
   };
 }
 
@@ -585,6 +659,13 @@ export const pullGasNotify = createServerFn({ method: "POST" })
           webhookUrl: String(json.webhookUrl ?? ""),
           kakaoRestKey: String(json.kakaoRestKey ?? ""),
           kakaoRefreshToken: String(json.kakaoRefreshToken ?? ""),
+          xApiKey: String(json.xApiKey ?? ""),
+          xApiSecret: String(json.xApiSecret ?? ""),
+          xAccessToken: String(json.xAccessToken ?? ""),
+          xAccessSecret: String(json.xAccessSecret ?? ""),
+          xClientId: String(json.xClientId ?? ""),
+          xClientSecret: String(json.xClientSecret ?? ""),
+          xRefreshToken: String(json.xRefreshToken ?? ""),
         },
       };
     } catch (err) {

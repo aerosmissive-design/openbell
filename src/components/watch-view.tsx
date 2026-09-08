@@ -3,7 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { intentFromShowtime } from "@/lib/cinema/auto-booking";
 import { selectedMovies, titlesMatch, titleInSet, watchedTitleSet } from "@/lib/cinema/match";
-import { applyCgvSeatHits, mergeShowtimes, summarizeSeatDelta } from "@/lib/cinema/seats";
+import { applyCgvSeatHits, mergeShowtimes, screeningNo, summarizeSeatDelta } from "@/lib/cinema/seats";
 import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { MovieTab, RankingMovie, ScanProps, Showtime, TheaterId } from "@/lib/cinema/types";
@@ -485,10 +485,10 @@ function TheaterBlock({
         true,
       );
       const delta = summarizeSeatDelta(allShows, next);
-      if (delta.shows > 0) {
-        toast.success(
-          `${current.shortName} ${delta.shows}회차에 잔여석 ${delta.seats}석이 붙었습니다.`,
-        );
+      if (delta.lines.length) {
+        toast.success(delta.lines[0], {
+          description: delta.lines.slice(1).join("\n") || undefined,
+        });
       } else {
         toast.success(`${current.shortName} 시간표를 다시 받았습니다.`);
       }
@@ -695,6 +695,7 @@ function MovieTimes({
         <ul className="mt-2 flex flex-col gap-1.5">
           {visible.map((show) => {
             const isAlert = alertedShows.has(showAlertKey(show));
+            const round = screeningNo(show, shows);
             return (
             <li
               key={show.id}
@@ -704,7 +705,10 @@ function MovieTimes({
               )}
             >
               <p className="truncate text-[11px] text-muted">
-                {formatPlayDate(show.playDate)} · {show.hallName}
+                {formatPlayDate(show.playDate)}
+                {round ? ` · ${round}회` : ""}
+                {" · "}
+                {show.hallName}
               </p>
               <div className="mt-1 flex items-center gap-3">
                 <p className="min-w-0 flex-1 truncate text-sm text-fg">

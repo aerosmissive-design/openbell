@@ -124,6 +124,35 @@ export const peekTelegramChat = createServerFn({ method: "POST" })
     return { ok: true as const, ...hit };
   });
 
+export const sendXPost = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      accessToken: z.string().min(8),
+      text: z.string().min(1),
+      clientId: z.string().optional(),
+      clientSecret: z.string().optional(),
+      refreshToken: z.string().optional(),
+      apiKey: z.string().optional(),
+      apiSecret: z.string().optional(),
+      accessSecret: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { postXTweet } = await import("./x-post.server");
+    return postXTweet(
+      {
+        accessToken: data.accessToken.trim(),
+        clientId: data.clientId?.trim(),
+        clientSecret: data.clientSecret?.trim(),
+        refreshToken: data.refreshToken?.trim(),
+        apiKey: data.apiKey?.trim(),
+        apiSecret: data.apiSecret?.trim(),
+        accessSecret: data.accessSecret?.trim(),
+      },
+      data.text,
+    );
+  });
+
 export const sendTelegram = createServerFn({ method: "POST" })
   .validator(TelegramInput)
   .handler(async ({ data }) => {
@@ -376,10 +405,16 @@ const GasSeatmapInput = z.object({
 });
 
 export const pingGasBeat = createServerFn({ method: "POST" })
-  .validator(z.object({ url: z.string().min(8), key: z.string().optional() }))
+  .validator(
+    z.object({
+      url: z.string().min(8),
+      key: z.string().optional(),
+      src: z.enum(["page", "tick"]).optional(),
+    }),
+  )
   .handler(async ({ data }) => {
     const { pingGasHeartbeat } = await import("./cloud");
-    await pingGasHeartbeat(data.url, data.key || "");
+    await pingGasHeartbeat(data.url, data.key || "", data.src || "page");
     return { ok: true as const };
   });
 

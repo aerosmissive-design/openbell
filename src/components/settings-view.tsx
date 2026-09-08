@@ -20,12 +20,12 @@ import {
   waitForGasBind,
 } from "@/lib/cinema/gas-provision";
 import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
-import { pullGasMeta } from "@/lib/cinema/cloud";
+import { pullGasMeta, pullGasAlertStatus } from "@/lib/cinema/cloud";
 import { describeGasPush, flushSettings } from "./cloud-sync";
-import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";
+import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram, sendXPost } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { ScanResult } from "@/lib/cinema/types";
-import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
+import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, seatSourceLabel, timetableSourceLabel, xEnabled } from "@/lib/cinema/types";
 import { THEME_MODES } from "@/lib/theme";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -43,11 +43,13 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const [showMail, setShowMail] = useState(false);
   const [showKakao, setShowKakao] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
+  const [showX, setShowX] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [provisioning, setProvisioning] = useState(false);
   const [wizard, setWizard] = useState(false);
   const [canOauth, setCanOauth] = useState(false);
   const [showStages, setShowStages] = useState(false);
+  const [showStatus, setShowStatus] = useState(false);
   const wizardAbort = useRef<AbortController | null>(null);
   const setTab = useAppStore((s) => s.setTab);
   const [redirectUri, setRedirectUri] = useState("");
@@ -133,21 +135,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       toast.error(err instanceof Error ? err.message : "보내기에 실패했습니다.");
     } finally {
       setSendingTest(false);
-    }
-  }
-
-  async function enableNotify() {
-    if (typeof Notification === "undefined") {
-      setConfig({ browserNotify: true });
-      toast(
-        "아이폰 사파리에서는 시스템 팝업이 없습니다. 화면이 열려 있으면 앱 안에서 뜨고, 꺼져 있으면 메일·텔레그램으로 갑니다.",
-      );
-      return;
-    }
-    const perm = await Notification.requestPermission();
-    setConfig({ browserNotify: perm === "granted" });
-    if (perm !== "granted") {
-      toast("알림 권한이 꺼져 있습니다. 화면이 열려 있으면 앱 안에서만 뜹니다.");
     }
   }
 
@@ -296,41 +283,15 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-xl bg-surface p-4 shadow-border">
-        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
-          배경
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          라이트, 다크, 또는 기기 설정을 따릅니다.
-        </p>
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          {THEME_MODES.map((mode) => (
-            <button
-              key={mode.id}
-              type="button"
-              onClick={() => setConfig({ theme: mode.id })}
-              className={cn(
-                "min-h-11 rounded-md text-sm",
-                (config.theme ?? "dark") === mode.id
-                  ? "bg-pick text-fg ring-1 ring-border-strong"
-                  : "bg-bg text-muted",
-              )}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-      </section>
-      <SettingsTheaterPicks onChange={() => void pushWatchWindow()} />
-      <CloudSettingsCard />
-
-      <section className="rounded-xl bg-surface p-4 shadow-border">
+        <CloudSettingsCard />
+        <div className="mt-5 border-t border-border pt-4">
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
           구글 스크립트
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          복사한 코드를 붙여넣고 설치하면 그 스크립트를 찾아 붙입니다. 그록이
-          살아 있으면 알림은 그록이 보내고, 스크립트는 예비로 시간표만
-          받습니다. 그록이 멈추면 스크립트가 알림을 이어 갑니다.
+          복사한 코드를 붙여넣고 설치하면 그 스크립트를 찾아 붙입니다. 그록과
+          스크립트가 둘 다 메일·텔레그램·카톡·X 알림을 보냅니다. 같은 오픈이
+          두 번 갈 수 있습니다.
         </p>
         <button
           type="button"
@@ -378,12 +339,26 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             </li>
           </ol>
         ) : null}
+        </div>
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">
-        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
-          극장 및 잔여석 현황
-        </h2>
+        <SettingsTheaterPicks onChange={() => void pushWatchWindow()} />
+        <div className="mt-4 border-t border-border pt-3">
+        <button
+          type="button"
+          onClick={() => setShowStatus((v) => !v)}
+          className="flex min-h-11 w-full items-center justify-between gap-3 text-left"
+        >
+          <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
+            극장 및 잔여석 현황
+          </h2>
+          <span className="shrink-0 text-xs text-muted">
+            {showStatus ? "접기" : "펼치기"}
+          </span>
+        </button>
+        {showStatus ? (
+          <>
         <p className="mt-2 text-sm leading-relaxed text-muted">
           상영시간과 잔여석을 어디서 받았는지입니다. 세 단계는 항상 켜져 있고,
           막히면 다음으로 넘어갑니다.
@@ -409,10 +384,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           <button
             type="button"
             onClick={() => setShowStages((v) => !v)}
-            className="inline-flex min-h-11 items-baseline gap-2 bg-transparent p-0 text-right text-fg"
+            className="inline-flex min-h-9 items-baseline gap-1.5 bg-transparent p-0 text-right text-faint"
           >
-            <span className="text-sm">조회는 이렇게 됩니다</span>
-            <span className="text-xs text-muted">{showStages ? "접기" : "펼치기"}</span>
+            <span className="text-[11px]">출처</span>
+            <span className="text-[11px]">{showStages ? "접기" : "펼치기"}</span>
           </button>
         </div>
         {showStages ? (
@@ -461,10 +436,16 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             </div>
           </div>
         ) : null}
+          </>
+        ) : null}
+        </div>
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">
-        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">주기</h2>
+        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
+          알림 설정
+        </h2>
+        <h3 className="mt-4 text-xs font-medium tracking-[0.16em] text-muted">주기</h3>
         <div className="mt-3 grid grid-cols-3 gap-2">
           {[1, 5, 10].map((n) => (
             <button
@@ -516,33 +497,18 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             </button>
           ))}
         </div>
-      </section>
-
-      <section className="rounded-xl bg-surface p-4 shadow-border">
-        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
+        <h3 className="mt-5 text-xs font-medium tracking-[0.16em] text-muted">
           앱을 꺼도 알림
-        </h2>
+        </h3>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          로그인이 메인입니다. 화면을 닫아도 서버가 조회해 메일·텔레그램·카톡을
-          보냅니다. 구글 스크립트는 예비라, 그록이 멈춰도 이어서 보냅니다.
+          로그인이 메인입니다. 화면을 닫아도 그록 서버와 구글 스크립트가 각각
+          조회해 메일·텔레그램·카톡·X를 보냅니다. 한쪽이 멈춰도 다른 쪽이 바로
+          보냅니다.
         </p>
-        <div className="mt-3">
-          <Switch
-            checked={config.browserNotify}
-            onCheckedChange={(on) => {
-              if (on) void enableNotify();
-              else setConfig({ browserNotify: false });
-            }}
-            label="이 화면이 열려 있을 때 앱 안 알림"
-          />
-        </div>
-        <p className="mt-2 text-xs leading-relaxed text-faint">
-          아이폰 사파리에서는 시스템 팝업이 없습니다. 홈 화면에 추가한 뒤에만
-          팝업이 되고, 그 전에는 메일·텔레그램으로 받으세요.
-        </p>
-      </section>
+        <AlertPathStatus />
 
       <ChannelCard
+        embedded
         title="메일로 받기"
         summary={
           !user
@@ -635,6 +601,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       </ChannelCard>
 
       <ChannelCard
+        embedded
         title="카톡으로 받기"
         summary={config.kakaoRefreshToken ? "연결됨" : "꺼짐"}
         open={showKakao}
@@ -775,6 +742,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       </ChannelCard>
 
       <ChannelCard
+        embedded
         title="텔레그램으로 받기"
         summary={
           config.telegramToken && config.telegramChatId ? "연결됨" : "꺼짐"
@@ -848,6 +816,130 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           <WatchAlertHint lastScan={lastScan} />
         ) : null}
       </ChannelCard>
+
+      <ChannelCard
+        embedded
+        title="X로 올리기"
+        summary={xEnabled(config) ? "켜짐 · @aerosmissive2" : "꺼짐"}
+        open={showX}
+        onToggle={() => setShowX((v) => !v)}
+      >
+        <p className="text-xs leading-relaxed text-muted">
+          예매가 열리면{" "}
+          <a
+            href="https://x.com/aerosmissive2"
+            target="_blank"
+            rel="noreferrer"
+            className="text-fg underline-offset-2 hover:underline"
+          >
+            홀드현알리미 @aerosmissive2
+          </a>
+          로 글이 올라갑니다. developer.x.com → 앱 →{" "}
+          <span className="font-medium text-fg">Keys and tokens</span>에서
+          복사하세요. 맨 위 <span className="font-medium text-fg">앱 전용 Bearer Token</span>은
+          넣지 마세요.
+        </p>
+        <label className="mt-3 block text-xs text-muted">
+          액세스 토큰 (필수)
+        </label>
+        <p className="mt-1 text-[11px] leading-relaxed text-faint">
+          OAuth 2.0 키 칸의 액세스 토큰입니다. tweet.write가 있어야 하고,
+          @aerosmissive2용이어야 합니다.
+        </p>
+        <input
+          value={config.xAccessToken}
+          onChange={(e) => setConfig({ xAccessToken: e.target.value })}
+          placeholder="AAAA..."
+          className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+        />
+        <label className="mt-3 block text-xs text-muted">갱신 토큰</label>
+        <p className="mt-1 text-[11px] leading-relaxed text-faint">
+          같은 OAuth 2.0 키 칸의 Refresh Token입니다. 있으면 만료 뒤에도 이어서
+          올립니다.
+        </p>
+        <input
+          value={config.xRefreshToken}
+          onChange={(e) => setConfig({ xRefreshToken: e.target.value })}
+          type="password"
+          className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+        />
+        <label className="mt-3 block text-xs text-muted">클라이언트 ID</label>
+        <p className="mt-1 text-[11px] leading-relaxed text-faint">
+          OAuth 2.0 키 칸의 클라이언트 ID입니다. 갱신 토큰과 같이 씁니다.
+        </p>
+        <input
+          value={config.xClientId}
+          onChange={(e) => setConfig({ xClientId: e.target.value })}
+          className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+        />
+        <label className="mt-3 block text-xs text-muted">클라이언트 시크릿</label>
+        <p className="mt-1 text-[11px] leading-relaxed text-faint">
+          OAuth 2.0 키 칸의 클라이언트 시크릿입니다.
+        </p>
+        <input
+          value={config.xClientSecret}
+          onChange={(e) => setConfig({ xClientSecret: e.target.value })}
+          type="password"
+          className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+        />
+        <Button
+          variant="outline"
+          className="mt-3 w-full"
+          disabled={!xEnabled(config)}
+          onClick={async () => {
+            try {
+              const posted = await sendXPost({
+                data: {
+                  accessToken: config.xAccessToken,
+                  clientId: config.xClientId || undefined,
+                  clientSecret: config.xClientSecret || undefined,
+                  refreshToken: config.xRefreshToken || undefined,
+                  text: "홀드현알리미 연결 테스트입니다. 예매가 열리면 여기로 올립니다.",
+                },
+              });
+              if (posted.accessToken || posted.refreshToken) {
+                setConfig({
+                  xAccessToken: posted.accessToken || config.xAccessToken,
+                  xRefreshToken: posted.refreshToken || config.xRefreshToken,
+                });
+              }
+              toast.success("X에 올렸습니다.");
+              window.open(posted.url, "_blank", "noopener,noreferrer");
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "X 올리기 실패");
+            }
+          }}
+        >
+          테스트 글 올리기
+        </Button>
+      </ChannelCard>
+      </section>
+
+      <section className="rounded-xl bg-surface p-4 shadow-border">
+        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
+          배경
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          라이트, 다크, 또는 기기 설정을 따릅니다.
+        </p>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {THEME_MODES.map((mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => setConfig({ theme: mode.id })}
+              className={cn(
+                "min-h-11 rounded-md text-sm",
+                (config.theme ?? "dark") === mode.id
+                  ? "bg-pick text-fg ring-1 ring-border-strong"
+                  : "bg-bg text-muted",
+              )}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -858,15 +950,23 @@ function ChannelCard({
   open,
   onToggle,
   children,
+  embedded = false,
 }: {
   title: string;
   summary: string;
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
+  embedded?: boolean;
 }) {
   return (
-    <section className="rounded-xl bg-surface p-4 shadow-border">
+    <div
+      className={
+        embedded
+          ? "border-t border-border pt-3"
+          : "rounded-xl bg-surface p-4 shadow-border"
+      }
+    >
       <button
         type="button"
         onClick={onToggle}
@@ -883,7 +983,7 @@ function ChannelCard({
         </span>
       </button>
       {open ? <div className="mt-3 border-t border-border pt-3">{children}</div> : null}
-    </section>
+    </div>
   );
 }
 
@@ -891,7 +991,7 @@ function CloudSettingsCard() {
   const { user, isPending } = useCurrentUserState();
   const [signingOut, setSigningOut] = useState(false);
   if (isPending) {
-    return <div className="h-24 rounded-xl bg-surface shadow-border" />;
+    return <div className="h-16 rounded-md bg-bg" />;
   }
   async function logout() {
     setSigningOut(true);
@@ -904,7 +1004,7 @@ function CloudSettingsCard() {
     }
   }
   return (
-    <section className="rounded-xl bg-surface p-4 shadow-border">
+    <div>
       <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
         계정
       </h2>
@@ -917,8 +1017,8 @@ function CloudSettingsCard() {
             <p>{user.primaryEmail}</p>
           ) : null}
           <p>
-            로그인하면 별표·메일·텔레그램·카톡이 이 계정에 저장됩니다. 알림
-            메인은 그록 서버이고, 구글 스크립트는 예비입니다.
+            로그인하면 별표·메일·텔레그램·카톡·X가 이 계정에 저장됩니다. 그록
+            서버와 구글 스크립트가 둘 다 알림을 보냅니다.
           </p>
           {authEnabled ? (
             <Button
@@ -946,7 +1046,7 @@ function CloudSettingsCard() {
           </Link>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -995,5 +1095,86 @@ function Steps({ items }: { items: ReactNode[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+function AlertPathStatus() {
+  const gasWebUrl = useAppStore((s) => s.config.gasWebUrl);
+  const [line, setLine] = useState("현황을 확인하는 중…");
+  const [kind, setKind] = useState<"both" | "grok" | "gas" | "wait">("wait");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const url = gasWebUrl.trim();
+      let tickAlive = false;
+      try {
+        const res = await fetch("/api/watch-alive", {
+          signal: AbortSignal.timeout(8000),
+        });
+        const json = (await res.json()) as { alive?: boolean };
+        tickAlive = Boolean(json.alive);
+      } catch {
+        tickAlive = false;
+      }
+      let gasOk = false;
+      if (url) {
+        const gas = await pullGasAlertStatus({ data: { url } }).catch(() => ({
+          status: "error" as const,
+        }));
+        gasOk = gas.status === "ok";
+      }
+      if (cancelled) return;
+      if (tickAlive && gasOk) {
+        setKind("both");
+        setLine("그록 서버와 구글 스크립트가 둘 다 알림을 보냅니다.");
+        return;
+      }
+      if (tickAlive) {
+        setKind("grok");
+        setLine(
+          url
+            ? "그록 서버로 돌아가고 있습니다. 스크립트는 최신화하면 같이 보냅니다."
+            : "그록 서버로 돌아가고 있습니다. 구글 스크립트가 없습니다.",
+        );
+        return;
+      }
+      if (gasOk) {
+        setKind("gas");
+        setLine("구글 스크립트가 알림을 보냅니다.");
+        return;
+      }
+      setKind("grok");
+      setLine(
+        url
+          ? "알림 경로를 아직 못 읽었습니다. 스크립트를 최신화해 주세요."
+          : "그록 서버 주기를 아직 못 읽었습니다. 구글 스크립트가 없습니다.",
+      );
+    }
+    void load();
+    const timer = window.setInterval(() => {
+      void load();
+    }, 20000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [gasWebUrl]);
+
+  return (
+    <div
+      className={cn(
+        "mt-3 rounded-lg px-3 py-3 text-sm leading-relaxed",
+        kind === "both"
+          ? "bg-pick text-fg ring-1 ring-border-strong"
+          : "bg-bg text-fg ring-1 ring-border",
+        kind === "wait" && "text-muted",
+      )}
+    >
+      <p className="text-[11px] font-medium tracking-[0.16em] text-muted">
+        알림 경로
+      </p>
+      <p className="mt-1.5">{line}</p>
+    </div>
   );
 }

@@ -8,25 +8,33 @@ import {
   watchSignature,
 } from "./match";
 import { runScan } from "./scan-impl.server";
-import { diffStarSeats, notifyCopy, seatChangeAlert } from "./seats";
+import { diffStarSeats, notifyCopy, seatChangeAlert, showAlertBody, tweetCopy } from "./seats";
 import { THEATERS } from "./theaters";
 import type { AlertItem, BookingIntent, Showtime, TheaterId, WatchConfig } from "./types";
-import { mailEnabled } from "./types";
+import { mailEnabled, xEnabled } from "./types";
 
 const THEATER_IDS = THEATERS.map((t) => t.id);
 let lastRunAt = 0;
+
+export function watchTickHealth() {
+  return {
+    lastRunAt,
+    ageMs: lastRunAt ? Date.now() - lastRunAt : null,
+    alive: lastRunAt > 0 && Date.now() - lastRunAt < 10 * 60 * 1000,
+  };
+}
 
 function uniqueCap(ids: string[], cap: number): string[] {
   return [...new Set(ids)].slice(-cap);
 }
 
-function toAlert(show: Showtime): AlertItem {
+function toAlert(show: Showtime, all: Showtime[]): AlertItem {
   return {
     id: `alert:${show.id}:${Date.now()}`,
     createdAt: new Date().toISOString(),
     kind: "open",
     title: `${show.movieTitle} 예매 오픈`,
-    body: `${show.theaterName} · ${show.hallName} · ${show.startTime}`,
+    body: showAlertBody(show, all),
     bookingUrl: show.bookingUrl,
     theaterId: show.theaterId,
     movieTitle: show.movieTitle,
@@ -44,7 +52,8 @@ function canNotify(config: WatchConfig) {
     (config.telegramToken && config.telegramChatId) ||
       (config.kakaoRestKey && config.kakaoRefreshToken) ||
       config.webhookUrl.trim() ||
-      mailEnabled(config),
+      mailEnabled(config) ||
+      xEnabled(config),
   );
 }
 
@@ -146,6 +155,24 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
           gasWebUrl: config.gasWebUrl,
           gmailAppPassword: config.gmailAppPassword,
         }),
+      ).catch(() => null),
+    );
+  }
+  if (xEnabled(config)) {
+    jobs.push(
+      import("./x-post.server").then(({ postXTweet }) =>
+        postXTweet(
+          {
+            accessToken: config.xAccessToken,
+            clientId: config.xClientId,
+            clientSecret: config.xClientSecret,
+            refreshToken: config.xRefreshToken,
+            apiKey: config.xApiKey,
+            apiSecret: config.xApiSecret,
+            accessSecret: config.xAccessSecret,
+          },
+          tweetCopy(items),
+        ),
       ).catch(() => null),
     );
   }
@@ -275,7 +302,10 @@ export async function runWatchTick() {
       2500,
     );
     const { nextQueue, changes } = diffStarSeats(snap.queue, allShows);
-    const items = [...fresh.map(toAlert), ...changes.map(seatChangeAlert)];
+    const items = [
+      ...fresh.map((show) => toAlert(show, allShows)),
+      ...changes.map((change) => seatChangeAlert(change, allShows)),
+    ];
     if (items.length) {
       await notifyChannels(config, items);
       sent += items.length;
@@ -302,7 +332,7 @@ export async function runWatchTick() {
         const key =
           accounts.find((a) => a.snap.config.gasWebUrl.trim() === url)?.snap
             .config.gasSyncKey || "";
-        return pingGasHeartbeat(url, key);
+        return pingGasHeartbeat(url, key, "tick");
       }),
     );
     return { skipped: false as const, users: accounts.length, sent };

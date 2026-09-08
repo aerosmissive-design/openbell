@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260908-formats";
+export const GAS_SOURCE_STAMP = "20260908-xoauth2";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -37,6 +37,13 @@ export function buildGasScript(config: WatchConfig, queue: BookingIntent[] = [])
   const webhookUrl = config.webhookUrl;
   const kakaoRestKey = config.kakaoRestKey || "";
   const kakaoRefreshToken = config.kakaoRefreshToken || "";
+  const xApiKey = config.xApiKey || "";
+  const xApiSecret = config.xApiSecret || "";
+  const xAccessToken = config.xAccessToken || "";
+  const xAccessSecret = config.xAccessSecret || "";
+  const xClientId = config.xClientId || "";
+  const xClientSecret = config.xClientSecret || "";
+  const xRefreshToken = config.xRefreshToken || "";
   const minutes = config.intervalMin <= 1 ? 1 : config.intervalMin <= 5 ? 5 : 10;
   const theaterNames =
     THEATERS.filter((t) => config.theaters[t.id])
@@ -62,6 +69,7 @@ export function buildGasScript(config: WatchConfig, queue: BookingIntent[] = [])
  * 메일: ${email}
  * 텔레그램: ${teleLabel}
  * 카카오: ${kakaoLabel}
+ * X: ${xAccessToken ? "켜짐" : "끔"}
  *
  * 처음: 전부 지우고 붙여넣기 → 저장 → 위쪽 함수 설치 실행
  * 그다음: 오픈벨 설정만 바꾸면 이 스크립트에 반영됩니다.
@@ -80,6 +88,13 @@ const CONFIG = {
   webhookUrl: ${JSON.stringify(webhookUrl)},
   kakaoRestKey: ${JSON.stringify(kakaoRestKey)},
   kakaoRefreshToken: ${JSON.stringify(kakaoRefreshToken)},
+  xApiKey: ${JSON.stringify(xApiKey)},
+  xApiSecret: ${JSON.stringify(xApiSecret)},
+  xAccessToken: ${JSON.stringify(xAccessToken)},
+  xAccessSecret: ${JSON.stringify(xAccessSecret)},
+  xClientId: ${JSON.stringify(xClientId)},
+  xClientSecret: ${JSON.stringify(xClientSecret)},
+  xRefreshToken: ${JSON.stringify(xRefreshToken)},
   appUrl: ${JSON.stringify(appUrl)},
   scanSources: ${JSON.stringify(normalizeScanSources(config.scanSources))},
   syncKey: ${JSON.stringify(config.gasSyncKey || "")},
@@ -107,8 +122,15 @@ function applyLiveConfig_() {
       webhookUrl: 1,
       kakaoRestKey: 1,
       kakaoRefreshToken: 1,
+      xApiKey: 1,
+      xApiSecret: 1,
+      xAccessToken: 1,
+      xAccessSecret: 1,
+      xClientId: 1,
+      xClientSecret: 1,
+      xRefreshToken: 1,
     };
-    ["email","ranks","extraTitles","theaters","formats","daysAhead","intervalMin","telegramToken","telegramChatId","webhookUrl","kakaoRestKey","kakaoRefreshToken","scanSources","queued","syncKey"].forEach(function (k) {
+    ["email","ranks","extraTitles","theaters","formats","daysAhead","intervalMin","telegramToken","telegramChatId","webhookUrl","kakaoRestKey","kakaoRefreshToken","xApiKey","xApiSecret","xAccessToken","xAccessSecret","xClientId","xClientSecret","xRefreshToken","scanSources","queued","syncKey"].forEach(function (k) {
       if (extra[k] === undefined || extra[k] === null) return;
       if (secrets[k] && !String(extra[k]).trim()) return;
       CONFIG[k] = extra[k];
@@ -304,7 +326,6 @@ function checkOpenSeats() {
   applyLiveConfig_();
   ensureTrigger_();
   const report = scan_(false);
-  if (grokIsMain_()) return;
   if (report.alerts && report.alerts.length) {
     const body = report.alerts.map(function (a) {
       return "· " + a.title + "\\n  " + a.theater + " / " + a.hall + "\\n  " + a.date + " " + a.time + "\\n  바로예매 " + a.url;
@@ -319,12 +340,38 @@ function checkOpenSeats() {
   }
 }
 
+function grokWaitMs_() {
+  return Math.max(triggerMinutes_() * 3, 15) * 60 * 1000;
+}
+
+function grokBeatAt_() {
+  return Number(PropertiesService.getScriptProperties().getProperty("grokBeat") || 0);
+}
+
+function grokTickAt_() {
+  return Number(PropertiesService.getScriptProperties().getProperty("grokTickBeat") || 0);
+}
+
 function grokIsMain_() {
-  var raw = PropertiesService.getScriptProperties().getProperty("grokBeat");
-  var at = Number(raw || 0);
+  var at = grokBeatAt_();
   if (!at) return false;
-  var wait = Math.max(triggerMinutes_() * 3, 15) * 60 * 1000;
-  return Date.now() - at < wait;
+  return Date.now() - at < grokWaitMs_();
+}
+
+function grokStatus_() {
+  var beat = grokBeatAt_();
+  var tick = grokTickAt_();
+  var wait = grokWaitMs_();
+  var now = Date.now();
+  return {
+    ok: true,
+    beat: beat,
+    tick: tick,
+    waitMs: wait,
+    remainMs: beat ? Math.max(0, wait - (now - beat)) : 0,
+    grokMain: grokIsMain_(),
+    intervalMin: triggerMinutes_(),
+  };
 }
 
 function scan_(primeOnly) {
@@ -396,15 +443,16 @@ function scan_(primeOnly) {
     found += 1;
     if (seen[row.id]) return;
     seen[row.id] = true;
-    if (!primeOnly && primed) alerts.push(row);
+    if (!primeOnly && primed) alerts.push(withRound_(row, live));
   });
   (CONFIG.queued || []).forEach(function (q) {
     const row = byId[q.id];
     if (!row || typeof row.restSeats !== "number") return;
     const last = qseats[q.id];
     if (!primeOnly && typeof last === "number" && row.restSeats > last) {
-      seatAlerts.push({
+      seatAlerts.push(withRound_({
         title: (q.title || row.title) + " 좌석 +" + (row.restSeats - last),
+        matchTitle: q.title || row.title,
         theater: row.theater,
         hall: row.hall,
         date: row.date,
@@ -412,7 +460,7 @@ function scan_(primeOnly) {
         url: q.url || row.url,
         restSeats: row.restSeats,
         delta: row.restSeats - last,
-      });
+      }, live));
     }
     qseats[q.id] = row.restSeats;
   });
@@ -497,8 +545,16 @@ function doGet(e) {
     if (CONFIG.syncKey && String(p.key || "") !== String(CONFIG.syncKey)) {
       return jsonOut_({ ok: false });
     }
-    PropertiesService.getScriptProperties().setProperty("grokBeat", String(Date.now()));
+    var props = PropertiesService.getScriptProperties();
+    var now = String(Date.now());
+    props.setProperty("grokBeat", now);
+    var src = String(p.src || "page");
+    props.setProperty("grokBeatSrc", src);
+    if (src === "tick") props.setProperty("grokTickBeat", now);
     return jsonOut_({ ok: true });
+  }
+  if (op === "status") {
+    return jsonOut_(grokStatus_());
   }
   if (op === "install") {
     설치();
@@ -572,6 +628,13 @@ function doGet(e) {
       webhookUrl: CONFIG.webhookUrl || "",
       kakaoRestKey: CONFIG.kakaoRestKey || "",
       kakaoRefreshToken: CONFIG.kakaoRefreshToken || "",
+      xApiKey: CONFIG.xApiKey || "",
+      xApiSecret: CONFIG.xApiSecret || "",
+      xAccessToken: CONFIG.xAccessToken || "",
+      xAccessSecret: CONFIG.xAccessSecret || "",
+      xClientId: CONFIG.xClientId || "",
+      xClientSecret: CONFIG.xClientSecret || "",
+      xRefreshToken: CONFIG.xRefreshToken || "",
     });
   }
   return ContentService.createTextOutput("openbell");
@@ -619,7 +682,7 @@ function handleSync_(e) {
   if (body.config && typeof body.config === "object") {
     var prev = {};
     try { prev = JSON.parse(props.getProperty("liveConfig") || "{}"); } catch (err) {}
-    ["email","telegramToken","telegramChatId","webhookUrl","kakaoRestKey","kakaoRefreshToken"].forEach(function (k) {
+    ["email","telegramToken","telegramChatId","webhookUrl","kakaoRestKey","kakaoRefreshToken","xApiKey","xApiSecret","xAccessToken","xAccessSecret","xClientId","xClientSecret","xRefreshToken"].forEach(function (k) {
       if (!body.config[k] && (prev[k] || CONFIG[k])) {
         body.config[k] = prev[k] || CONFIG[k];
       }
@@ -763,6 +826,7 @@ function notify_(subject, body, alerts) {
     }
   }
   try { sendKakao_(subject, alerts); } catch (e) { Logger.log("kakao " + String(e)); }
+  try { sendX_(subject, body, alerts); } catch (e) { Logger.log("x " + String(e)); }
 }
 
 function telegramChatId_() {
@@ -809,10 +873,25 @@ function sendTelegram_(subject, body, alerts) {
   }
 }
 
+function withRound_(row, live) {
+  var n = 0;
+  var title = normalize_(row.matchTitle || row.title);
+  (live || []).forEach(function (s) {
+    if (!s) return;
+    if (s.theaterId && row.theaterId && s.theaterId !== row.theaterId) return;
+    if (s.theater && row.theater && s.theater !== row.theater) return;
+    if (String(s.date || "") !== String(row.date || "")) return;
+    if (normalize_(s.title) !== title) return;
+    if (String(s.time || "") < String(row.time || "") || (s.time === row.time && String(s.hall || "") < String(row.hall || ""))) n += 1;
+  });
+  row.round = n + 1;
+  return row;
+}
+
 function alertLine_(a) {
   var bits = [];
   if (a.title) bits.push(a.title);
-  var meta = [a.theater, a.hall, a.date, a.time].filter(Boolean).join(" · ");
+  var meta = [a.theater, a.hall, a.round ? a.round + "회" : "", a.date, a.time].filter(Boolean).join(" · ");
   if (meta) bits.push(meta);
   if (a.restSeats != null) {
     bits.push("잔여 " + a.restSeats + (a.delta != null ? " (+" + a.delta + ")" : ""));
@@ -837,7 +916,7 @@ function buildMailHtml_(subject, body, alerts) {
     return a && (a.title || a.url || a.theater);
   });
   const rows = items.map(function (a) {
-    const meta = [a.theater, a.hall, a.date, a.time].filter(Boolean).join(" · ");
+    const meta = [a.theater, a.hall, a.round ? a.round + "회" : "", a.date, a.time].filter(Boolean).join(" · ");
     var extra = "";
     if (a.restSeats != null) {
       extra = "잔여 " + a.restSeats + (a.delta != null ? " (+" + a.delta + ")" : "");
@@ -893,6 +972,72 @@ function sendKakao_(subject, alerts) {
     payload: { template_object: JSON.stringify(template) },
     muteHttpExceptions: true,
   });
+}
+
+function xEnc_(s) {
+  return encodeURIComponent(String(s)).replace(/[!'()*]/g, function (c) {
+    return "%" + c.charCodeAt(0).toString(16).toUpperCase();
+  });
+}
+
+function sendX_(subject, body, alerts) {
+  if (!CONFIG.xAccessToken) return;
+  var lines = ["홀드현알리미"];
+  var items = (alerts || []).filter(function (a) { return a && (a.title || a.url); });
+  if (items.length) {
+    items.slice(0, 3).forEach(function (a) {
+      if (a.title) lines.push(a.title);
+      var meta = [a.theater, a.hall, a.round ? a.round + "회" : "", a.time].filter(Boolean).join(" · ");
+      if (meta) lines.push(meta);
+      if (a.url) lines.push(String(a.url));
+    });
+    if (items.length > 3) lines.push("외 " + (items.length - 3) + "건");
+  } else {
+    lines.push(String(subject || "오픈벨"));
+  }
+  var text = lines.join("\\n").substring(0, 270);
+  var url = "https://api.x.com/2/tweets";
+  var token = CONFIG.xAccessToken;
+  var posted = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + token },
+    payload: JSON.stringify({ text: text }),
+    muteHttpExceptions: true
+  });
+  if (posted.getResponseCode() === 401 && CONFIG.xClientId && CONFIG.xClientSecret && CONFIG.xRefreshToken) {
+    var basic = Utilities.base64Encode(CONFIG.xClientId + ":" + CONFIG.xClientSecret);
+    var refreshed = UrlFetchApp.fetch("https://api.x.com/2/oauth2/token", {
+      method: "post",
+      headers: { Authorization: "Basic " + basic },
+      payload: {
+        grant_type: "refresh_token",
+        refresh_token: CONFIG.xRefreshToken
+      },
+      muteHttpExceptions: true
+    });
+    var tok = {};
+    try { tok = JSON.parse(refreshed.getContentText()); } catch (e) {}
+    if (tok.access_token) {
+      token = tok.access_token;
+      CONFIG.xAccessToken = token;
+      if (tok.refresh_token) CONFIG.xRefreshToken = tok.refresh_token;
+      try {
+        var props = PropertiesService.getScriptProperties();
+        var live = JSON.parse(props.getProperty("liveConfig") || "{}");
+        live.xAccessToken = token;
+        if (tok.refresh_token) live.xRefreshToken = tok.refresh_token;
+        props.setProperty("liveConfig", JSON.stringify(live));
+      } catch (e) {}
+      UrlFetchApp.fetch(url, {
+        method: "post",
+        contentType: "application/json",
+        headers: { Authorization: "Bearer " + token },
+        payload: JSON.stringify({ text: text }),
+        muteHttpExceptions: true
+      });
+    }
+  }
 }
 
 function fetchRanking_() {
@@ -1726,6 +1871,13 @@ export const DEFAULT_WATCH: WatchConfig = {
   gmailAppPassword: "",
   kakaoRestKey: "",
   kakaoRefreshToken: "",
+  xApiKey: "",
+  xApiSecret: "",
+  xAccessToken: "",
+  xAccessSecret: "",
+  xClientId: "",
+  xClientSecret: "",
+  xRefreshToken: "",
   gasWebUrl: "",
   gasSyncKey: "",
   gasScriptId: "",

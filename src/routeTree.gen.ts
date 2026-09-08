@@ -14,6 +14,7 @@ import { Route as GoRouteImport } from './routes/go'
 import { Route as KakaoRouteImport } from './routes/kakao'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiGasBindRouteImport } from './routes/api/gas-bind'
+import { Route as ApiWatchAliveRouteImport } from './routes/api/watch-alive'
 import { Route as ApiWatchTickRouteImport } from './routes/api/watch-tick'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -42,6 +43,11 @@ const ApiGasBindRoute = ApiGasBindRouteImport.update({
   path: '/api/gas-bind',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWatchAliveRoute = ApiWatchAliveRouteImport.update({
+  id: '/api/watch-alive',
+  path: '/api/watch-alive',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWatchTickRoute = ApiWatchTickRouteImport.update({
   id: '/api/watch-tick',
   path: '/api/watch-tick',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
   '/api/gas-bind': typeof ApiGasBindRoute
+  '/api/watch-alive': typeof ApiWatchAliveRoute
   '/api/watch-tick': typeof ApiWatchTickRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
   '/api/gas-bind': typeof ApiGasBindRoute
+  '/api/watch-alive': typeof ApiWatchAliveRoute
   '/api/watch-tick': typeof ApiWatchTickRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
   '/api/gas-bind': typeof ApiGasBindRoute
+  '/api/watch-alive': typeof ApiWatchAliveRoute
   '/api/watch-tick': typeof ApiWatchTickRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/kakao'
     | '/login'
     | '/api/gas-bind'
+    | '/api/watch-alive'
     | '/api/watch-tick'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/kakao'
     | '/login'
     | '/api/gas-bind'
+    | '/api/watch-alive'
     | '/api/watch-tick'
     | '/api/auth/$'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/kakao'
     | '/login'
     | '/api/gas-bind'
+    | '/api/watch-alive'
     | '/api/watch-tick'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   KakaoRoute: typeof KakaoRoute
   LoginRoute: typeof LoginRoute
   ApiGasBindRoute: typeof ApiGasBindRoute
+  ApiWatchAliveRoute: typeof ApiWatchAliveRoute
   ApiWatchTickRoute: typeof ApiWatchTickRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -158,6 +171,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGasBindRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/watch-alive': {
+      id: '/api/watch-alive'
+      path: '/api/watch-alive'
+      fullPath: '/api/watch-alive'
+      preLoaderRoute: typeof ApiWatchAliveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/watch-tick': {
       id: '/api/watch-tick'
       path: '/api/watch-tick'
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   KakaoRoute: KakaoRoute,
   LoginRoute: LoginRoute,
   ApiGasBindRoute: ApiGasBindRoute,
+  ApiWatchAliveRoute: ApiWatchAliveRoute,
   ApiWatchTickRoute: ApiWatchTickRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
