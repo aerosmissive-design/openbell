@@ -2,7 +2,7 @@
 
 CGV·메가박스 특별관 예매가 열리거나, 별표한 회차의 잔여석이 변하면 메일·텔레그램·카톡·X로 알려 주는 웹앱입니다.
 
-웹: https://openbell.grok.me  
+웹: https://openbell.grok.me · Vercel: https://openbell-fawn.vercel.app  
 저장소: https://github.com/aerosmissive-design/openbell
 
 ## v3.3에서 달라진 점

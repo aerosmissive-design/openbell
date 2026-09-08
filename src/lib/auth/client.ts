@@ -79,6 +79,13 @@ function inLivePreview(): boolean {
   );
 }
 
+function useDirectGoogle(providerId: string): boolean {
+  if (typeof window === "undefined") return false;
+  if (providerId !== "grok-google" && providerId !== "google") return false;
+  const host = window.location.hostname;
+  return host.endsWith(".vercel.app") || host === "localhost" || host === "127.0.0.1";
+}
+
 /** Message the popup posts back to the opener once sign-in completes. */
 type PopupMessage = { source: "grok-auth-popup"; token: string | null; error?: string };
 
@@ -140,6 +147,17 @@ export async function signIn(
         window.location.href = callbackURL;
       }
     }
+    return;
+  }
+
+  if (useDirectGoogle(providerId)) {
+    const { data, error } = await authClient.signIn.social({
+      provider: "google",
+      callbackURL,
+      errorCallbackURL,
+    });
+    if (error) throw new Error(error.message ?? "Sign-in failed");
+    if (data?.url) window.location.href = data.url;
     return;
   }
 
