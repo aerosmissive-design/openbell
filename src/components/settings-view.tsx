@@ -580,8 +580,9 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                 className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
               />
               <p className="mt-2 text-xs leading-relaxed text-faint">
-                구글 스크립트 없이 그록 서버가 Gmail SMTP로 보낼 때만 필요합니다.
-                스크립트를 쓰면 비워 둬도 됩니다.
+                구글 2단계 인증을 켠 뒤, 로그인 6자리가 아니라
+                myaccount.google.com/apppasswords 에서 만든 16자리입니다.
+                스크립트 웹앱이 연결되어 있으면 이 칸은 비워도 됩니다.
               </p>
               <a
                 href="https://myaccount.google.com/apppasswords"
@@ -602,7 +603,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               {sendingTest ? "보내는 중…" : "테스트 메일 보내기"}
             </Button>
             <p className="mt-2 text-xs leading-relaxed text-faint">
-              앱 비밀번호가 없으면 첫 메일에 확인 링크가 올 수 있습니다.
+              스크립트가 있으면 그걸로 보냅니다. 없으면 16자리 앱 비밀번호가
+              필요합니다. 로그인 인증번호와는 다릅니다.
             </p>
           </div>
         )}

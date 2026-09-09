@@ -61,14 +61,15 @@ export async function sendOpenbellMail(opts: {
     html,
   );
   if (viaGmail.ok) return viaGmail;
-  const viaResend = await postResend(to, opts.subject, opts.text, html);
-  if (viaResend.ok) return viaResend;
-  const posted = await postFormSubmit(to, opts.subject, opts.text, opts.url);
-  if (posted.ok) return posted;
   if (opts.gasWebUrl?.trim()) {
     const viaGas = await postGasMail(opts.gasWebUrl.trim(), opts);
     if (viaGas.ok) return viaGas;
   }
+  const viaResend = await postResend(to, opts.subject, opts.text, html);
+  if (viaResend.ok) return viaResend;
+  if (viaGmail.error) return viaGmail;
+  const posted = await postFormSubmit(to, opts.subject, opts.text, opts.url);
+  if (posted.ok) return posted;
   return {
     ok: false,
     error:
