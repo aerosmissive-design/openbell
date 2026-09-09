@@ -281,7 +281,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             : gasHomeUrl(loginEmail),
         );
         toast.error(
-          `${message} 코드를 복사했습니다. script.google.com에서 붙여넣고 저장하세요.`,
+          `${message}\n(코드를 복사했습니다. script.google.com에서 붙여넣고 저장하세요.)`,
         );
         if (message.includes("앱스 스크립트 API")) {
           window.open("https://script.google.com/home/usersettings", "_blank", "noopener");
