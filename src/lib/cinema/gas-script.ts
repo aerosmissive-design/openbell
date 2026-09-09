@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260910-path";
+export const GAS_SOURCE_STAMP = "20260910-esc";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -2122,10 +2122,16 @@ function esc_(s) {
   return String(s || "").split('"').join("'");
 }
 function escHtml_(s) {
-  return String(s || "").split("&").join("&").split("<").join("<").split(">").join(">");
+  return String(s || "")
+    .split("&").join("&" + "amp;")
+    .split("<").join("&" + "lt;")
+    .split(">").join("&" + "gt;");
 }
 function escAttr_(s) {
-  return String(s || "").split("&").join("&").split('"').join(""").split("<").join("<");
+  return String(s || "")
+    .split("&").join("&" + "amp;")
+    .split('"').join("&" + "quot;")
+    .split("<").join("&" + "lt;");
 }
 
 function megaboxUrl_(brch, playDate, movieNo, playSchdlNo) {
