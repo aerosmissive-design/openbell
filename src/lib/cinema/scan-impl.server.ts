@@ -167,7 +167,7 @@ async function scanTheater(
       : Promise.resolve(new Map<string, Showtime[]>());
 
   const officialByDate = new Map<string, Showtime[]>();
-  // CGV 공홈은 막혀 있어 비워 둡니다. 메가박스 공홈 회차는 아래 mega.showtimes에서 합칩니다.
+  // CGV 공홈은 막혀 있어 비워 둡니다. 메가박스 공홈 상영은 아래 mega.showtimes에서 합칩니다.
 
   const naverByDate = sources.naver
     ? await naverPromise

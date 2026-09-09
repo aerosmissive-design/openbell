@@ -1,9 +1,9 @@
 import { ChevronDown, RefreshCw, Search, Star, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { intentFromShowtime } from "@/lib/cinema/auto-booking";
 import { selectedMovies, titlesMatch, titleInSet, watchedTitleSet } from "@/lib/cinema/match";
-import { applyCgvSeatHits, mergeShowtimes, screeningNo, summarizeSeatDelta } from "@/lib/cinema/seats";
+import { applyCgvSeatHits, formatShowPlace, mergeShowtimes, summarizeSeatDelta } from "@/lib/cinema/seats";
 import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { MovieTab, RankingMovie, ScanProps, Showtime, TheaterId } from "@/lib/cinema/types";
@@ -23,6 +23,7 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
   const onlyAlerted = useAppStore((s) => s.onlyAlerted);
   const setOnlyAlerted = useAppStore((s) => s.setOnlyAlerted);
   const movieTab = config.movieTab ?? "chart";
+  const [focusShowId, setFocusShowId] = useState<string | null>(null);
   const movies = selectedMovies(
     scan?.ranking ?? [],
     scan?.showing ?? [],
@@ -152,7 +153,7 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
 
       {onlyAlerted && !theaterRows.length ? (
         <p className="rounded-xl bg-surface px-4 py-8 text-center text-sm text-muted shadow-border">
-          알림 탭에 뜬 회차가 아직 없습니다.
+          알림 탭에 뜬 상영이 아직 없습니다.
         </p>
       ) : (
       <div className="flex flex-col gap-3">
@@ -177,6 +178,8 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
               )}
             alertedShows={alertedShows}
             onlyAlerted={onlyAlerted}
+            focusShowId={focusShowId}
+            onJump={(show) => setFocusShowId(show.id)}
             onQueue={(show) => {
               const item = intentFromShowtime(show);
               const exists = queue.some((q) => q.id === item.id);
@@ -418,6 +421,8 @@ function TheaterBlock({
   otherOpens,
   alertedShows,
   onlyAlerted,
+  focusShowId,
+  onJump,
   onQueue,
 }: {
   theaterId: TheaterId;
@@ -431,6 +436,8 @@ function TheaterBlock({
   otherOpens: { theaterName: string; show: Showtime }[];
   alertedShows: Set<string>;
   onlyAlerted: boolean;
+  focusShowId: string | null;
+  onJump: (show: Showtime) => void;
   onQueue: (show: Showtime) => void;
 }) {
   const theater = THEATERS.find((t) => t.id === theaterId);
@@ -442,6 +449,16 @@ function TheaterBlock({
   const mergeOverlayShows = useAppStore((s) => s.mergeOverlayShows);
   const [seatBusy, setSeatBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const focusedHere = Boolean(focusShowId && shows.some((s) => s.id === focusShowId));
+  useEffect(() => {
+    if (!focusedHere) return;
+    setOpen(true);
+    const id = `show-${focusShowId}`;
+    const timer = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [focusedHere, focusShowId]);
   if (!theater) return null;
   const current = theater;
   const missingSeats =
@@ -523,6 +540,7 @@ function TheaterBlock({
 
   return (
     <section
+      id={`theater-${theaterId}`}
       className={cn(
         "rise-in flex flex-col overflow-hidden rounded-xl p-3 shadow-border transition-colors",
         allOn
@@ -638,7 +656,9 @@ function TheaterBlock({
                     movie={movie}
                     shows={list}
                     elsewhere={elsewhere}
+                    focusShowId={focusShowId}
                     alertedShows={alertedShows}
+                    onJump={onJump}
                     onQueue={onQueue}
                   />
                 ))}
@@ -657,19 +677,36 @@ function MovieTimes({
   movie,
   shows,
   elsewhere,
+  focusShowId,
   alertedShows,
+  onJump,
   onQueue,
 }: {
   movie: RankingMovie;
   shows: Showtime[];
   elsewhere: { theaterName: string; show: Showtime }[];
+  focusShowId: string | null;
   alertedShows: Set<string>;
+  onJump: (show: Showtime) => void;
   onQueue: (show: Showtime) => void;
 }) {
   const flagged = shows.filter((s) => alertedShows.has(showAlertKey(s)));
   const rest = shows.filter((s) => !alertedShows.has(showAlertKey(s)));
-  const visible = [...flagged, ...rest].slice(0, Math.max(8, flagged.length));
-  const hidden = shows.length - visible.length;
+  let visible = [...flagged, ...rest].slice(0, Math.max(8, flagged.length));
+  if (focusShowId && shows.some((s) => s.id === focusShowId) && !visible.some((s) => s.id === focusShowId)) {
+    const hit = shows.find((s) => s.id === focusShowId);
+    if (hit) visible = [hit, ...visible.filter((s) => s.id !== hit.id)].slice(0, 9);
+  }
+  const hidden = Math.max(0, shows.length - visible.length);
+  const elseList = elsewhere
+    .slice()
+    .sort((a, b) =>
+      a.show.playDate === b.show.playDate
+        ? a.show.startTime.localeCompare(b.show.startTime)
+        : a.show.playDate.localeCompare(b.show.playDate),
+    );
+  const elseVisible = elseList.slice(0, 6);
+  const elseHidden = elseList.length - elseVisible.length;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
@@ -681,14 +718,23 @@ function MovieTimes({
       {shows.length === 0 ? (
         <div className="mt-2 rounded-md bg-bg px-3 py-3">
           {elsewhere.length ? (
-            <>
-              <p className="text-sm text-open">
-                {summarizeElsewhere(elsewhere)}
-              </p>
-              <p className="mt-1 text-[11px] text-faint">
-                이 극장에는 아직 없습니다. 위 극장 카드를 펼치세요.
-              </p>
-            </>
+            <div className="flex flex-col gap-1.5">
+              {elseVisible.map((row) => (
+                <button
+                  key={row.show.id}
+                  type="button"
+                  onClick={() => onJump(row.show)}
+                  className="min-h-11 rounded-md px-1 text-left text-sm text-open hover:bg-pick"
+                >
+                  {formatShowPlace(row.show)} 오픈
+                </button>
+              ))}
+              {elseHidden > 0 ? (
+                <p className="text-[11px] text-faint">외 {elseHidden}건 · 해당 극장 카드를 펼치세요</p>
+              ) : (
+                <p className="text-[11px] text-faint">이 극장에는 아직 없습니다. 눌러서 이동하세요.</p>
+              )}
+            </div>
           ) : (
             <>
               <p className="text-sm text-wait">미오픈 · 감시 중</p>
@@ -702,18 +748,18 @@ function MovieTimes({
         <ul className="mt-2 flex flex-col gap-1.5">
           {visible.map((show) => {
             const isAlert = alertedShows.has(showAlertKey(show));
-            const round = screeningNo(show, shows);
             return (
             <li
               key={show.id}
+              id={`show-${show.id}`}
               className={cn(
                 "rounded-md bg-bg px-3 py-2",
                 isAlert && "outline outline-2 outline-offset-1 outline-notify",
+                focusShowId === show.id && "ring-1 ring-border-strong",
               )}
             >
               <p className="truncate text-[11px] text-muted">
                 {formatPlayDate(show.playDate)}
-                {round ? ` · ${round}회` : ""}
                 {" · "}
                 {show.hallName}
               </p>
@@ -747,7 +793,7 @@ function MovieTimes({
             );
           })}
           {hidden > 0 ? (
-            <li className="px-1 text-[11px] text-faint">외 {hidden}회차</li>
+            <li className="px-1 text-[11px] text-faint">외 {hidden}건</li>
           ) : null}
         </ul>
       )}
@@ -782,18 +828,6 @@ function StarBtn({
       />
     </button>
   );
-}
-
-function summarizeElsewhere(
-  rows: { theaterName: string; show: Showtime }[],
-) {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    counts.set(row.theaterName, (counts.get(row.theaterName) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([name, n]) => `${name} ${n}회 오픈`)
-    .join(" · ");
 }
 
 function alertShowKey(alert: { theaterId: string; movieTitle: string; playDate: string; startTime: string; hallName: string }) {

@@ -812,7 +812,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                   },
                 });
                 toast.success(
-                  "텔레그램 테스트 전송. 감시 탭에서 포스터를 누르면, 새 회차가 열릴 때 여기로 옵니다.",
+                  "텔레그램 테스트 전송. 감시 탭에서 포스터를 누르면, 새 상영이 열릴 때 여기로 옵니다.",
                 );
               } catch (err) {
                 toast.error(err instanceof Error ? err.message : "전송 실패");
@@ -1078,7 +1078,7 @@ function WatchAlertHint({ lastScan }: { lastScan: ScanResult | null }) {
           : "감시 탭에서 포스터를 눌러 영화를 고르세요."}
       </p>
       <p>
-        이미 열린 회차는 보내지 않습니다. 새 날짜·새 시간이 열리면 옵니다.
+        이미 열린 상영은 보내지 않습니다. 새 날짜·새 시간이 열리면 옵니다.
         로그인돼 있으면 앱을 꺼도 텔레그램·메일로 갑니다. 웹앱 주소는 필요
         없습니다.
       </p>

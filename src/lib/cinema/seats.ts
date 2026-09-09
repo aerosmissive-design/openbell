@@ -179,19 +179,15 @@ export function summarizeSeatDelta(before: Showtime[], after: Showtime[]) {
   return {
     shows: gains.length,
     seats: gains.reduce((sum, row) => sum + row.added, 0),
-    lines: gains
-      .slice()
-      .sort((a, b) => a.round - b.round)
-      .map((row) => {
-        const round = row.round ? `${row.round}회차` : "회차";
-        return `• ${row.show.theaterName} ${round}에서 ${row.added}석이 추가됐습니다`;
-      }),
+    lines: gains.map((row) => {
+      return `• ${formatShowPlace(row.show)}에서 ${row.added}석이 추가됐습니다`;
+    }),
   };
 }
 
 export function listSeatGains(before: Showtime[], after: Showtime[]) {
   const prev = new Map(before.map((row) => [row.id, row.restSeats]));
-  const rows: { show: Showtime; added: number; round: number }[] = [];
+  const rows: { show: Showtime; added: number }[] = [];
   for (const row of after) {
     if (typeof row.restSeats !== "number") continue;
     const last = prev.get(row.id);
@@ -199,26 +195,36 @@ export function listSeatGains(before: Showtime[], after: Showtime[]) {
     if (typeof last !== "number") added = row.restSeats;
     else if (row.restSeats > last) added = row.restSeats - last;
     if (added <= 0) continue;
-    rows.push({ show: row, added, round: screeningNo(row, after) });
+    rows.push({ show: row, added });
   }
   return rows;
 }
 
-export function screeningNo(show: Showtime, all: Showtime[]): number {
-  const title = normalizeTitle(show.movieTitle);
-  const peers = all
-    .filter(
-      (row) =>
-        row.theaterId === show.theaterId &&
-        row.playDate === show.playDate &&
-        normalizeTitle(row.movieTitle) === title,
-    )
-    .sort((a, b) => {
-      const time = a.startTime.localeCompare(b.startTime);
-      return time || a.hallName.localeCompare(b.hallName);
-    });
-  const idx = peers.findIndex((row) => row.id === show.id);
-  return idx >= 0 ? idx + 1 : 0;
+export function formatClock(time: string) {
+  const match = String(time || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return time;
+  return `${Number(match[1])}시 ${match[2]}분`;
+}
+
+export function formatShowPlace(show: {
+  theaterName: string;
+  chain: "megabox" | "cgv" | string;
+  playDate: string;
+  startTime: string;
+  hallName?: string | null;
+}) {
+  const chain = show.chain === "cgv" ? "CGV" : "메가박스";
+  const name = String(show.theaterName || "")
+    .replace(/^메가박스\s*/, "")
+    .replace(/^CGV\s*/, "")
+    .trim();
+  const bits = [
+    `${name} ${chain}`.trim(),
+    formatPlayDate(show.playDate),
+    formatClock(show.startTime),
+  ];
+  if (show.hallName) bits.push(show.hallName);
+  return bits.filter(Boolean).join(" ");
 }
 
 export function formatPlayDate(ymd: string) {
@@ -232,13 +238,10 @@ export function formatPlayDate(ymd: string) {
 
 export function showAlertBody(
   show: Showtime,
-  all: Showtime[],
+  _all: Showtime[] = [],
   extra = "",
 ) {
-  const n = screeningNo(show, all);
-  const bits = [formatPlayDate(show.playDate), show.theaterName, show.hallName];
-  if (n) bits.push(`${n}회`);
-  bits.push(show.startTime);
+  const bits = [formatShowPlace(show)];
   if (extra) bits.push(extra);
   return bits.filter(Boolean).join(" · ");
 }

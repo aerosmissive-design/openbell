@@ -13,7 +13,7 @@ export function AlertsView() {
       <div className="rounded-xl bg-surface px-5 py-10 text-center shadow-border">
         <p className="text-xl font-bold text-fg">아직 오픈 없음</p>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          새 회차가 열리거나 별표 회차의 잔여석이 변하면 여기와 메일·텔레그램으로
+          새 상영이 열리거나 별표한 상영의 잔여석이 변하면 여기와 메일·텔레그램으로
           옵니다.
         </p>
       </div>

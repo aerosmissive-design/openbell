@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260909-harden";
+export const GAS_SOURCE_STAMP = "20260909-noround";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -324,7 +324,7 @@ function 설치() {
   const names = (report.names || []).join(", ") || "없음";
   const body = report.error
     ? "설치는 됐지만 시간표 조회가 실패했습니다. " + report.error
-    : "지금부터 ${minutes}분마다 감시합니다.\\n알림 영화: " + names + "\\n이미 열린 회차 " + report.found + "건은 넘어갑니다.\\n용산 CGV " + (report.cgvFound || 0) + "건 확인" + (report.cgvFound ? "" : (report.cgvErr ? " (" + report.cgvErr + ")" : "")) + ".\\n앞으로 새 날짜·새 시간이 열리면 메일·텔레그램으로 알려드립니다.";
+    : "지금부터 ${minutes}분마다 감시합니다.\\n알림 영화: " + names + "\\n이미 열린 상영 " + report.found + "건은 넘어갑니다.\\n용산 CGV " + (report.cgvFound || 0) + "건 확인" + (report.cgvFound ? "" : (report.cgvErr ? " (" + report.cgvErr + ")" : "")) + ".\\n앞으로 새 날짜·새 시간이 열리면 메일·텔레그램으로 알려드립니다.";
   notify_("[오픈벨] 설치 완료", body, [{
     title: "오픈벨",
     theater: "설치 완료",
@@ -895,18 +895,7 @@ function sendTelegram_(subject, body, alerts) {
   }
 }
 
-function withRound_(row, live) {
-  var n = 0;
-  var title = normalize_(row.matchTitle || row.title);
-  (live || []).forEach(function (s) {
-    if (!s) return;
-    if (s.theaterId && row.theaterId && s.theaterId !== row.theaterId) return;
-    if (s.theater && row.theater && s.theater !== row.theater) return;
-    if (String(s.date || "") !== String(row.date || "")) return;
-    if (normalize_(s.title) !== title) return;
-    if (String(s.time || "") < String(row.time || "") || (s.time === row.time && String(s.hall || "") < String(row.hall || ""))) n += 1;
-  });
-  row.round = n + 1;
+function withRound_(row) {
   return row;
 }
 
@@ -918,8 +907,14 @@ function prettyDate_(ymd) {
   return s;
 }
 
+function prettyTime_(t) {
+  var m = String(t || "").match(/^(\\d{1,2}):(\\d{2})/);
+  if (!m) return t;
+  return Number(m[1]) + "시 " + m[2] + "분";
+}
+
 function alertMeta_(a) {
-  return [prettyDate_(a.date), a.theater, a.hall, a.round ? a.round + "회" : "", a.time].filter(Boolean).join(" · ");
+  return [a.theater, prettyDate_(a.date), prettyTime_(a.time), a.hall].filter(Boolean).join(" ");
 }
 
 function alertLine_(a) {
@@ -969,7 +964,7 @@ function buildMailHtml_(subject, body, alerts) {
     : "<p>" + esc_(stripMailUrls_(body)).split("\\n").join("<br>") + "</p>";
   return '<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1.55;color:#111;max-width:560px">' +
     fallback + rows +
-    "<p style='margin:16px 0 0;color:#888;font-size:12px'>오픈벨 · 새로 열린 회차만 보냅니다.</p></div>";
+    "<p style='margin:16px 0 0;color:#888;font-size:12px'>오픈벨 · 새로 열린 상영만 보냅니다.</p></div>";
 }
 
 function sendKakao_(subject, alerts) {

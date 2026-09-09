@@ -9,7 +9,7 @@ export function StarsView() {
   if (!queue.length) {
     return (
       <div className="rounded-xl bg-surface px-5 py-10 text-center shadow-border">
-        <p className="text-xl font-bold text-fg">별표한 회차 없음</p>
+        <p className="text-xl font-bold text-fg">별표한 상영 없음</p>
         <p className="mt-2 text-sm leading-relaxed text-muted">
           감시 탭에서 별표를 누르면 여기 모입니다. 잔여석이 늘거나 줄면
           메일·카톡·텔레그램으로 알려 드립니다.
