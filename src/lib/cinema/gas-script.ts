@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260909-ownmail";
+export const GAS_SOURCE_STAMP = "20260909-webdeploy";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -22,6 +22,7 @@ export function buildGasManifest(): string {
       "https://www.googleapis.com/auth/script.external_request",
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/script.projects",
+      "https://www.googleapis.com/auth/script.deployments",
     ],
   });
 }
@@ -223,7 +224,60 @@ function scriptApiHeaders_() {
   return { Authorization: "Bearer " + ScriptApp.getOAuthToken() };
 }
 
+var WEBAPP_ERR_ = "";
+
+function apiErr_(res, fallback) {
+  var text = "";
+  try { text = res.getContentText(); } catch (e) {}
+  var json = {};
+  try { json = JSON.parse(text); } catch (e2) {}
+  var msg = (json.error && json.error.message) || text || fallback;
+  return String(msg).replace(/\\s+/g, " ").slice(0, 180);
+}
+
+function writeManifest_() {
+  var id = ScriptApp.getScriptId();
+  var headers = scriptApiHeaders_();
+  var current = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/content", {
+    headers: headers,
+    muteHttpExceptions: true
+  });
+  if (current.getResponseCode() >= 300) {
+    WEBAPP_ERR_ = apiErr_(current, "코드를 읽지 못했습니다. script.google.com/home/usersettings 에서 Apps Script API를 켜 주세요.");
+    return false;
+  }
+  var files = [];
+  try { files = JSON.parse(current.getContentText()).files || []; } catch (e) {}
+  var code = "";
+  files.forEach(function (f) {
+    if (f && (f.name === "Code" || f.name === "코드") && f.source) code = f.source;
+  });
+  if (!code) {
+    WEBAPP_ERR_ = "Code.gs를 찾지 못했습니다.";
+    return false;
+  }
+  var put = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/content", {
+    method: "put",
+    contentType: "application/json",
+    headers: headers,
+    payload: JSON.stringify({
+      files: [
+        { name: "appsscript", type: "JSON", source: JSON.stringify(GAS_MANIFEST) },
+        { name: "Code", type: "SERVER_JS", source: code }
+      ]
+    }),
+    muteHttpExceptions: true
+  });
+  if (put.getResponseCode() >= 300) {
+    WEBAPP_ERR_ = apiErr_(put, "웹앱 설정을 쓰지 못했습니다.");
+    return false;
+  }
+  return true;
+}
+
 function ensureWebApp_() {
+  WEBAPP_ERR_ = "";
+  if (!writeManifest_()) return "";
   var id = ScriptApp.getScriptId();
   var headers = scriptApiHeaders_();
   var ver = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/versions", {
@@ -236,13 +290,20 @@ function ensureWebApp_() {
   var verJson = {};
   try { verJson = JSON.parse(ver.getContentText()); } catch (err) {}
   var versionNumber = Number(verJson.versionNumber || 0);
-  if (!versionNumber) return "";
+  if (ver.getResponseCode() >= 300 || !versionNumber) {
+    WEBAPP_ERR_ = apiErr_(ver, "버전을 만들지 못했습니다. Apps Script API를 켜 주세요.");
+    return "";
+  }
   var listed = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/deployments", {
     headers: headers,
     muteHttpExceptions: true
   });
   var listedJson = {};
   try { listedJson = JSON.parse(listed.getContentText()); } catch (err) {}
+  if (listed.getResponseCode() >= 300) {
+    WEBAPP_ERR_ = apiErr_(listed, "배포 목록을 읽지 못했습니다.");
+    return "";
+  }
   var deployments = listedJson.deployments || [];
   var web = null;
   for (var i = 0; i < deployments.length; i++) {
@@ -281,6 +342,9 @@ function ensureWebApp_() {
         if (eps2[k].webApp && eps2[k].webApp.url) url = eps2[k].webApp.url;
       }
     } catch (err2) {}
+    if (patched.getResponseCode() >= 300 && !url) {
+      WEBAPP_ERR_ = apiErr_(patched, "기존 배포를 고치지 못했습니다.");
+    }
   } else {
     var created = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/deployments", {
       method: "post",
@@ -300,11 +364,16 @@ function ensureWebApp_() {
         if (eps3[m].webApp && eps3[m].webApp.url) url = eps3[m].webApp.url;
       }
     } catch (err3) {}
+    if (created.getResponseCode() >= 300 && !url) {
+      WEBAPP_ERR_ = apiErr_(created, "웹앱 배포를 만들지 못했습니다.");
+    }
   }
   if (!url) {
     try { url = ScriptApp.getService().getUrl() || ""; } catch (err4) {}
   }
-  return String(url || "").replace(/\\/dev$/, "/exec");
+  url = String(url || "").replace(/\\/dev$/, "/exec");
+  if (!url && !WEBAPP_ERR_) WEBAPP_ERR_ = "웹앱 URL을 받지 못했습니다. 배포 → 새 배포에서 웹 앱을 만드세요.";
+  return url;
 }
 
 function 설치() {
@@ -313,7 +382,7 @@ function 설치() {
   if (CONFIG.syncKey) {
     PropertiesService.getScriptProperties().setProperty("syncKey", CONFIG.syncKey);
   }
-  ensureWebApp_();
+  var web = ensureWebApp_();
   ensureTrigger_();
   var report = { names: [], found: 0, error: "", cgvFound: 0, cgvErr: "" };
   try {
@@ -322,16 +391,18 @@ function 설치() {
     report.error = String(e);
   }
   const names = (report.names || []).join(", ") || "없음";
-  const body = report.error
+  var body = report.error
     ? "설치는 됐지만 시간표 조회가 실패했습니다. " + report.error
     : "지금부터 ${minutes}분마다 감시합니다.\\n알림 영화: " + names + "\\n이미 열린 상영 " + report.found + "건은 넘어갑니다.\\n용산 CGV " + (report.cgvFound || 0) + "건 확인" + (report.cgvFound ? "" : (report.cgvErr ? " (" + report.cgvErr + ")" : "")) + ".\\n앞으로 새 날짜·새 시간이 열리면 메일·텔레그램으로 알려드립니다.";
+  if (web) body += "\\n웹앱: " + web;
+  else if (WEBAPP_ERR_) body += "\\n웹앱 배포 실패: " + WEBAPP_ERR_ + " script.google.com/home/usersettings 에서 Apps Script API를 켠 뒤 설치를 다시 실행하세요.";
   notify_("[오픈벨] 설치 완료", body, [{
     title: "오픈벨",
     theater: "설치 완료",
     hall: "",
     date: "",
     time: "",
-    url: CONFIG.appUrl || "https://www.megabox.co.kr/booking",
+    url: web || CONFIG.appUrl || "https://www.megabox.co.kr/booking",
   }]);
   bindUrlToApp_();
 }
