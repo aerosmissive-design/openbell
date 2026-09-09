@@ -48,6 +48,141 @@ export function cgvSiteNo(id: CgvId) {
 }
 
 export async function fetchCgvUpcomingCatalog(): Promise<RankingMovie[]> {
+  const official = await fetchCgvOfficialMovieList();
+  if (official.length) {
+    const extra = await fetchMcpCgvMovies().catch(() => []);
+    return mergeRankingMovies(official, extra);
+  }
+  const [naver, mcp] = await Promise.all([
+    fetchNaverComingMovies().catch(() => []),
+    fetchMcpCgvMovies().catch(() => []),
+  ]);
+  return mergeRankingMovies(naver, mcp);
+}
+
+function mergeRankingMovies(...lists: RankingMovie[][]) {
+  const out: RankingMovie[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const row of list) {
+      const key = normalizeTitle(row.title);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+function asMovie(title: string, movieNo = "", posterUrl: string | null = null): RankingMovie {
+  return {
+    rank: 0,
+    title,
+    movieNo,
+    bookingRate: null,
+    posterUrl,
+    releaseDate: null,
+    bookingOpen: false,
+    released: false,
+  };
+}
+
+const CGV_JSON_HEADERS = {
+  accept: "application/json, text/plain, */*",
+  "accept-language": "ko-KR,ko;q=0.9",
+  origin: "https://cgv.co.kr",
+  referer: "https://cgv.co.kr/",
+  "user-agent":
+    "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
+};
+
+async function fetchCgvOfficialMovieList(): Promise<RankingMovie[]> {
+  if (officialCgvBlocked) return [];
+  const urls = [
+    "https://api.cgv.co.kr/cnm/atkt/searchMovieList?coCd=A420",
+    "https://api.cgv.co.kr/cnm/atkt/searchComingMovieList?coCd=A420",
+    "https://api.cgv.co.kr/cnm/atkt/searchMovieList?coCd=A420&rtctlScopCd=08",
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: CGV_JSON_HEADERS,
+        redirect: "follow",
+        signal: AbortSignal.timeout(2500),
+      });
+      if (res.status === 403 || res.status === 429) return [];
+      if (!res.ok) continue;
+      const json = (await res.json()) as unknown;
+      const rows = collectCgvMovieRows(json);
+      if (rows.length) return rows;
+    } catch {
+      continue;
+    }
+  }
+  return [];
+}
+
+function collectCgvMovieRows(node: unknown, depth = 0): RankingMovie[] {
+  const out: RankingMovie[] = [];
+  const seen = new Set<string>();
+  const walk = (value: unknown, level: number) => {
+    if (value == null || level > 6) return;
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, level + 1);
+      return;
+    }
+    if (typeof value !== "object") return;
+    const row = value as Record<string, unknown>;
+    const title = decodeHtml(
+      String(row.movNm || row.movieNm || row.movieName || row.mvNm || ""),
+    ).trim();
+    if (title) {
+      const key = normalizeTitle(title);
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        out.push(asMovie(title, String(row.movNo || row.movieCode || row.movieNo || "")));
+      }
+    }
+    for (const child of Object.values(row)) {
+      if (child && typeof child === "object") walk(child, level + 1);
+    }
+  };
+  walk(node, depth);
+  return out;
+}
+
+async function fetchNaverComingMovies(): Promise<RankingMovie[]> {
+  const res = await fetch(
+    "https://search.naver.com/search.naver?where=nexearch&query=" +
+      encodeURIComponent("상영예정영화"),
+    {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "accept-language": "ko-KR,ko;q=0.9",
+        accept: "text/html",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(8000),
+    },
+  );
+  if (!res.ok) return [];
+  const html = await res.text();
+  const out: RankingMovie[] = [];
+  const seen = new Set<string>();
+  const re = /class="this_text _text">([^<]+)<\/strong>/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html))) {
+    const title = decodeHtml(match[1] || "").trim();
+    const key = normalizeTitle(title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(asMovie(title));
+  }
+  return out;
+}
+
+async function fetchMcpCgvMovies(): Promise<RankingMovie[]> {
   const siteNos = Object.values(CGV_SITES).map((s) => s.siteNo);
   const batches = await Promise.all(
     siteNos.map(async (siteNo) => {
@@ -72,16 +207,7 @@ export async function fetchCgvUpcomingCatalog(): Promise<RankingMovie[]> {
         for (const row of json.data?.movies ?? []) {
           const title = decodeHtml(String(row.movieName || "").trim());
           if (!title) continue;
-          rows.push({
-            rank: 0,
-            title,
-            movieNo: String(row.movieCode || ""),
-            bookingRate: null,
-            posterUrl: null,
-            releaseDate: null,
-            bookingOpen: false,
-            released: false,
-          });
+          rows.push(asMovie(title, String(row.movieCode || "")));
         }
         return rows;
       } catch {
@@ -89,15 +215,7 @@ export async function fetchCgvUpcomingCatalog(): Promise<RankingMovie[]> {
       }
     }),
   );
-  const out: RankingMovie[] = [];
-  const seen = new Set<string>();
-  for (const row of batches.flat()) {
-    const key = normalizeTitle(row.title);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(row);
-  }
-  return out;
+  return mergeRankingMovies(...batches);
 }
 
 export async function fetchCgvRelaySeatmap(input?: {
