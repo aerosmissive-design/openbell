@@ -1,0 +1,27 @@
+name: vercel-watch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: vercel-watch
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Wake Vercel
+        env:
+          URL: https://openbell-fawn.vercel.app/api/watch-tick
+          SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -e
+          if [ -n "$SECRET" ]; then
+            curl -fsS -m 45 -H "Authorization: Bearer $SECRET" -H "User-Agent: openbell-github-watch" "$URL"
+          else
+            curl -fsS -m 45 -H "User-Agent: openbell-github-watch" "$URL"
+          fi

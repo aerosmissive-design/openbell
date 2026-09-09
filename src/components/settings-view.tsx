@@ -506,7 +506,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         </h3>
         <p className="mt-2 text-sm leading-relaxed text-muted">
           그록 서버, 베셀, 구글 스크립트가 서로 독립적으로 조회하고 알림을
-          보냅니다. 같은 오픈이 두세 번 갈 수 있습니다.
+          보냅니다. 베셀은 깃허브가 5분마다 깨웁니다. 같은 오픈이 두세 번 갈 수
+          있습니다.
         </p>
         <AlertPathStatus />
 
