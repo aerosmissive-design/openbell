@@ -514,6 +514,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
 
       <ChannelCard
         embedded
+        flush
         title="메일로 받기"
         summary={
           !user
@@ -975,6 +976,7 @@ function ChannelCard({
   onToggle,
   children,
   embedded = false,
+  flush = false,
 }: {
   title: string;
   summary: string;
@@ -983,12 +985,15 @@ function ChannelCard({
   onToggle: () => void;
   children: ReactNode;
   embedded?: boolean;
+  flush?: boolean;
 }) {
   return (
     <div
       className={
         embedded
-          ? "border-t border-border pt-3"
+          ? flush
+            ? "pt-3"
+            : "border-t border-border pt-3"
           : "rounded-xl bg-surface p-4 shadow-border"
       }
     >
@@ -1249,7 +1254,7 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
     gasAlive: false,
     gasAgeMs: 0,
     gasNotify: null,
-    dbLine: "",
+    dbLine: "pending",
   });
   useEffect(() => {
     let cancelled = false;
@@ -1282,7 +1287,7 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
               ? "pglite"
               : "";
       } catch {
-        dbLine = "";
+        dbLine = "pending";
       }
       const gas = url ? await probeGasHealth(url) : null;
       if (cancelled) return;
@@ -1334,7 +1339,6 @@ function AlertPathStatus({ health }: { health: NotifyHealth }) {
     Number(health.grok.alive || health.grok.reachable) +
     Number(health.vercel.alive || health.vercel.reachable) +
     Number(health.gasAlive);
-  const kind = n >= 2 ? "both" : n === 1 ? "grok" : "none";
   const summary =
     n >= 2
       ? "그록·베셀·구글 스크립트가 서로 독립적으로 알림을 보냅니다. 같은 오픈이 여러 번 갈 수 있습니다."
@@ -1344,16 +1348,17 @@ function AlertPathStatus({ health }: { health: NotifyHealth }) {
           ? "베셀이 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다."
           : health.gasAlive
             ? "구글 스크립트가 알림을 보냅니다. 그록·베셀은 확인하지 못했습니다."
-            : "알림 경로를 아직 확인하지 못했습니다.";
+            : "알림 경로를 확인하는 중입니다.";
+  const dbTitle =
+    health.dbLine === "pglite" ? "임시 저장" : "Neon";
+  const dbValue =
+    health.dbLine === "neon"
+      ? "유지됨"
+      : health.dbLine === "pglite"
+        ? "새로고침하면 사라질 수 있음"
+        : "확인 중";
   return (
-    <div
-      className={cn(
-        "mt-3 rounded-lg px-3 py-2.5",
-        kind === "both"
-          ? "bg-pick text-fg ring-1 ring-border-strong"
-          : "bg-bg text-fg ring-1 ring-border",
-      )}
-    >
+    <div className="mt-3 rounded-lg bg-bg px-3 py-2.5 text-fg ring-1 ring-border">
       <p className="text-sm font-semibold leading-none text-fg">알림 경로</p>
       <p className="mt-1.5 text-[11px] leading-4 text-muted">{summary}</p>
       <div className="mt-2 grid grid-cols-[5.6rem_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)] gap-x-2 gap-y-1 text-[10px] leading-4 text-fg">
@@ -1389,18 +1394,10 @@ function AlertPathStatus({ health }: { health: NotifyHealth }) {
                 : "확인 못 함"
           }
         />
-        {health.dbLine === "neon" ? (
-          <>
-            <span className="font-medium text-fg">Neon</span>
-            <span className="col-span-3">유지됨</span>
-          </>
-        ) : health.dbLine === "pglite" ? (
-          <>
-            <span className="font-medium text-fg">임시 저장</span>
-            <span className="col-span-3">새로고침하면 사라질 수 있음</span>
-          </>
-        ) : null}
+        <span className="font-medium text-fg">{dbTitle}</span>
+        <span className="col-span-3">{dbValue}</span>
       </div>
     </div>
   );
 }
+
