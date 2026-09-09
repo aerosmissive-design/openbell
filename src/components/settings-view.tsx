@@ -321,6 +321,17 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         </p>
         <p className="mt-3 text-sm font-medium text-fg">처음 설치</p>
         <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
+          <li>
+            <a
+              href="https://script.google.com/home/usersettings"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-fg underline underline-offset-2"
+            >
+              script.google.com/home/usersettings
+            </a>
+            에서 Google Apps Script API를 켜세요.
+          </li>
           <li>스크립트 복사를 누르세요.</li>
           <li>
             <a
