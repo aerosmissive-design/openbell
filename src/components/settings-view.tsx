@@ -52,6 +52,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const [canOauth, setCanOauth] = useState(false);
   const [showStages, setShowStages] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
+  const [showGasHelp, setShowGasHelp] = useState(false);
+  const [showGasUrlHelp, setShowGasUrlHelp] = useState(false);
   const [remoteStamp, setRemoteStamp] = useState<string | null>(null);
   const wizardAbort = useRef<AbortController | null>(null);
   const setTab = useAppStore((s) => s.setTab);
@@ -319,7 +321,19 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           그록과 스크립트가 둘 다 알림을 보냅니다. 같은 오픈이 두 번 갈 수
           있습니다.
         </p>
-        <p className="mt-3 text-sm font-medium text-fg">처음 설치</p>
+        <button
+          type="button"
+          onClick={() => setShowGasHelp((v) => !v)}
+          className="mt-3 flex min-h-11 w-full items-center justify-between gap-3 text-left"
+        >
+          <p className="text-sm font-medium text-fg">설치 방법</p>
+          <span className="shrink-0 text-xs text-muted">
+            {showGasHelp ? "접기" : "펼치기"}
+          </span>
+        </button>
+        {showGasHelp ? (
+          <>
+        <p className="mt-1 text-sm font-medium text-fg">처음 설치</p>
         <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
           <li>
             <a
@@ -364,8 +378,20 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             오픈벨에 붙여넣고 저장하세요.
           </li>
         </ol>
+          </>
+        ) : null}
         <label className="mt-4 block text-xs text-muted">웹앱 주소</label>
-        <p className="mt-2 text-sm font-medium text-fg">웹앱 주소 찾는 법</p>
+        <button
+          type="button"
+          onClick={() => setShowGasUrlHelp((v) => !v)}
+          className="mt-1 flex min-h-11 w-full items-center justify-between gap-3 text-left"
+        >
+          <p className="text-sm font-medium text-fg">웹앱 주소 찾는 법</p>
+          <span className="shrink-0 text-xs text-muted">
+            {showGasUrlHelp ? "접기" : "펼치기"}
+          </span>
+        </button>
+        {showGasUrlHelp ? (
         <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
           <li>
             <a
@@ -383,6 +409,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           <li>배포 후 나온 주소 끝이 /exec 인지 확인하세요.</li>
           <li>그 주소를 아래 칸에 붙이고 웹앱 주소 연결을 누르세요.</li>
         </ol>
+        ) : null}
         <input
           value={gasUrlDraft}
           onChange={(e) => setGasUrlDraft(e.target.value)}
