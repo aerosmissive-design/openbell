@@ -1,8 +1,8 @@
-import { decodeHtml, kstDateKeys } from "@/lib/utils";
+import { decodeHtml, kstDateKeys, normalizeTitle } from "@/lib/utils";
 import { megaboxFormats } from "./theaters";
 import { postFormJson } from "./http.server";
 import { putSeatHit, type SeatHitMap } from "./seats";
-import type { Showtime } from "./types";
+import type { RankingMovie, Showtime } from "./types";
 
 type MegaForm = {
   playSchdlNo?: string;
@@ -40,6 +40,7 @@ type MegaMovie = {
 type MegaMovieList = {
   imgSvrUrl?: string;
   movieList?: MegaMovie[];
+  totCnt?: number;
 };
 
 type MegaboxId = "megabox_coex" | "megabox_namyangju";
@@ -69,37 +70,63 @@ function isMegaboxId(id: string): id is MegaboxId {
   return id in BRANCH;
 }
 
-export async function fetchMegaboxCatalog() {
-  const data = await postFormJson<MegaMovieList>(
+function mapMegaMovie(m: MegaMovie, imgSvr: string, today: string): RankingMovie {
+  const releaseDate = toYmd(m.rfilmDe);
+  return {
+    rank: m.boxoRank && m.boxoRank < 900 ? m.boxoRank : 0,
+    title: decodeHtml(m.movieNm ?? ""),
+    movieNo: m.rpstMovieNo || m.movieNo || "",
+    bookingRate: typeof m.boxoBokdRt === "number" ? m.boxoBokdRt : null,
+    posterUrl: m.imgPathNm ? `${imgSvr}${m.imgPathNm}` : null,
+    releaseDate: releaseDate || null,
+    bookingOpen: m.bokdAbleAt === "Y",
+    released: Boolean(releaseDate && releaseDate <= today),
+  };
+}
+
+async function fetchMegaMoviePage(onairYn: "Y" | "N", page: number) {
+  return postFormJson<MegaMovieList>(
     "https://www.megabox.co.kr/on/oh/oha/Movie/selectMovieList.do",
     {
-      currentPage: "1",
+      currentPage: String(page),
       recordCountPerPage: "80",
-      onairYn: "Y",
+      onairYn,
     },
   );
-  const imgSvr = data.imgSvrUrl ?? "https://img.megabox.co.kr";
+}
+
+async function fetchMegaMovieList(onairYn: "Y" | "N") {
+  const first = await fetchMegaMoviePage(onairYn, 1);
+  const imgSvr = first.imgSvrUrl ?? "https://img.megabox.co.kr";
   const today = kstDateKeys(1)[0];
-  const all = (data.movieList ?? [])
+  const tot = Number(first.totCnt || 0);
+  const pages = tot > 80 ? 2 : 1;
+  const lists = [first.movieList ?? []];
+  if (pages > 1) {
+    try {
+      const next = await fetchMegaMoviePage(onairYn, 2);
+      lists.push(next.movieList ?? []);
+    } catch {
+      /* keep first page */
+    }
+  }
+  const movies = lists
+    .flat()
     .filter((m) => m.movieNm)
-    .map((m) => {
-      const releaseDate = toYmd(m.rfilmDe);
-      return {
-        rank: m.boxoRank && m.boxoRank < 900 ? m.boxoRank : 0,
-        title: decodeHtml(m.movieNm ?? ""),
-        movieNo: m.rpstMovieNo || m.movieNo || "",
-        bookingRate: typeof m.boxoBokdRt === "number" ? m.boxoBokdRt : null,
-        posterUrl: m.imgPathNm ? `${imgSvr}${m.imgPathNm}` : null,
-        releaseDate: releaseDate || null,
-        bookingOpen: m.bokdAbleAt === "Y",
-        released: Boolean(releaseDate && releaseDate <= today),
-      };
-    });
-  const ranking = all
+    .map((m) => mapMegaMovie(m, imgSvr, today));
+  return { movies, imgSvr };
+}
+
+export async function fetchMegaboxCatalog() {
+  const [onair, coming] = await Promise.all([
+    fetchMegaMovieList("Y"),
+    fetchMegaMovieList("N").catch(() => ({ movies: [] as RankingMovie[] })),
+  ]);
+  const ranking = onair.movies
     .filter((m) => m.rank >= 1 && m.rank <= 9)
     .sort((a, b) => a.rank - b.rank)
     .slice(0, 9);
-  const showing = all
+  const showing = onair.movies
     .filter((m) => m.released)
     .sort((a, b) => {
       const ra = a.rank || 999;
@@ -109,7 +136,15 @@ export async function fetchMegaboxCatalog() {
     })
     .slice(0, 9)
     .map((m, i) => ({ ...m, rank: i + 1 }));
-  return { ranking, showing, catalog: all };
+  const seen = new Set<string>();
+  const catalog: RankingMovie[] = [];
+  for (const row of [...onair.movies, ...coming.movies]) {
+    const key = normalizeTitle(row.title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    catalog.push(row);
+  }
+  return { ranking, showing, catalog };
 }
 
 function toYmd(value?: string) {

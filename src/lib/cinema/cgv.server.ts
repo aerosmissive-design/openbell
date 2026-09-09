@@ -1,7 +1,7 @@
 import { decodeHtml, kstDateKeys, normalizeTitle } from "@/lib/utils";
 import { indexSeatHit, type SeatHit as SharedSeatHit, type SeatHitMap } from "./seats";
 import { cgvFormats, cgvHallFromCapacity } from "./theaters";
-import type { Showtime, TheaterId } from "./types";
+import type { RankingMovie, Showtime, TheaterId } from "./types";
 
 export type CgvId = "cgv_yongsan" | "cgv_yeongdeungpo";
 
@@ -45,6 +45,59 @@ export function isCgvId(id: TheaterId): id is CgvId {
 
 export function cgvSiteNo(id: CgvId) {
   return CGV_SITES[id].siteNo;
+}
+
+export async function fetchCgvUpcomingCatalog(): Promise<RankingMovie[]> {
+  const siteNos = Object.values(CGV_SITES).map((s) => s.siteNo);
+  const batches = await Promise.all(
+    siteNos.map(async (siteNo) => {
+      try {
+        const res = await fetch(
+          `https://mcp.aka.page/api/cgv/movies?theaterCode=${siteNo}&limit=200`,
+          {
+            headers: {
+              accept: "application/json",
+              "user-agent":
+                "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
+            },
+            redirect: "follow",
+            signal: AbortSignal.timeout(8000),
+          },
+        );
+        if (!res.ok) return [] as RankingMovie[];
+        const json = (await res.json()) as {
+          data?: { movies?: Array<{ movieName?: string; movieCode?: string }> };
+        };
+        const rows: RankingMovie[] = [];
+        for (const row of json.data?.movies ?? []) {
+          const title = decodeHtml(String(row.movieName || "").trim());
+          if (!title) continue;
+          rows.push({
+            rank: 0,
+            title,
+            movieNo: String(row.movieCode || ""),
+            bookingRate: null,
+            posterUrl: null,
+            releaseDate: null,
+            bookingOpen: false,
+            released: false,
+          });
+        }
+        return rows;
+      } catch {
+        return [] as RankingMovie[];
+      }
+    }),
+  );
+  const out: RankingMovie[] = [];
+  const seen = new Set<string>();
+  for (const row of batches.flat()) {
+    const key = normalizeTitle(row.title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
 }
 
 export async function fetchCgvRelaySeatmap(input?: {

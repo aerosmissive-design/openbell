@@ -24,7 +24,17 @@ const ScanInput = z.object({
 export const fetchMovieCatalog = createServerFn({ method: "POST" }).handler(
   async () => {
     const { fetchMegaboxCatalog } = await import("./megabox.server");
-    return fetchMegaboxCatalog();
+    const { fetchCgvUpcomingCatalog } = await import("./cgv.server");
+    const { mergeMovieCatalog } = await import("./match");
+    const [mega, cgv] = await Promise.all([
+      fetchMegaboxCatalog(),
+      fetchCgvUpcomingCatalog().catch(() => []),
+    ]);
+    return {
+      ranking: mega.ranking,
+      showing: mega.showing,
+      catalog: mergeMovieCatalog(mega.catalog, cgv),
+    };
   },
 );
 

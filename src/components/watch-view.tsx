@@ -210,7 +210,7 @@ function MovieSearch({ catalog }: { catalog: RankingMovie[] }) {
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="메가박스·CGV 상영작 검색해 추가"
+        placeholder="상영중·예정작 검색해 추가"
         className="min-h-11 w-full rounded-md bg-surface pl-10 pr-3 text-sm text-fg shadow-border outline-none placeholder:text-faint"
       />
       {q ? (

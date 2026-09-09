@@ -2,6 +2,7 @@ import { kstDateKeys } from "@/lib/utils";
 import {
   fetchCgvNaver,
   fetchCgvRelaySeatmap,
+  fetchCgvUpcomingCatalog,
   fetchYongsanTelegram,
   isCgvId,
 } from "./cgv.server";
@@ -36,6 +37,7 @@ export async function runScan(input: {
     showing: [],
     catalog: [],
   }));
+  const cgvComingPromise = fetchCgvUpcomingCatalog().catch(() => []);
 
   const gasSeats = input.gasWebUrl
     ? loadGasSeatmap(input.gasWebUrl).catch(() => ({
@@ -78,8 +80,9 @@ export async function runScan(input: {
     }
   }
 
-  const [catalog, seats, relay, mega, gasList, ...theaters] = await Promise.all([
+  const [catalog, cgvComing, seats, relay, mega, gasList, ...theaters] = await Promise.all([
     rankingPromise,
+    cgvComingPromise,
     gasSeats,
     relaySeats,
     megaSeats,
@@ -142,6 +145,7 @@ export async function runScan(input: {
       catalog.catalog ?? [],
       catalog.ranking,
       catalog.showing,
+      cgvComing,
       moviesFromShowtimes(tagged.flatMap((t) => t.showtimes)),
     ),
     theaters: tagged,
