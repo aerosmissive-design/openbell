@@ -89,6 +89,15 @@ const googleSocial =
         google: {
           clientId: googleClientId,
           clientSecret: googleClientSecret,
+          accessType: "offline" as const,
+          scope: [
+            "openid",
+            "profile",
+            "email",
+            "https://www.googleapis.com/auth/script.projects",
+            "https://www.googleapis.com/auth/script.deployments",
+            "https://www.googleapis.com/auth/drive.metadata.readonly",
+          ],
         },
       }
     : undefined;

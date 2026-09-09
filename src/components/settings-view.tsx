@@ -2,7 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { type ReactNode, Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { authEnabled, signIn, signOut } from "@/lib/auth/client";
+import { authClient, authEnabled, signIn, signOut } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { extractKakaoCode, kakaoRedirectUri } from "@/lib/cinema/kakao";
 import {
@@ -14,20 +14,18 @@ import {
   forgetGasLink,
   gasHomeUrl,
   gasIsLinked,
-  googleTokenFromClick,
-  openOwnedScript,
   peekGasOauthClient,
   preloadGasOauth,
   pushLinkedGasSource,
   syncGasScript,
-  takeStoredGasOauthToken,
   waitForGasBind,
 } from "@/lib/cinema/gas-provision";
+import { GAS_OAUTH_SCOPES } from "@/lib/cinema/gas-oauth";
 import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
 import { pullGasMeta, loadCloudSettings } from "@/lib/cinema/cloud";
 import { probeGasHealth } from "@/lib/cinema/gas-health";
 import { describeGasPush, flushSettings } from "./cloud-sync";
-import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram, sendXPost } from "@/lib/cinema/scan";
+import { exchangeKakaoCode, getGoogleScriptToken, peekTelegramChat, pingGasInstall, sendAlertEmail, sendKakaoMemo, sendTelegram, sendXPost } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { ScanResult } from "@/lib/cinema/types";
 import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, seatSourceLabel, timetableSourceLabel, xEnabled } from "@/lib/cinema/types";
@@ -73,9 +71,16 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
 
   useEffect(() => {
     if (!loginEmail) return;
-    const token = takeStoredGasOauthToken();
-    if (!token) return;
-    void finishSync(Promise.resolve(token));
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("gas") !== "1") return;
+    params.delete("gas");
+    const q = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${q ? `?${q}` : ""}${window.location.hash}`,
+    );
+    void startSyncScript();
   }, [loginEmail]);
 
   useEffect(() => {
@@ -220,77 +225,75 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       );
       return;
     }
-    void finishSync(googleTokenFromClick(loginEmail));
-  }
-
-  function finishSync(tokenPromise: Promise<string>) {
     setProvisioning(true);
     void (async () => {
       try {
-        const accessToken = await tokenPromise;
-        if (loginEmail) {
-          const remote = await loadCloudSettings();
-          if (remote.snapshot) {
-            useAppStore.getState().hydrateCloud(remote.snapshot);
-          }
-        }
-        await flushSettings(Boolean(loginEmail));
-        wizardAbort.current?.abort();
-        const ac = new AbortController();
-        wizardAbort.current = ac;
-        if (!accessToken) {
-          void copyGasScript();
-          openConnected(gasHomeUrl(loginEmail));
-          setWizard(true);
-          toast.success(
-            "코드를 복사했습니다. 오픈벨에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
-          );
+        const tok = await getGoogleScriptToken();
+        if (tok.status !== "ok") {
+          toast("지금 로그인한 지메일의 스크립트 권한을 한 번만 허용해 주세요.");
+          const { data, error } = await authClient.signIn.social({
+            provider: "google",
+            callbackURL: "/?tab=settings&gas=1",
+            errorCallbackURL: "/?tab=settings",
+            loginHint: loginEmail,
+            scopes: GAS_OAUTH_SCOPES.split(" "),
+          });
+          if (error) throw new Error(error.message ?? "구글 권한을 받지 못했습니다.");
+          if (data?.url) window.location.href = data.url;
           return;
         }
-        const result = await syncGasScript(loginEmail, accessToken);
-        if (result.mode === "oauth") {
-          setWizard(false);
-          await flushSettings(Boolean(loginEmail));
-          if (result.scriptId) openOwnedScript(result.scriptId);
-          toast.success(
-            result.created
-              ? "이 계정 스크립트를 만들었습니다. 위쪽 함수를 설치 로 실행하세요."
-              : "이 계정 스크립트를 열었습니다.",
-          );
-          markScriptCurrent();
-          return;
-        }
-        if (result.mode === "upgrade") {
-          setWizard(false);
-          await flushSettings(Boolean(loginEmail));
-          const id = useAppStore.getState().config.gasScriptId.trim();
-          if (id) openOwnedScript(id);
-          toast.success("이 계정 스크립트를 고쳤습니다.");
-          markScriptCurrent();
-          return;
-        }
-        const hit = await waitForGasBind(
-          ensureGasSyncKey(),
-          ac.signal,
-          undefined,
-          loginEmail,
-        );
-        await flushSettings(Boolean(loginEmail));
-        setWizard(false);
-        markScriptCurrent();
-        if (hit.scriptId) openOwnedScript(hit.scriptId);
-        toast.success("연결됐습니다. 다시 누르면 이 스크립트만 엽니다.");
+        await runLoggedInSync(tok.accessToken);
       } catch (err) {
-        if (err instanceof Error && err.message === "취소했습니다.") return;
         const message = err instanceof Error ? err.message : "최신화하지 못했습니다.";
         toast.error(message);
-        if (message.includes("앱스 스크립트 API")) {
-          window.open("https://script.google.com/home/usersettings", "_blank", "noopener");
-        }
       } finally {
         setProvisioning(false);
       }
     })();
+  }
+
+  async function runLoggedInSync(accessToken: string) {
+    if (loginEmail) {
+      const remote = await loadCloudSettings();
+      if (remote.snapshot) {
+        useAppStore.getState().hydrateCloud(remote.snapshot);
+      }
+    }
+    await flushSettings(Boolean(loginEmail));
+    wizardAbort.current?.abort();
+    const ac = new AbortController();
+    wizardAbort.current = ac;
+    const result = await syncGasScript(loginEmail, accessToken);
+    if (result.mode === "oauth") {
+      setWizard(false);
+      await flushSettings(Boolean(loginEmail));
+      if (result.installUrl) await pingGasInstall({ data: { url: result.installUrl } }).catch(() => null);
+      toast.success(
+        result.created
+          ? "지금 로그인한 지메일 스크립트를 만들고 반영했습니다."
+          : "지금 로그인한 지메일 스크립트에 반영했습니다.",
+      );
+      markScriptCurrent();
+      return;
+    }
+    if (result.mode === "upgrade") {
+      setWizard(false);
+      await flushSettings(Boolean(loginEmail));
+      toast.success("지금 로그인한 지메일 스크립트에 반영했습니다.");
+      markScriptCurrent();
+      return;
+    }
+    const hit = await waitForGasBind(
+      ensureGasSyncKey(),
+      ac.signal,
+      undefined,
+      loginEmail,
+    );
+    await flushSettings(Boolean(loginEmail));
+    setWizard(false);
+    markScriptCurrent();
+    toast.success("지금 로그인한 지메일 스크립트에 연결했습니다.");
+    void hit;
   }
 
   return (

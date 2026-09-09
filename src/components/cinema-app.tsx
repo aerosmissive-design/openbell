@@ -38,6 +38,13 @@ export function CinemaApp() {
   const seenRef = useRef(seenIds);
   seenRef.current = seenIds;
 
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab === "watch" || tab === "alerts" || tab === "star" || tab === "settings") {
+      setTab(tab);
+    }
+  }, [setTab]);
+
   const enabledTheaters = useMemo(
     () => THEATERS.map((t) => t.id),
     [],
@@ -285,7 +292,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.4.11
+                v3.4.12
               </span>
             </h1>
           </div>
