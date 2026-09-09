@@ -58,6 +58,21 @@ function loadGsi(): Promise<void> {
   });
 }
 
+function googleAuthError(err: { type?: string; message?: string } | Error | string) {
+  const raw =
+    typeof err === "string"
+      ? err
+      : `${(err as { type?: string }).type || ""} ${(err as Error).message || ""}`;
+  if (/popup_failed|popup window|Failed to open popup/i.test(raw)) {
+    return "구글 창이 막혔습니다. 설정 화면을 연 뒤 버튼을 바로 다시 눌러 주세요. 팝업이 막혀 있으면 주소창에서 허용하세요.";
+  }
+  if (/popup_closed|closed/i.test(raw)) {
+    return "구글 창을 닫았습니다. 다시 눌러 주세요.";
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "구글 권한을 받지 못했습니다.";
+}
+
 function requestGoogleToken(
   clientId: string,
   prompt?: string,
@@ -65,7 +80,7 @@ function requestGoogleToken(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!window.google?.accounts?.oauth2) {
-      reject(new Error("구글 로그인 모듈이 없습니다."));
+      reject(new Error("구글 로그인 모듈이 없습니다. 잠시 후 다시 눌러 주세요."));
       return;
     }
     const client = window.google.accounts.oauth2.initTokenClient({
@@ -79,21 +94,42 @@ function requestGoogleToken(
         }
         reject(
           new Error(
-            resp.error_description ||
-              (resp.error === "access_denied"
-                ? "구글 권한을 허용해야 스크립트를 만듭니다."
-                : "구글 권한을 받지 못했습니다."),
+            resp.error === "access_denied"
+              ? "구글 권한을 허용해야 스크립트를 만듭니다."
+              : googleAuthError(resp.error_description || resp.error || ""),
           ),
         );
       },
       error_callback: (err) => {
-        reject(
-          new Error(err.message || "구글 팝업이 막혔습니다. 팝업을 허용해 주세요."),
-        );
+        reject(new Error(googleAuthError(err)));
       },
     });
     client.requestAccessToken(prompt ? { prompt } : {});
   });
+}
+
+let gsiPreload: Promise<void> | null = null;
+let cachedOauthClientId = "";
+
+export function preloadGasOauth() {
+  if (!gsiPreload) gsiPreload = loadGsi().catch(() => {});
+  void peekGasOauthClient()
+    .then((id) => {
+      cachedOauthClientId = id;
+    })
+    .catch(() => {});
+  return gsiPreload;
+}
+
+export function googleTokenFromClick(email?: string): Promise<string> {
+  const clientId = cachedOauthClientId;
+  if (!clientId || !window.google?.accounts?.oauth2) {
+    void preloadGasOauth();
+    return Promise.reject(
+      new Error("구글 창 준비가 끝나지 않았습니다. 한 번만 더 눌러 주세요."),
+    );
+  }
+  return requestGoogleToken(clientId, undefined, email);
 }
 
 export function ensureGasSyncKey() {
@@ -210,15 +246,21 @@ export async function peekGasOauthClient() {
   return String((await getGasOauthClient({ data: {} })) || "").trim();
 }
 
-async function oauthSync(createNew: boolean, scriptId?: string, email?: string) {
-  const clientId = await peekGasOauthClient();
-  if (!clientId) return null;
-  await loadGsi();
-  const token = await requestGoogleToken(
-    clientId,
-    createNew ? "consent" : undefined,
-    email,
-  );
+async function oauthSync(
+  createNew: boolean,
+  scriptId?: string,
+  email?: string,
+  accessToken?: string,
+) {
+  const token =
+    accessToken ||
+    (await (async () => {
+      const clientId = cachedOauthClientId || (await peekGasOauthClient());
+      if (!clientId) return "";
+      await loadGsi();
+      return requestGoogleToken(clientId, undefined, email);
+    })());
+  if (!token) return null;
   const mine = useAppStore.getState().config.gasScriptId.trim();
   const targetId = createNew ? undefined : scriptId || mine || undefined;
   const result = await provisionGasScript({
@@ -306,7 +348,10 @@ export async function attachInstalledScript(email?: string) {
   return hit;
 }
 
-export async function syncGasScript(email?: string): Promise<
+export async function syncGasScript(
+  email?: string,
+  accessToken?: string,
+): Promise<
   | { mode: "oauth"; created: boolean; installUrl: string; scriptId: string }
   | { mode: "upgrade" }
   | { mode: "wizard" }
@@ -317,7 +362,7 @@ export async function syncGasScript(email?: string): Promise<
   const url = store.config.gasWebUrl.trim();
 
   if (!url) {
-    const created = await oauthSync(true, undefined, email);
+    const created = await oauthSync(true, undefined, email, accessToken);
     if (created) {
       return {
         mode: "oauth",
@@ -332,7 +377,7 @@ export async function syncGasScript(email?: string): Promise<
   const liveId = (await refreshGasMeta(url)) || store.config.gasScriptId.trim();
   if (liveId) {
     try {
-      const updated = await oauthSync(false, liveId, email);
+      const updated = await oauthSync(false, liveId, email, accessToken);
       if (updated) {
         return {
           mode: "oauth",

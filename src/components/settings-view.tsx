@@ -15,7 +15,9 @@ import {
   gasHomeUrl,
   gasIsLinked,
   peekGasOauthClient,
+  preloadGasOauth,
   pushLinkedGasSource,
+  googleTokenFromClick,
   syncGasScript,
   waitForGasBind,
 } from "@/lib/cinema/gas-provision";
@@ -61,6 +63,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   }, []);
 
   useEffect(() => {
+    void preloadGasOauth();
     void peekGasOauthClient()
       .then((id) => setCanOauth(Boolean(id)))
       .catch(() => setCanOauth(false));
@@ -208,9 +211,13 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       );
       return;
     }
+    const tokenPromise = canOauth
+      ? googleTokenFromClick(loginEmail)
+      : Promise.resolve("");
     setProvisioning(true);
     void (async () => {
       try {
+        const accessToken = await tokenPromise;
         if (loginEmail) {
           const remote = await loadCloudSettings();
           if (remote.snapshot) {
@@ -219,7 +226,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         }
         await flushSettings(Boolean(loginEmail));
         const found = await attachInstalledScript(loginEmail);
-        if (found) {
+        if (found && !accessToken) {
           wizardAbort.current?.abort();
           setWizard(false);
           markScriptCurrent();
@@ -239,7 +246,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             "코드를 복사했습니다. 오픈벨에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
           );
         }
-        const result = await syncGasScript(loginEmail);
+        const result = await syncGasScript(loginEmail, accessToken || undefined);
         if (result.mode === "oauth") {
           setWizard(false);
           await flushSettings(Boolean(loginEmail));
