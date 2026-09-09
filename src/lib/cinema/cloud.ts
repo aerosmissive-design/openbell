@@ -128,9 +128,9 @@ export function mergeSnapshots(
     kakaoRestKey: remote.config.kakaoRestKey || local.config.kakaoRestKey,
     kakaoRefreshToken:
       remote.config.kakaoRefreshToken || local.config.kakaoRefreshToken,
-    gasWebUrl: remote.config.gasWebUrl || local.config.gasWebUrl,
-    gasSyncKey: remote.config.gasSyncKey || local.config.gasSyncKey,
-    gasScriptId: remote.config.gasScriptId || local.config.gasScriptId,
+    gasWebUrl: remote.config.gasWebUrl,
+    gasSyncKey: remote.config.gasSyncKey,
+    gasScriptId: remote.config.gasScriptId,
     watchTitles: mergeTitles(
       remote.config.watchTitles ?? [],
       local.config.watchTitles ?? [],

@@ -65,8 +65,15 @@ export async function recordGasBind(input: {
        '{gasSyncKey}', to_jsonb($3::text)
      ),
      updated_at = now()
-     where config->>'gasSyncKey' = $3
-        or ($4 <> '' and lower(coalesce(config->>'email','')) = $4)`,
+     where (
+         $4 <> '' and (
+           user_id in (select id from "user" where lower(email) = $4)
+           or lower(coalesce(config->>'email','')) = $4
+         )
+       )
+        or (
+          $4 = '' and config->>'gasSyncKey' = $3
+        )`,
     [url, scriptId, key, email],
   );
   return { ok: true as const, url, scriptId };
@@ -83,8 +90,8 @@ export async function claimGasBind(key: string, email?: string) {
   }>(
     `select url, script_id, created_at::text as created_at
      from gas_binds
-     where ($1 <> '' and sync_key = $1)
-        or ($2 <> '' and lower(email) = $2)
+     where ($2 <> '' and lower(email) = $2)
+        or ($2 = '' and $1 <> '' and sync_key = $1)
      order by created_at desc
      limit 1`,
     [syncKey, mail],

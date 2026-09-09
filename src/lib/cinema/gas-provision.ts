@@ -17,6 +17,7 @@ declare global {
           initTokenClient: (config: {
             client_id: string;
             scope: string;
+            hint?: string;
             callback: (resp: {
               access_token?: string;
               error?: string;
@@ -57,7 +58,11 @@ function loadGsi(): Promise<void> {
   });
 }
 
-function requestGoogleToken(clientId: string, prompt?: string): Promise<string> {
+function requestGoogleToken(
+  clientId: string,
+  prompt?: string,
+  email?: string,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!window.google?.accounts?.oauth2) {
       reject(new Error("구글 로그인 모듈이 없습니다."));
@@ -66,6 +71,7 @@ function requestGoogleToken(clientId: string, prompt?: string): Promise<string> 
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: SCOPES,
+      hint: String(email || "").trim() || undefined,
       callback: (resp) => {
         if (resp.access_token) {
           resolve(resp.access_token);
@@ -151,19 +157,28 @@ export function gasIsLinked() {
 
 const LAST_SCRIPT_ID_KEY = "openbell-last-gas-id";
 
+function lastScriptStorageKey(ownerId?: string | null) {
+  const id = String(ownerId || useAppStore.getState().ownerId || "").trim();
+  return id ? `${LAST_SCRIPT_ID_KEY}:${id}` : "";
+}
+
 function rememberLastScriptId(scriptId: string) {
   const id = String(scriptId || "").trim();
-  if (!id || typeof localStorage === "undefined") return;
+  const key = lastScriptStorageKey();
+  if (!id || !key || typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(LAST_SCRIPT_ID_KEY, id);
+    localStorage.setItem(key, id);
+    localStorage.removeItem(LAST_SCRIPT_ID_KEY);
   } catch {
     // ignore
   }
 }
 
 export function forgetGasLink() {
-  useAppStore.getState().setConfig({ gasWebUrl: "", gasScriptId: "" });
+  useAppStore.getState().setConfig({ gasWebUrl: "", gasScriptId: "", gasSyncKey: "" });
+  const key = lastScriptStorageKey();
   try {
+    if (key) localStorage.removeItem(key);
     localStorage.removeItem(LAST_SCRIPT_ID_KEY);
   } catch {
     // ignore
@@ -173,8 +188,10 @@ export function forgetGasLink() {
 export function lastKnownScriptId() {
   const fromConfig = useAppStore.getState().config.gasScriptId.trim();
   if (fromConfig) return fromConfig;
+  const key = lastScriptStorageKey();
+  if (!key) return "";
   try {
-    return String(localStorage.getItem(LAST_SCRIPT_ID_KEY) || "").trim();
+    return String(localStorage.getItem(key) || "").trim();
   } catch {
     return "";
   }
@@ -193,16 +210,22 @@ export async function peekGasOauthClient() {
   return String((await getGasOauthClient({ data: {} })) || "").trim();
 }
 
-async function oauthSync(createNew: boolean, scriptId?: string) {
+async function oauthSync(createNew: boolean, scriptId?: string, email?: string) {
   const clientId = await peekGasOauthClient();
   if (!clientId) return null;
   await loadGsi();
-  const token = await requestGoogleToken(clientId, createNew ? "consent" : undefined);
+  const token = await requestGoogleToken(
+    clientId,
+    createNew ? "consent" : undefined,
+    email,
+  );
+  const mine = useAppStore.getState().config.gasScriptId.trim();
+  const targetId = createNew ? undefined : scriptId || mine || undefined;
   const result = await provisionGasScript({
     data: {
       accessToken: token,
       source: currentGasScript(),
-      scriptId: scriptId || undefined,
+      scriptId: targetId,
       createNew,
     },
   });
@@ -283,7 +306,7 @@ export async function attachInstalledScript(email?: string) {
   return hit;
 }
 
-export async function syncGasScript(): Promise<
+export async function syncGasScript(email?: string): Promise<
   | { mode: "oauth"; created: boolean; installUrl: string; scriptId: string }
   | { mode: "upgrade" }
   | { mode: "wizard" }
@@ -294,7 +317,7 @@ export async function syncGasScript(): Promise<
   const url = store.config.gasWebUrl.trim();
 
   if (!url) {
-    const created = await oauthSync(true);
+    const created = await oauthSync(true, undefined, email);
     if (created) {
       return {
         mode: "oauth",
@@ -309,7 +332,7 @@ export async function syncGasScript(): Promise<
   const liveId = (await refreshGasMeta(url)) || store.config.gasScriptId.trim();
   if (liveId) {
     try {
-      const updated = await oauthSync(false, liveId);
+      const updated = await oauthSync(false, liveId, email);
       if (updated) {
         return {
           mode: "oauth",

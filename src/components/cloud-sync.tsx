@@ -12,7 +12,7 @@ import {
   type GasPushResult,
 } from "@/lib/cinema/cloud";
 import { DEFAULT_WATCH } from "@/lib/cinema/gas-script";
-import { gasWatchFingerprint, pushLinkedGasSource } from "@/lib/cinema/gas-provision";
+import { forgetGasLink, gasWatchFingerprint, pushLinkedGasSource } from "@/lib/cinema/gas-provision";
 import { useAppStore } from "@/lib/store";
 
 function localSnapshot(): CloudSnapshot {
@@ -107,6 +107,8 @@ export function CloudSync() {
     if (!hydrated || isPending) return;
     if (!userId) {
       pulledFor.current = null;
+      forgetGasLink();
+      useAppStore.getState().setOwnerId(null);
       setReady(true);
       return;
     }
@@ -114,14 +116,18 @@ export function CloudSync() {
       setReady(true);
       return;
     }
+    const prevOwner = useAppStore.getState().ownerId;
+    if (prevOwner && prevOwner !== userId) {
+      forgetGasLink();
+    }
     pulledFor.current = userId;
+    useAppStore.getState().setOwnerId(userId);
     let cancelled = false;
     skipSave.current = true;
     loadCloudSettings()
       .then(async (remote) => {
         if (cancelled) return;
         const ownerId = useAppStore.getState().ownerId;
-        useAppStore.getState().setOwnerId(userId);
         if (remote.snapshot) {
           hydrateCloud(remote.snapshot);
           await persistQuiet(remote.snapshot);

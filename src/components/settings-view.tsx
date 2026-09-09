@@ -20,7 +20,7 @@ import {
   waitForGasBind,
 } from "@/lib/cinema/gas-provision";
 import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
-import { pullGasMeta } from "@/lib/cinema/cloud";
+import { pullGasMeta, loadCloudSettings } from "@/lib/cinema/cloud";
 import { probeGasHealth } from "@/lib/cinema/gas-health";
 import { describeGasPush, flushSettings } from "./cloud-sync";
 import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram, sendXPost } from "@/lib/cinema/scan";
@@ -211,6 +211,12 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
     setProvisioning(true);
     void (async () => {
       try {
+        if (loginEmail) {
+          const remote = await loadCloudSettings();
+          if (remote.snapshot) {
+            useAppStore.getState().hydrateCloud(remote.snapshot);
+          }
+        }
         await flushSettings(Boolean(loginEmail));
         const found = await attachInstalledScript(loginEmail);
         if (found) {
@@ -233,7 +239,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             "코드를 복사했습니다. 오픈벨에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
           );
         }
-        const result = await syncGasScript();
+        const result = await syncGasScript(loginEmail);
         if (result.mode === "oauth") {
           setWizard(false);
           await flushSettings(Boolean(loginEmail));

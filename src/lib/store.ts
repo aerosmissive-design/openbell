@@ -258,6 +258,9 @@ export const useAppStore = create<AppState>()(
               typeof p.config?.emailNotify === "boolean"
                 ? p.config.emailNotify
                 : Boolean(p.config?.email?.trim()),
+            gasWebUrl: "",
+            gasScriptId: "",
+            gasSyncKey: "",
           },
           seenDates: p.seenDates ?? current.seenDates,
         };
