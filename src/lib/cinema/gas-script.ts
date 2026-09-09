@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260909-noround";
+export const GAS_SOURCE_STAMP = "20260909-othercgv";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -1449,7 +1449,7 @@ function parseCgvNaverAll_(theaterId) {
       for (var h = 1; h < hallBlocks.length; h++) {
         const hall = hallBlocks[h].split('"')[0];
         const formats = cgvFormats_(hall);
-        if (!formats.length || (formats.length === 1 && formats[0] === "other")) continue;
+        if (!formats.length) continue;
         const timeMarks = hallBlocks[h].match(/"rtime":"(\\d{1,2}:\\d{2})"/g) || [];
         const urlMarks = hallBlocks[h].match(/ticketMobileUrl":"([^"]+)"/g) || [];
         timeMarks.forEach(function (mark, idx) {

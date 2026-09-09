@@ -23,6 +23,7 @@ export const THEATERS: {
       { id: "ultra4dx", label: "울트라 4DX" },
       { id: "atmos", label: "돌비 애트모스" },
       { id: "imax", label: "IMAX" },
+      { id: "other", label: "그 외 관" },
     ],
   },
   {
@@ -38,6 +39,7 @@ export const THEATERS: {
       { id: "4dx", label: "4DX" },
       { id: "atmos", label: "돌비 애트모스" },
       { id: "imax", label: "IMAX" },
+      { id: "other", label: "그 외 관" },
     ],
   },
   {

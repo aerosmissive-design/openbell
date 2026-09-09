@@ -492,7 +492,7 @@ async function loadNaverCgv(theaterId: CgvId): Promise<Map<string, Showtime[]>> 
     const hallBlocks = block.split('"theaterName":"');
     for (let h = 1; h < hallBlocks.length; h++) {
       const hall = hallBlocks[h].split('"')[0] ?? "";
-      const formats = cgvFormats(hall).filter((f) => f !== "other");
+      const formats = cgvFormats(hall);
       if (!formats.length) continue;
       const times = [...hallBlocks[h].matchAll(/"rtime":"(\d{1,2}:\d{2})"/g)].map(
         (m) => m[1].padStart(5, "0"),
@@ -728,7 +728,7 @@ function parseCgvOfficialShowtimes(
         /(ULTRA\s*4DX|SCREENX|4DX|IMAX|DOLBY\s*ATMOS|ATMOS|\d+\s*관)/i,
       );
       const hall = hallM ? hallM[1].replace(/\s+/g, " ").trim() : "";
-      const formats = cgvFormats(hall).filter((f) => f !== "other");
+      const formats = cgvFormats(hall);
       if (!formats.length) continue;
       const timed = [
         ...part.matchAll(/data-playstarttime=["'](\d{4})["']/gi),
@@ -805,7 +805,7 @@ async function fetchCgvApi(
       const hall = String(
         row.scrnNm || row.scnNm || row.soundTypNm || row.scnsrtNm || "",
       ).trim();
-      const formats = cgvFormats(hall).filter((f) => f !== "other");
+      const formats = cgvFormats(hall);
       if (!title || !formats.length) continue;
       const raw = String(row.scnsrtTm || row.startTime || "");
       const startTime =
