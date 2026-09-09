@@ -354,6 +354,24 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           </li>
         </ol>
         <label className="mt-4 block text-xs text-muted">웹앱 주소</label>
+        <p className="mt-2 text-sm font-medium text-fg">웹앱 주소 찾는 법</p>
+        <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
+          <li>
+            <a
+              href={gasHomeUrl(loginEmail) || "https://script.google.com"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-fg underline underline-offset-2"
+            >
+              script.google.com
+            </a>
+            에서 오픈벨 프로젝트를 여세요.
+          </li>
+          <li>오른쪽 위 배포 → 새 배포를 누르세요. 이미 있으면 배포 관리입니다.</li>
+          <li>유형은 웹 앱, 실행은 나, 액세스는 모든 사용자로 두세요.</li>
+          <li>배포 후 나온 주소 끝이 /exec 인지 확인하세요.</li>
+          <li>그 주소를 아래 칸에 붙이고 웹앱 주소 연결을 누르세요.</li>
+        </ol>
         <input
           value={gasUrlDraft}
           onChange={(e) => setGasUrlDraft(e.target.value)}
