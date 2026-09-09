@@ -281,7 +281,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             : gasHomeUrl(loginEmail),
         );
         toast.error(
-          `${message}\n(코드를 복사했습니다. script.google.com에서 붙여넣고 저장하세요.)`,
+          `${message}\n(코드를 복사했습니다. script.google.com에서 스크립트에 붙여넣고 저장하세요.)`,
         );
         if (message.includes("앱스 스크립트 API")) {
           window.open("https://script.google.com/home/usersettings", "_blank", "noopener");
@@ -301,10 +301,42 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           구글 스크립트
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          복사한 코드를 붙여넣고 설치하면 그 스크립트를 찾아 붙입니다. 그록과
-          스크립트가 둘 다 메일·텔레그램·카톡·X 알림을 보냅니다. 같은 오픈이
-          두 번 갈 수 있습니다.
+          그록과 스크립트가 둘 다 알림을 보냅니다. 같은 오픈이 두 번 갈 수
+          있습니다.
         </p>
+        <p className="mt-3 text-sm font-medium text-fg">처음 설치</p>
+        <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
+          <li>스크립트 복사를 누르세요.</li>
+          <li>
+            <a
+              href={gasHomeUrl(loginEmail) || "https://script.google.com"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-fg underline underline-offset-2"
+            >
+              script.google.com
+            </a>
+            에서 새 프로젝트를 만드세요.
+          </li>
+          <li>코드를 붙여넣고 저장하세요.</li>
+          <li>위쪽 함수를 설치 로 실행하고 권한을 허용하세요.</li>
+        </ol>
+        <p className="mt-3 text-sm font-medium text-fg">이후 업데이트</p>
+        <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
+          <li>스크립트 자동 최신화를 누르세요.</li>
+          <li>
+            안 되면 스크립트 복사 후{" "}
+            <a
+              href={gasHomeUrl(loginEmail) || "https://script.google.com"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-fg underline underline-offset-2"
+            >
+              script.google.com
+            </a>
+            오픈벨에 붙여넣고 저장하세요.
+          </li>
+        </ol>
         <button
           type="button"
           disabled={provisioning}
@@ -317,18 +349,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               : "같은 스크립트를 고치는 중…"
             : "스크립트 자동 최신화"}
         </button>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          자동 최신화가 안 되면{" "}
-          <a
-            href={gasHomeUrl(loginEmail) || "https://script.google.com"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-fg underline underline-offset-2"
-          >
-            script.google.com
-          </a>
-          에서 오픈벨을 열고, 아래 복사 코드를 붙여넣은 뒤 저장하세요.
-        </p>
         <button
           type="button"
           className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border"
@@ -358,13 +378,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           </p>
         ) : null}
         {wizard ? (
-          <ol className="mt-3 rounded-md bg-bg px-3 py-3 text-sm leading-relaxed text-fg ring-1 ring-border">
-            <li>1. 열린 오픈벨에서 기존 코드를 지우고 붙여넣기 → 저장</li>
-            <li>2. 위쪽 함수를 설치 로 바꿔 실행 (권한 허용)</li>
-            <li className="mt-1 text-muted">
-              새 프로젝트·휴지통 복원은 열지 마세요. 배포는 설치가 합니다.
-            </li>
-          </ol>
+          <p className="mt-2 text-sm text-muted">
+            설치가 끝나면 이 화면이 그 스크립트를 찾습니다. 새 프로젝트나 휴지통
+            복원은 하지 마세요.
+          </p>
         ) : null}
         </div>
       </section>
