@@ -1277,9 +1277,9 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
         const json = (await res.json()) as { db?: string };
         dbLine =
           json.db === "neon"
-            ? "Neon (유지됨)"
+            ? "neon"
             : json.db === "pglite"
-              ? "임시 저장 (새로고침하면 사라질 수 있음)"
+              ? "pglite"
               : "";
       } catch {
         dbLine = "";
@@ -1320,19 +1320,12 @@ function PathLine({
   github?: string;
 }) {
   return (
-    <p className="mt-1 overflow-x-auto whitespace-nowrap text-[10px] leading-4 text-fg">
-      <span className="font-medium">{title}</span>
-      <span className="text-faint"> · </span>
-      <span className="text-muted">24시간 감시</span> {watch}
-      {github ? (
-        <>
-          <span className="text-faint"> · </span>
-          <span className="text-muted">깃허브 깨움</span> {github}
-        </>
-      ) : null}
-      <span className="text-faint"> · </span>
-      <span className="text-muted">극장시간표 조회</span> {query}
-    </p>
+    <>
+      <span className="font-medium text-fg">{title}</span>
+      <span>{watch}</span>
+      <span>{query}</span>
+      <span>{github ?? "—"}</span>
+    </>
   );
 }
 
@@ -1355,50 +1348,59 @@ function AlertPathStatus({ health }: { health: NotifyHealth }) {
   return (
     <div
       className={cn(
-        "mt-3 rounded-lg px-3 py-2 text-sm",
+        "mt-3 rounded-lg px-3 py-2.5",
         kind === "both"
           ? "bg-pick text-fg ring-1 ring-border-strong"
           : "bg-bg text-fg ring-1 ring-border",
       )}
     >
-      <p className="text-[11px] font-medium tracking-[0.16em] text-muted">
-        알림 경로
-      </p>
-      <p className="mt-1 text-xs font-medium leading-5 text-fg">{summary}</p>
-      <PathLine
-        title="그록 서버"
-        watch={watchLine(health.grok)}
-        query={queryLine(health.grok)}
-      />
-      <PathLine
-        title="베셀"
-        watch={watchLine(health.vercel)}
-        github={githubWakeLine(health.vercel)}
-        query={queryLine(health.vercel)}
-      />
-      <PathLine
-        title="구글 스크립트"
-        watch={
-          health.gasAlive
-            ? "켜짐"
-            : health.gasOk
-              ? "웹앱 응답 · 감시 기록 없음"
-              : "확인 못 함"
-        }
-        query={
-          health.gasAlive && health.gasAgeMs > 0
-            ? agoLabel(null, health.gasAgeMs)
-            : health.gasOk
-              ? "아직 없음"
-              : "확인 못 함"
-        }
-      />
-      {health.dbLine ? (
-        <p className="mt-1 text-[10px] leading-4 text-muted">
-          설정 저장 · {health.dbLine}
-        </p>
-      ) : null}
+      <p className="text-sm font-semibold leading-none text-fg">알림 경로</p>
+      <p className="mt-1.5 text-[11px] leading-4 text-muted">{summary}</p>
+      <div className="mt-2 grid grid-cols-[5.6rem_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)] gap-x-2 gap-y-1 text-[10px] leading-4 text-fg">
+        <span />
+        <span className="text-muted">24시간 감시</span>
+        <span className="text-muted">극장시간표 조회</span>
+        <span className="text-muted">깃허브 깨움</span>
+        <PathLine
+          title="그록 서버"
+          watch={watchLine(health.grok)}
+          query={queryLine(health.grok)}
+        />
+        <PathLine
+          title="베셀"
+          watch={watchLine(health.vercel)}
+          github={githubWakeLine(health.vercel)}
+          query={queryLine(health.vercel)}
+        />
+        <PathLine
+          title="구글 스크립트"
+          watch={
+            health.gasAlive
+              ? "켜짐"
+              : health.gasOk
+                ? "웹앱 응답"
+                : "확인 못 함"
+          }
+          query={
+            health.gasAlive && health.gasAgeMs > 0
+              ? agoLabel(null, health.gasAgeMs)
+              : health.gasOk
+                ? "아직 없음"
+                : "확인 못 함"
+          }
+        />
+        {health.dbLine === "neon" ? (
+          <>
+            <span className="font-medium text-fg">Neon</span>
+            <span className="col-span-3">유지됨</span>
+          </>
+        ) : health.dbLine === "pglite" ? (
+          <>
+            <span className="font-medium text-fg">임시 저장</span>
+            <span className="col-span-3">새로고침하면 사라질 수 있음</span>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
-
