@@ -39,6 +39,45 @@ const relayCache = new Map<
 >();
 const RELAY_TTL = 90_000;
 
+function pickCgvField(row: Record<string, unknown> | undefined, keys: string[]): string {
+  if (!row) return "";
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+  return "";
+}
+
+function cgvMovieBookUrl(
+  theaterId: CgvId,
+  playDate: string,
+  row?: Record<string, unknown>,
+  extraUrl = "",
+): string {
+  const site = CGV_SITES[theaterId];
+  const given = extraUrl.trim();
+  let movieNo = pickCgvField(row, ["movNo", "movieNo", "midx", "movieCode", "MOV_NO"]);
+  const fromGiven = given.match(/movNo=(\d+)/)?.[1] ?? "";
+  if (fromGiven) movieNo = movieNo || fromGiven;
+  if (given.includes("movNo=") && given.includes("/movie")) return given;
+  if (!movieNo) {
+    return `https://cgv.co.kr/cnm/movieBook/cinema?siteNo=${site.siteNo}&siteNm=${encodeURIComponent(site.theaterName)}&date=${playDate}`;
+  }
+  const params = new URLSearchParams({
+    movNo: movieNo,
+    scnYmd: playDate,
+    siteNo: site.siteNo,
+    siteNm: site.theaterName,
+  });
+  const screenNo = pickCgvField(row, ["scnsNo", "scrnNo", "scnNo", "theabNo", "SCNS_NO"]);
+  const seq = pickCgvField(row, ["scnSseq", "scnsrtNo", "sseq", "playSseq", "SCN_SSEQ"]);
+  if (screenNo) params.set("scnsNo", screenNo);
+  if (seq) params.set("scnSseq", seq);
+  return `https://cgv.co.kr/cnm/movieBook/movie?${params.toString()}`;
+}
+
 export function isCgvId(id: TheaterId): id is CgvId {
   return id in CGV_SITES;
 }
@@ -318,9 +357,10 @@ async function fetchRelayDay(
         formats: guessed.formats,
         restSeats: rest,
         totalSeats: total,
-        bookingUrl: movieNo
-          ? `https://cgv.co.kr/cnm/movieBook/movie?movNo=${movieNo}&scnYmd=${playDate}&siteNo=${siteNo}`
-          : `https://cgv.co.kr/cnm/movieBook?siteNo=${siteNo}&date=${playDate}`,
+        bookingUrl: cgvMovieBookUrl(theaterId, playDate, {
+          movieCode: movieNo,
+          movNo: movieNo,
+        }),
         bookable: true,
       };
       showtimes.push(show);
@@ -517,9 +557,7 @@ async function loadNaverCgv(theaterId: CgvId): Promise<Map<string, Showtime[]>> 
           formats,
           restSeats: null,
           totalSeats: null,
-          bookingUrl:
-            bookingUrl ||
-            `https://cgv.co.kr/cnm/movieBook?siteNo=${site.siteNo}&date=${date}`,
+          bookingUrl: cgvMovieBookUrl(theaterId, date, undefined, bookingUrl),
           bookable: true,
         };
         const list = byDate.get(date) ?? [];
@@ -757,7 +795,7 @@ function parseCgvOfficialShowtimes(
           formats,
           restSeats: hit?.rest ?? null,
           totalSeats: hit?.total ?? null,
-          bookingUrl: `https://cgv.co.kr/cnm/movieBook?siteNo=${site.siteNo}&date=${playDate}`,
+          bookingUrl: cgvMovieBookUrl(theaterId, playDate),
           bookable: true,
         });
       }
@@ -822,7 +860,7 @@ async function fetchCgvApi(
         theaterName: site.theaterName,
         chain: "cgv",
         movieTitle: title,
-        movieNo: String(row.movNo ?? ""),
+        movieNo: String(row.movNo ?? row.movieNo ?? row.movieCode ?? ""),
         playDate,
         startTime,
         endTime: null,
@@ -830,7 +868,11 @@ async function fetchCgvApi(
         formats,
         restSeats: Number.isFinite(rest) ? rest : null,
         totalSeats: Number.isFinite(total) ? total : null,
-        bookingUrl: `https://cgv.co.kr/cnm/movieBook?siteNo=${site.siteNo}&date=${playDate}`,
+        bookingUrl: cgvMovieBookUrl(
+          theaterId,
+          playDate,
+          row as Record<string, unknown>,
+        ),
         bookable: true,
       });
     }
@@ -853,6 +895,11 @@ type CgvApiRow = {
   frSeatCnt?: number;
   stcnt?: number;
   movNo?: string;
+  movieNo?: string;
+  movieCode?: string;
+  scnsNo?: string;
+  scrnNo?: string;
+  scnSseq?: string | number;
 };
 
 async function loadYongsanTelegram(): Promise<Map<string, Showtime[]>> {
@@ -898,7 +945,7 @@ async function loadYongsanTelegram(): Promise<Map<string, Showtime[]>> {
         formats: ["imax"],
         restSeats: null,
         totalSeats: null,
-        bookingUrl: `https://cgv.co.kr/cnm/movieBook?siteNo=${site.siteNo}&date=${date}`,
+        bookingUrl: cgvMovieBookUrl("cgv_yongsan", date),
         bookable: true,
       };
       const list = byDate.get(date) ?? [];

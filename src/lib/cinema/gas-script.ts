@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260909-webdeploy";
+export const GAS_SOURCE_STAMP = "20260909-cgvbook";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -1296,7 +1296,7 @@ function parseCgvOfficialLive_(text, info) {
       formats: cgvFormats_(hall),
       restSeats: Number.isFinite(rest) ? rest : null,
       totalSeats: Number.isFinite(total) ? total : null,
-      url: (site ? site.book : "") + "&date=" + info.playDate,
+      url: cgvBookUrl_(info.theaterId, info.playDate, row, ""),
     });
   });
   return out;
@@ -1324,9 +1324,7 @@ function parseCgvMcpLive_(text, info) {
       formats: guessed.formats,
       restSeats: typeof row.remainingSeats === "number" ? row.remainingSeats : null,
       totalSeats: total,
-      url: row.movieCode
-        ? "https://cgv.co.kr/cnm/movieBook/movie?movNo=" + row.movieCode + "&scnYmd=" + info.playDate + "&siteNo=" + info.siteNo
-        : (site ? site.book : "") + "&date=" + info.playDate,
+      url: cgvBookUrl_(info.theaterId, info.playDate, row, row.movieCode ? "" : (site ? site.book : "")),
     });
   });
   return out;
@@ -1442,8 +1440,8 @@ function cgvHeaders_() {
 }
 
 var CGV_SITES_ = {
-  cgv_yongsan: { placeId: "12298207", siteNo: "0013", name: "CGV 용산아이파크몰", book: "https://cgv.co.kr/cnm/movieBook?siteNo=0013" },
-  cgv_yeongdeungpo: { placeId: "13141635", siteNo: "0059", name: "CGV 영등포", book: "https://cgv.co.kr/cnm/movieBook?siteNo=0059" },
+  cgv_yongsan: { placeId: "12298207", siteNo: "0013", name: "CGV 용산아이파크몰", book: "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=0013" },
+  cgv_yeongdeungpo: { placeId: "13141635", siteNo: "0059", name: "CGV 영등포", book: "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=0059" },
 };
 
 function fetchCgv_(theaterId, playDate) {
@@ -1579,7 +1577,7 @@ function parseCgvTelegramAll_() {
           time,
           "IMAX관",
           title,
-          "https://cgv.co.kr/cnm/movieBook?siteNo=0013&date=" + date,
+          "",
           "cgv_yongsan"
         ));
       });
@@ -1945,7 +1943,7 @@ function fetchCgvApi_(theaterId, playDate) {
       var raw = String(row.scnsrtTm || row.startTime || "");
       var time = raw.length === 4 ? raw.slice(0, 2) + ":" + raw.slice(2) : raw;
       if (!title || !time) return;
-      const rec = cgvRow_(playDate, time, hall, title, "", theaterId);
+      const rec = cgvRow_(playDate, time, hall, title, "", theaterId, row);
       const rest = Number(row.frSeatCnt);
       const total = Number(row.stcnt);
       if (Number.isFinite(rest)) rec.restSeats = rest;
@@ -1956,7 +1954,34 @@ function fetchCgvApi_(theaterId, playDate) {
   return out;
 }
 
-function cgvRow_(playDate, time, hall, title, url, theaterId) {
+function pickField_(obj, keys) {
+  if (!obj) return "";
+  for (var i = 0; i < keys.length; i++) {
+    var v = obj[keys[i]];
+    if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+  }
+  return "";
+}
+
+function cgvBookUrl_(theaterId, playDate, row, extra) {
+  var site = CGV_SITES_[theaterId] || CGV_SITES_.cgv_yongsan;
+  var given = String(extra || "");
+  var movNo = pickField_(row, ["movNo", "movieNo", "midx", "movieCode", "MOV_NO"]);
+  var fromGiven = given.match(/movNo=(\\d+)/);
+  if (fromGiven && fromGiven[1]) movNo = movNo || fromGiven[1];
+  if (given.indexOf("movNo=") >= 0 && given.indexOf("/movie") >= 0) return given;
+  if (!movNo) {
+    return "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=" + site.siteNo + "&siteNm=" + encodeURIComponent(site.name) + "&date=" + playDate;
+  }
+  var url = "https://cgv.co.kr/cnm/movieBook/movie?movNo=" + movNo + "&scnYmd=" + playDate + "&siteNo=" + site.siteNo + "&siteNm=" + encodeURIComponent(site.name);
+  var scnsNo = pickField_(row, ["scnsNo", "scrnNo", "scnNo", "theabNo", "SCNS_NO"]);
+  var sseq = pickField_(row, ["scnSseq", "scnsrtNo", "sseq", "playSseq", "SCN_SSEQ"]);
+  if (scnsNo) url += "&scnsNo=" + scnsNo;
+  if (sseq) url += "&scnSseq=" + sseq;
+  return url;
+}
+
+function cgvRow_(playDate, time, hall, title, url, theaterId, row) {
   const site = CGV_SITES_[theaterId] || CGV_SITES_.cgv_yongsan;
   return {
     id: "cgv:" + site.siteNo + ":" + playDate + ":" + time + ":" + hall + ":" + title,
@@ -1968,7 +1993,7 @@ function cgvRow_(playDate, time, hall, title, url, theaterId) {
     formats: cgvFormats_(hall),
     restSeats: null,
     totalSeats: null,
-    url: url || (site.book + "&date=" + playDate),
+    url: cgvBookUrl_(theaterId, playDate, row, url),
   };
 }
 
