@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260908-alive";
+export const GAS_SOURCE_STAMP = "20260909-harden";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -1132,14 +1132,16 @@ function fetchLiveTimetable_(days, theaterId) {
     if (!site) return;
     dates.forEach(function (playDate) {
       reqs.push({
-        url: "https://mcp.aka.page/api/cgv/timetable?playDate=" + playDate + "&theaterCode=" + site.siteNo + "&limit=200",
+        url: "https://api.cgv.co.kr/cnm/atkt/searchMovScnInfo?coCd=A420&siteNo=" + site.siteNo + "&scnYmd=" + playDate + "&rtctlScopCd=08",
         muteHttpExceptions: true,
         followRedirects: true,
+        headers: { Accept: "application/json", Referer: "https://cgv.co.kr/", Origin: "https://cgv.co.kr", "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36" },
       });
-      meta.push({ kind: "cgv", theaterId: id, playDate: playDate, siteNo: site.siteNo });
+      meta.push({ kind: "cgv-official", theaterId: id, playDate: playDate, siteNo: site.siteNo });
     });
   });
   const out = [];
+  const missingCgv = [];
   if (!reqs.length) return out;
   try {
     const resps = UrlFetchApp.fetchAll(reqs);
@@ -1170,34 +1172,97 @@ function fetchLiveTimetable_(days, theaterId) {
           });
           return;
         }
-        const json = JSON.parse(res.getContentText());
-        const rows = (((json.data) || {}).timetable) || [];
-        const site = CGV_SITES_[info.theaterId];
-        rows.forEach(function (row) {
-          const title = String(row.movieName || "").trim();
-          const time = String(row.startTime || "").trim();
-          if (!title || !time) return;
-          const total = typeof row.totalSeats === "number" ? row.totalSeats : null;
-          const guessed = cgvHallFromSeats_(info.theaterId, row.screenName || "", total);
-          out.push({
-            id: "cgv:" + info.siteNo + ":" + info.playDate + ":" + time + ":" + guessed.hall + ":" + title,
-            theaterId: info.theaterId,
-            theater: site ? site.name : info.theaterId,
-            title: title,
-            date: info.playDate,
-            time: time,
-            hall: guessed.hall,
-            formats: guessed.formats,
-            restSeats: typeof row.remainingSeats === "number" ? row.remainingSeats : null,
-            totalSeats: total,
-            url: row.movieCode
-              ? "https://cgv.co.kr/cnm/movieBook/movie?movNo=" + row.movieCode + "&scnYmd=" + info.playDate + "&siteNo=" + info.siteNo
-              : (site ? site.book : "") + "&date=" + info.playDate,
-          });
-        });
-      } catch (e) {}
+        if (info.kind === "cgv-official") {
+          const added = parseCgvOfficialLive_(res.getContentText(), info);
+          if (added.length) {
+            added.forEach(function (row) { out.push(row); });
+            return;
+          }
+          missingCgv.push(info);
+          return;
+        }
+        parseCgvMcpLive_(res.getContentText(), info).forEach(function (row) { out.push(row); });
+      } catch (e) {
+        if (info && info.kind === "cgv-official") missingCgv.push(info);
+      }
     });
+    if (missingCgv.length) {
+      const extraReqs = missingCgv.map(function (info) {
+        return {
+          url: "https://mcp.aka.page/api/cgv/timetable?playDate=" + info.playDate + "&theaterCode=" + info.siteNo + "&limit=200",
+          muteHttpExceptions: true,
+          followRedirects: true,
+        };
+      });
+      const extra = UrlFetchApp.fetchAll(extraReqs);
+      extra.forEach(function (res, i) {
+        try {
+          parseCgvMcpLive_(res.getContentText(), missingCgv[i]).forEach(function (row) { out.push(row); });
+        } catch (e2) {}
+      });
+    }
   } catch (e) {}
+  return out;
+}
+
+function parseCgvOfficialLive_(text, info) {
+  const out = [];
+  const json = JSON.parse(text);
+  const rows = json.data || json.body || [];
+  if (!rows || !rows.length) return out;
+  const site = CGV_SITES_[info.theaterId];
+  rows.forEach(function (row) {
+    const title = decode_(row.movNm || row.movieName || "");
+    const hall = row.scrnNm || row.scnNm || row.soundTypNm || row.scnsrtNm || "특별관";
+    var raw = String(row.scnsrtTm || row.startTime || "");
+    var time = raw.length === 4 ? raw.slice(0, 2) + ":" + raw.slice(2) : raw;
+    if (!title || !time) return;
+    const rest = Number(row.frSeatCnt);
+    const total = Number(row.stcnt);
+    out.push({
+      id: "cgv:" + info.siteNo + ":" + info.playDate + ":" + time + ":" + hall + ":" + title,
+      theaterId: info.theaterId,
+      theater: site ? site.name : info.theaterId,
+      title: title,
+      date: info.playDate,
+      time: time,
+      hall: hall,
+      formats: cgvFormats_(hall),
+      restSeats: Number.isFinite(rest) ? rest : null,
+      totalSeats: Number.isFinite(total) ? total : null,
+      url: (site ? site.book : "") + "&date=" + info.playDate,
+    });
+  });
+  return out;
+}
+
+function parseCgvMcpLive_(text, info) {
+  const out = [];
+  const json = JSON.parse(text);
+  const rows = (((json.data) || {}).timetable) || [];
+  const site = CGV_SITES_[info.theaterId];
+  rows.forEach(function (row) {
+    const title = String(row.movieName || "").trim();
+    const time = String(row.startTime || "").trim();
+    if (!title || !time) return;
+    const total = typeof row.totalSeats === "number" ? row.totalSeats : null;
+    const guessed = cgvHallFromSeats_(info.theaterId, row.screenName || "", total);
+    out.push({
+      id: "cgv:" + info.siteNo + ":" + info.playDate + ":" + time + ":" + guessed.hall + ":" + title,
+      theaterId: info.theaterId,
+      theater: site ? site.name : info.theaterId,
+      title: title,
+      date: info.playDate,
+      time: time,
+      hall: guessed.hall,
+      formats: guessed.formats,
+      restSeats: typeof row.remainingSeats === "number" ? row.remainingSeats : null,
+      totalSeats: total,
+      url: row.movieCode
+        ? "https://cgv.co.kr/cnm/movieBook/movie?movNo=" + row.movieCode + "&scnYmd=" + info.playDate + "&siteNo=" + info.siteNo
+        : (site ? site.book : "") + "&date=" + info.playDate,
+    });
+  });
   return out;
 }
 
@@ -1667,36 +1732,71 @@ function refreshCgvSeatmap_(props) {
     if (!site) return;
     kstDates_(scanDays_()).forEach(function (playDate) {
       reqs.push({
-        url: "https://mcp.aka.page/api/cgv/timetable?playDate=" + playDate + "&theaterCode=" + site.siteNo + "&limit=200",
+        url: "https://api.cgv.co.kr/cnm/atkt/searchMovScnInfo?coCd=A420&siteNo=" + site.siteNo + "&scnYmd=" + playDate + "&rtctlScopCd=08",
         muteHttpExceptions: true,
         followRedirects: true,
+        headers: { Accept: "application/json", Referer: "https://cgv.co.kr/", Origin: "https://cgv.co.kr", "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36" },
       });
-      meta.push({ siteNo: site.siteNo, playDate: playDate });
+      meta.push({ siteNo: site.siteNo, playDate: playDate, theaterId: theaterId });
     });
   });
   const map = {};
+  const missing = [];
   if (!reqs.length) return map;
   try {
     const resps = UrlFetchApp.fetchAll(reqs);
     resps.forEach(function (res, i) {
       const info = meta[i];
+      var got = 0;
       try {
         const json = JSON.parse(res.getContentText());
-        const rows = (((json.data) || {}).timetable) || [];
+        const rows = json.data || json.body || [];
         rows.forEach(function (row) {
-          if (typeof row.remainingSeats !== "number") return;
-          const rec = { rest: row.remainingSeats, total: typeof row.totalSeats === "number" ? row.totalSeats : null };
-          const time = String(row.startTime || "");
+          const rest = Number(row.frSeatCnt);
+          if (!Number.isFinite(rest)) return;
+          const rec = { rest: rest, total: Number.isFinite(Number(row.stcnt)) ? Number(row.stcnt) : null };
+          var raw = String(row.scnsrtTm || row.startTime || "");
+          var time = raw.length === 4 ? raw.slice(0, 2) + ":" + raw.slice(2) : raw;
           if (!time) return;
-          const title = normalize_(row.movieName || "");
+          const title = normalize_(row.movNm || row.movieName || "");
           if (title) map["k:" + info.siteNo + "|" + info.playDate + "|" + time + "|" + title] = rec;
-          if (row.movieCode) map["k:" + info.siteNo + "|" + info.playDate + "|" + time + "|" + row.movieCode] = rec;
           if (!map["k:" + info.siteNo + "|" + info.playDate + "|" + time]) {
             map["k:" + info.siteNo + "|" + info.playDate + "|" + time] = rec;
           }
+          got += 1;
         });
       } catch (e) {}
+      if (!got) missing.push(info);
     });
+    if (missing.length) {
+      const extraReqs = missing.map(function (info) {
+        return {
+          url: "https://mcp.aka.page/api/cgv/timetable?playDate=" + info.playDate + "&theaterCode=" + info.siteNo + "&limit=200",
+          muteHttpExceptions: true,
+          followRedirects: true,
+        };
+      });
+      const extra = UrlFetchApp.fetchAll(extraReqs);
+      extra.forEach(function (res, i) {
+        const info = missing[i];
+        try {
+          const json = JSON.parse(res.getContentText());
+          const rows = (((json.data) || {}).timetable) || [];
+          rows.forEach(function (row) {
+            if (typeof row.remainingSeats !== "number") return;
+            const rec = { rest: row.remainingSeats, total: typeof row.totalSeats === "number" ? row.totalSeats : null };
+            const time = String(row.startTime || "");
+            if (!time) return;
+            const title = normalize_(row.movieName || "");
+            if (title) map["k:" + info.siteNo + "|" + info.playDate + "|" + time + "|" + title] = rec;
+            if (row.movieCode) map["k:" + info.siteNo + "|" + info.playDate + "|" + time + "|" + row.movieCode] = rec;
+            if (!map["k:" + info.siteNo + "|" + info.playDate + "|" + time]) {
+              map["k:" + info.siteNo + "|" + info.playDate + "|" + time] = rec;
+            }
+          });
+        } catch (e2) {}
+      });
+    }
   } catch (e) {}
   return map;
 }

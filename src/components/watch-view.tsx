@@ -97,6 +97,9 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
             : "이미 개봉한 영화만, 예매율 순 9편입니다. 포스터를 누르면 알림설정입니다."}
         </p>
         <MovieSearch catalog={scan?.catalog ?? []} />
+        {scan?.catalogNote ? (
+          <p className="mb-3 text-xs leading-relaxed text-muted">{scan.catalogNote}</p>
+        ) : null}
         {loading && !scan ? (
           <div className="grid grid-cols-3 gap-2">
             {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => (

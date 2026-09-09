@@ -47,17 +47,22 @@ export function cgvSiteNo(id: CgvId) {
   return CGV_SITES[id].siteNo;
 }
 
-export async function fetchCgvUpcomingCatalog(): Promise<RankingMovie[]> {
+export async function fetchCgvUpcomingCatalog(): Promise<{
+  movies: RankingMovie[];
+  source: "official" | "naver" | "relay" | "none";
+}> {
   const official = await fetchCgvOfficialMovieList();
   if (official.length) {
     const extra = await fetchMcpCgvMovies().catch(() => []);
-    return mergeRankingMovies(official, extra);
+    return { movies: mergeRankingMovies(official, extra), source: "official" };
   }
   const [naver, mcp] = await Promise.all([
     fetchNaverComingMovies().catch(() => []),
     fetchMcpCgvMovies().catch(() => []),
   ]);
-  return mergeRankingMovies(naver, mcp);
+  if (naver.length) return { movies: mergeRankingMovies(naver, mcp), source: "naver" };
+  if (mcp.length) return { movies: mcp, source: "relay" };
+  return { movies: [], source: "none" };
 }
 
 function mergeRankingMovies(...lists: RankingMovie[][]) {

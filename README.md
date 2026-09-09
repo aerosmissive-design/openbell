@@ -1,9 +1,16 @@
-# 오픈벨 (Openbell) v3.3.3
+# 오픈벨 (Openbell) v3.4.0
 
 CGV·메가박스 특별관 예매가 열리거나, 별표한 회차의 잔여석이 변하면 메일·텔레그램·카톡·X로 알려 주는 웹앱입니다.
 
 웹: https://openbell.grok.me · Vercel: https://openbell-fawn.vercel.app  
 저장소: https://github.com/aerosmissive-design/openbell
+
+## v3.4에서 달라진 점
+
+- CGV 시간표·잔여석은 공홈을 먼저 보고, 막히면 우회합니다.
+- 봇 토큰은 브라우저에 저장하지 않고, 서버 DB에는 암호화합니다.
+- 알림 경로에 설정 저장(Neon/임시)과 마지막 발송 성공·실패가 보입니다.
+- CGV 예정작을 못 받으면 검색 아래에 이유가 나옵니다.
 
 ## v3.3.3에서 달라진 점
 

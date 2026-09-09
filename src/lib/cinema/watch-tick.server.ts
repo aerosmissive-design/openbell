@@ -2,6 +2,15 @@ import { getSql } from "@/lib/db";
 import { snapshotFromRow, pingGasHeartbeat, type CloudSnapshot } from "./cloud";
 import { ensureUserSettingsSchema } from "./settings-schema.server";
 import {
+  dbLabel,
+  readLastNotify,
+  readWatchLastRun,
+  writeLastNotify,
+  writeWatchLastRun,
+  type ChannelSendLog,
+} from "./app-meta.server";
+import { revealConfigSecrets } from "./secret-box.server";
+import {
   filterWatched,
   primeIdsForWatchChange,
   watchedTitleSet,
@@ -16,11 +25,16 @@ import { mailEnabled, xEnabled } from "./types";
 const THEATER_IDS = THEATERS.map((t) => t.id);
 let lastRunAt = 0;
 
-export function watchTickHealth() {
+export async function watchTickHealth() {
+  const stored = await readWatchLastRun();
+  const last = Math.max(lastRunAt, stored);
+  const notify = await readLastNotify();
   return {
-    lastRunAt,
-    ageMs: lastRunAt ? Date.now() - lastRunAt : null,
-    alive: lastRunAt > 0 && Date.now() - lastRunAt < 10 * 60 * 1000,
+    lastRunAt: last,
+    ageMs: last ? Date.now() - last : null,
+    alive: last > 0 && Date.now() - last < 10 * 60 * 1000,
+    db: dbLabel(),
+    lastNotify: notify,
   };
 }
 
@@ -88,7 +102,7 @@ async function sendKakao(restKey: string, refreshToken: string, text: string, ur
     signal: AbortSignal.timeout(10000),
   });
   const tokenJson = (await tokenRes.json()) as { access_token?: string };
-  if (!tokenJson.access_token) return;
+  if (!tokenJson.access_token) throw new Error("kakao");
   const memoBody = new URLSearchParams({
     template_object: JSON.stringify({
       object_type: "text",
@@ -110,7 +124,8 @@ async function sendKakao(restKey: string, refreshToken: string, text: string, ur
 
 async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
   const { subject, text, telegramHtml } = notifyCopy(items);
-  const jobs: Promise<unknown>[] = [];
+  const log: ChannelSendLog = { at: Date.now() };
+  const jobs: Promise<void>[] = [];
   if (config.telegramToken && config.telegramChatId) {
     jobs.push(
       sendTelegram(
@@ -118,20 +133,34 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
         config.telegramChatId,
         telegramHtml,
         true,
-      ).catch(() => null),
+      )
+        .then(() => {
+          log.telegram = "ok";
+        })
+        .catch((err: unknown) => {
+          log.telegram = err instanceof Error ? err.message : "실패";
+        }),
     );
   }
   if (config.kakaoRestKey && config.kakaoRefreshToken) {
-    for (const item of items.slice(0, 8)) {
-      jobs.push(
-        sendKakao(
-          config.kakaoRestKey,
-          config.kakaoRefreshToken,
-          `${item.title}\n${item.body}`.slice(0, 200),
-          item.bookingUrl || "https://www.megabox.co.kr",
-        ).catch(() => null),
-      );
-    }
+    jobs.push(
+      Promise.all(
+        items.slice(0, 8).map((item) =>
+          sendKakao(
+            config.kakaoRestKey,
+            config.kakaoRefreshToken,
+            `${item.title}\n${item.body}`.slice(0, 200),
+            item.bookingUrl || "https://www.megabox.co.kr",
+          ),
+        ),
+      )
+        .then(() => {
+          log.kakao = "ok";
+        })
+        .catch((err: unknown) => {
+          log.kakao = err instanceof Error ? err.message : "실패";
+        }),
+    );
   }
   if (config.webhookUrl.trim()) {
     jobs.push(
@@ -140,43 +169,64 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title: items[0]?.title, items }),
         signal: AbortSignal.timeout(10000),
-      }).catch(() => null),
+      })
+        .then((res) => {
+          log.webhook = res.ok ? "ok" : `실패 ${res.status}`;
+        })
+        .catch((err: unknown) => {
+          log.webhook = err instanceof Error ? err.message : "실패";
+        }),
     );
   }
   if (mailEnabled(config)) {
     jobs.push(
-      import("./mail.server").then(({ sendOpenbellMail }) =>
-        sendOpenbellMail({
-          to: config.email,
-          subject,
-          text,
-          url: items[0]?.bookingUrl,
-          items,
-          gasWebUrl: config.gasWebUrl,
-          gmailAppPassword: config.gmailAppPassword,
+      import("./mail.server")
+        .then(({ sendOpenbellMail }) =>
+          sendOpenbellMail({
+            to: config.email,
+            subject,
+            text,
+            url: items[0]?.bookingUrl,
+            items,
+            gasWebUrl: config.gasWebUrl,
+            gmailAppPassword: config.gmailAppPassword,
+          }),
+        )
+        .then(() => {
+          log.mail = "ok";
+        })
+        .catch((err: unknown) => {
+          log.mail = err instanceof Error ? err.message : "실패";
         }),
-      ).catch(() => null),
     );
   }
   if (xEnabled(config)) {
     jobs.push(
-      import("./x-post.server").then(({ postXTweet }) =>
-        postXTweet(
-          {
-            accessToken: config.xAccessToken,
-            clientId: config.xClientId,
-            clientSecret: config.xClientSecret,
-            refreshToken: config.xRefreshToken,
-            apiKey: config.xApiKey,
-            apiSecret: config.xApiSecret,
-            accessSecret: config.xAccessSecret,
-          },
-          tweetCopy(items),
-        ),
-      ).catch(() => null),
+      import("./x-post.server")
+        .then(({ postXTweet }) =>
+          postXTweet(
+            {
+              accessToken: config.xAccessToken,
+              clientId: config.xClientId,
+              clientSecret: config.xClientSecret,
+              refreshToken: config.xRefreshToken,
+              apiKey: config.xApiKey,
+              apiSecret: config.xApiSecret,
+              accessSecret: config.xAccessSecret,
+            },
+            tweetCopy(items),
+          ),
+        )
+        .then(() => {
+          log.x = "ok";
+        })
+        .catch((err: unknown) => {
+          log.x = err instanceof Error ? err.message : "실패";
+        }),
     );
   }
   await Promise.all(jobs);
+  await writeLastNotify(log);
 }
 
 async function persistWatch(
@@ -214,10 +264,12 @@ async function persistWatch(
 
 export async function runWatchTick() {
   const now = Date.now();
-  if (now - lastRunAt < 3 * 60 * 1000) {
+  const storedRun = await readWatchLastRun();
+  if (now - Math.max(lastRunAt, storedRun) < 3 * 60 * 1000) {
     return { skipped: true as const, users: 0, sent: 0 };
   }
   lastRunAt = now;
+  await writeWatchLastRun(now);
   try {
     await ensureUserSettingsSchema();
     const sql = await getSql();
@@ -236,6 +288,7 @@ export async function runWatchTick() {
   const accounts = rows
     .map((row) => {
       const snap = snapshotFromRow(row);
+      snap.config = revealConfigSecrets(snap.config);
       const email = String(row.account_email || snap.config.email || "").trim();
       return {
         userId: row.user_id,
@@ -338,6 +391,7 @@ export async function runWatchTick() {
     return { skipped: false as const, users: accounts.length, sent };
   } catch (err) {
     lastRunAt = 0;
+    await writeWatchLastRun(0);
     throw err;
   }
 }

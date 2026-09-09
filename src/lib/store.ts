@@ -12,6 +12,7 @@ import type {
   WatchConfig,
 } from "@/lib/cinema/types";
 import { normalizeScanSources, CHART_SIZE } from "@/lib/cinema/types";
+import { stripConfigSecrets } from "@/lib/cinema/secret-fields";
 
 type Tab = "watch" | "alerts" | "star" | "settings";
 
@@ -221,7 +222,7 @@ export const useAppStore = create<AppState>()(
     {
       name: "openbell-v2",
       partialize: (s) => ({
-        config: s.config,
+        config: stripConfigSecrets(s.config),
         primed: s.primed,
         seenIds: s.seenIds,
         seenDates: s.seenDates,

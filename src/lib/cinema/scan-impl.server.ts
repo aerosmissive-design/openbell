@@ -37,7 +37,10 @@ export async function runScan(input: {
     showing: [],
     catalog: [],
   }));
-  const cgvComingPromise = fetchCgvUpcomingCatalog().catch(() => []);
+  const cgvComingPromise = fetchCgvUpcomingCatalog().catch(() => ({
+    movies: [] as RankingMovie[],
+    source: "none" as const,
+  }));
 
   const gasSeats = input.gasWebUrl
     ? loadGasSeatmap(input.gasWebUrl).catch(() => ({
@@ -145,7 +148,7 @@ export async function runScan(input: {
       catalog.catalog ?? [],
       catalog.ranking,
       catalog.showing,
-      cgvComing,
+      cgvComing.movies,
       moviesFromShowtimes(tagged.flatMap((t) => t.showtimes)),
     ),
     theaters: tagged,

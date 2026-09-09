@@ -26,14 +26,26 @@ export const fetchMovieCatalog = createServerFn({ method: "POST" }).handler(
     const { fetchMegaboxCatalog } = await import("./megabox.server");
     const { fetchCgvUpcomingCatalog } = await import("./cgv.server");
     const { mergeMovieCatalog } = await import("./match");
-    const [mega, cgv] = await Promise.all([
+    const [mega, cgvPack] = await Promise.all([
       fetchMegaboxCatalog(),
-      fetchCgvUpcomingCatalog().catch(() => []),
+      fetchCgvUpcomingCatalog().catch(() => ({
+        movies: [],
+        source: "none" as const,
+      })),
     ]);
+    const cgvNote =
+      cgvPack.source === "none"
+        ? "CGV 예정작을 공홈·네이버·우회에서 받지 못했습니다. 메가박스 목록은 있습니다."
+        : cgvPack.source === "relay"
+          ? "CGV 예정작은 우회 조회입니다. 공홈이 막혀 있습니다."
+          : cgvPack.source === "naver"
+            ? "CGV 예정작은 네이버입니다. 공홈이 막혀 있습니다."
+            : "";
     return {
       ranking: mega.ranking,
       showing: mega.showing,
-      catalog: mergeMovieCatalog(mega.catalog, cgv),
+      catalog: mergeMovieCatalog(mega.catalog, cgvPack.movies),
+      catalogNote: cgvNote,
     };
   },
 );

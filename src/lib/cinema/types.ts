@@ -65,6 +65,7 @@ export type ScanResult = {
   ranking: RankingMovie[];
   showing: RankingMovie[];
   catalog: RankingMovie[];
+  catalogNote?: string;
   theaters: TheaterScan[];
 };
 

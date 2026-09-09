@@ -566,30 +566,34 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                 label={config.emailNotify ? "알림 켜짐" : "알림 꺼짐"}
               />
             </div>
-            <label className="mt-4 block text-xs text-muted">
-              Gmail 앱 비밀번호
-            </label>
-            <input
-              type="password"
-              autoComplete="off"
-              value={config.gmailAppPassword}
-              onChange={(e) => setConfig({ gmailAppPassword: e.target.value })}
-              placeholder="16자리 (띄어쓰기 없이)"
-              className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
-            />
-            <p className="mt-2 text-xs leading-relaxed text-faint">
-              구글 계정 → 보안 → 2단계 인증 → 앱 비밀번호에서 메일용 16자리를
-              만들어 붙이면, 스크립트 없이 바로 갑니다.
-            </p>
-            <a
-              href="https://myaccount.google.com/apppasswords"
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-flex min-h-11 items-center text-xs text-fg underline-offset-2 hover:underline"
-            >
-              앱 비밀번호 만들기
-              <ExternalLink className="ml-1 size-3.5" strokeWidth={1.75} />
-            </a>
+            <details className="mt-4">
+              <summary className="cursor-pointer text-xs text-muted">
+                그록에서 바로 메일 (선택)
+              </summary>
+              <label className="mt-3 block text-xs text-muted">
+                Gmail 앱 비밀번호
+              </label>
+              <input
+                type="password"
+                autoComplete="off"
+                value={config.gmailAppPassword}
+                onChange={(e) => setConfig({ gmailAppPassword: e.target.value })}
+                placeholder="16자리 (띄어쓰기 없이)"
+                className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+              />
+              <p className="mt-2 text-xs leading-relaxed text-faint">
+                구글 스크립트 없이 그록 서버가 Gmail SMTP로 보낼 때만 필요합니다.
+                스크립트를 쓰면 비워 둬도 됩니다.
+              </p>
+              <a
+                href="https://myaccount.google.com/apppasswords"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex min-h-11 items-center text-xs text-fg underline-offset-2 hover:underline"
+              >
+                앱 비밀번호 만들기
+              </a>
+            </details>
             <Button
               className="mt-3 w-full"
               disabled={sendingTest || !mailEnabled(config)}
@@ -1112,6 +1116,8 @@ function AlertPathStatus() {
   const [summary, setSummary] = useState("현황을 확인하는 중…");
   const [grokLine, setGrokLine] = useState("확인 중");
   const [gasLine, setGasLine] = useState("확인 중");
+  const [dbLine, setDbLine] = useState("");
+  const [notifyLine, setNotifyLine] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1120,6 +1126,8 @@ function AlertPathStatus() {
       let grokReachable = false;
       let grokAlive = false;
       let ageMs: number | null = null;
+      let dbLabel = "";
+      let notifyBits = "";
       try {
         const res = await fetch("/api/watch-alive", {
           signal: AbortSignal.timeout(8000),
@@ -1127,10 +1135,43 @@ function AlertPathStatus() {
         const json = (await res.json()) as {
           alive?: boolean;
           ageMs?: number | null;
+          db?: string;
+          lastNotify?: {
+            at?: number;
+            telegram?: string;
+            kakao?: string;
+            mail?: string;
+            x?: string;
+            webhook?: string;
+          } | null;
         };
         grokReachable = res.ok;
         grokAlive = Boolean(json.alive);
         ageMs = typeof json.ageMs === "number" ? json.ageMs : null;
+        dbLabel =
+          json.db === "neon" ? "Neon (유지됨)" : json.db === "pglite" ? "임시 저장 (새로고침하면 사라질 수 있음)" : "";
+        if (json.lastNotify?.at) {
+          const bits = ["telegram", "kakao", "mail", "x", "webhook"]
+            .map((key) => {
+              const val = json.lastNotify?.[key as keyof NonNullable<typeof json.lastNotify>];
+              if (!val) return "";
+              const name =
+                key === "telegram"
+                  ? "텔레그램"
+                  : key === "kakao"
+                    ? "카톡"
+                    : key === "mail"
+                      ? "메일"
+                      : key === "x"
+                        ? "X"
+                        : "웹훅";
+              return `${name} ${val === "ok" ? "됨" : val}`;
+            })
+            .filter(Boolean);
+          notifyBits = bits.length
+            ? `${Math.max(1, Math.round((Date.now() - json.lastNotify.at) / 60000))}분 전 · ${bits.join(" · ")}`
+            : "";
+        }
       } catch {
         grokReachable = false;
       }
@@ -1164,6 +1205,8 @@ function AlertPathStatus() {
             : "웹앱이 응답하지 않습니다";
       setGrokLine(nextGrok);
       setGasLine(nextGas);
+      setDbLine(dbLabel);
+      setNotifyLine(notifyBits);
       if (grokOn && gasRecent) {
         setKind("both");
         setSummary("그록 서버와 구글 스크립트가 둘 다 알림을 보냅니다.");
@@ -1221,6 +1264,18 @@ function AlertPathStatus() {
         <dd className="text-fg">{grokLine}</dd>
         <dt className="text-muted">구글 스크립트</dt>
         <dd className="text-fg">{gasLine}</dd>
+        {dbLine ? (
+          <>
+            <dt className="text-muted">설정 저장</dt>
+            <dd className="text-fg">{dbLine}</dd>
+          </>
+        ) : null}
+        {notifyLine ? (
+          <>
+            <dt className="text-muted">마지막 발송</dt>
+            <dd className="text-fg">{notifyLine}</dd>
+          </>
+        ) : null}
       </dl>
     </div>
   );

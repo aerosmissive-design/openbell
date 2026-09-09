@@ -542,7 +542,10 @@ export const loadCloudSettings = createServerFn({ method: "GET" })
     );
     const row = rows[0];
     if (!row) return { snapshot: null as CloudSnapshot | null };
-    return { snapshot: snapshotFromRow(row) };
+    const snapshot = snapshotFromRow(row);
+    const { revealConfigSecrets } = await import("./secret-box.server");
+    snapshot.config = revealConfigSecrets(snapshot.config);
+    return { snapshot };
   });
 
 const SaveInput = z.object({
@@ -589,6 +592,8 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
     if (accountEmail) {
       snapshot.config.email = accountEmail;
     }
+    const { sealConfigSecrets } = await import("./secret-box.server");
+    const storedConfig = sealConfigSecrets(snapshot.config);
     await sql.query(
       `insert into user_settings (user_id, config, queue, alerts, prefs, updated_at)
        values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, now())
@@ -600,7 +605,7 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
          updated_at = now()`,
       [
         context.userId,
-        JSON.stringify(snapshot.config),
+        JSON.stringify(storedConfig),
         JSON.stringify(snapshot.queue),
         JSON.stringify(snapshot.alerts),
         JSON.stringify(prefs),
