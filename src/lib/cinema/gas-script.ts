@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260909-triple";
+export const GAS_SOURCE_STAMP = "20260909-cgvlink";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -424,16 +424,6 @@ function checkOpenSeats() {
     }).join("\\n\\n");
     notify_("[오픈벨] 좌석 늘음 " + report.seatAlerts.length + "건 — 지금 예매하세요", body, report.seatAlerts);
   }
-  pingPeerTick_();
-}
-
-function pingPeerTick_() {
-  try {
-    UrlFetchApp.fetch("https://openbell-fawn.vercel.app/api/watch-tick", {
-      muteHttpExceptions: true,
-      followRedirects: true,
-    });
-  } catch (e) {}
 }
 
 function grokWaitMs_() {

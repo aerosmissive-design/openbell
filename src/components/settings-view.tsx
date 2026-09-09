@@ -167,7 +167,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           구글 스크립트
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          그록과 베셀과 스크립트가 각각 알림을 보냅니다. 같은 오픈이 두세 번 갈 수
+          그록과 스크립트가 둘 다 알림을 보냅니다. 같은 오픈이 두 번 갈 수
           있습니다.
         </p>
         <button
@@ -505,9 +505,9 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           앱을 꺼도 알림
         </h3>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          로그인이 메인입니다. 그록 서버, 베셀, 구글 스크립트가 각각 조회해
-          메일·텔레그램·카톡·X를 보냅니다. 같은 오픈이 두세 번 갈 수 있습니다.
-          한쪽이 멈춰도 나머지가 바로 보냅니다.
+          로그인이 메인입니다. 화면을 닫아도 그록 서버와 구글 스크립트가 각각
+          조회해 메일·텔레그램·카톡·X를 보냅니다. 한쪽이 멈춰도 다른 쪽이 바로
+          보냅니다.
         </p>
         <AlertPathStatus />
 
@@ -566,7 +566,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             </div>
             <details className="mt-4">
               <summary className="cursor-pointer text-xs text-muted">
-                웹에서 바로 메일 (선택)
+                그록에서 바로 메일 (선택)
               </summary>
               <label className="mt-3 block text-xs text-muted">
                 Gmail 앱 비밀번호
@@ -1108,37 +1108,6 @@ function Steps({ items }: { items: ReactNode[] }) {
   );
 }
 
-function aliveLine(opts: {
-  reachable: boolean;
-  alive: boolean;
-  ageMs: number | null;
-  missing?: string;
-}) {
-  if (opts.missing) return opts.missing;
-  if (!opts.reachable) return "확인 못 함";
-  if (opts.alive) {
-    return opts.ageMs != null
-      ? `작동 중 · ${Math.max(1, Math.round(opts.ageMs / 60000))}분 전 조회`
-      : "작동 중";
-  }
-  return "연결됨 · 다음 주기 대기";
-}
-
-async function probeWatchAlive(url: string) {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return { reachable: false, alive: false, ageMs: null as number | null };
-    const json = (await res.json()) as { alive?: boolean; ageMs?: number | null };
-    return {
-      reachable: true,
-      alive: Boolean(json.alive),
-      ageMs: typeof json.ageMs === "number" ? json.ageMs : null,
-    };
-  } catch {
-    return { reachable: false, alive: false, ageMs: null as number | null };
-  }
-}
-
 function AlertPathStatus() {
   const gasWebUrl = useAppStore((s) => s.config.gasWebUrl);
   const [kind, setKind] = useState<"both" | "grok" | "gas" | "wait" | "none">(
@@ -1146,7 +1115,6 @@ function AlertPathStatus() {
   );
   const [summary, setSummary] = useState("현황을 확인하는 중…");
   const [grokLine, setGrokLine] = useState("확인 중");
-  const [vercelLine, setVercelLine] = useState("확인 중");
   const [gasLine, setGasLine] = useState("확인 중");
   const [dbLine, setDbLine] = useState("");
   const [notifyLine, setNotifyLine] = useState("");
@@ -1155,20 +1123,9 @@ function AlertPathStatus() {
     let cancelled = false;
     async function load() {
       const url = gasWebUrl.trim();
-      const here = window.location.hostname.includes("vercel.app")
-        ? "vercel"
-        : "grok";
-      const local = await probeWatchAlive("/api/watch-alive");
-      const grok =
-        here === "grok"
-          ? local
-          : await probeWatchAlive("https://openbell.grok.me/api/watch-alive");
-      const vercel =
-        here === "vercel"
-          ? local
-          : await probeWatchAlive(
-              "https://openbell-fawn.vercel.app/api/watch-alive",
-            );
+      let grokReachable = false;
+      let grokAlive = false;
+      let ageMs: number | null = null;
       let dbLabel = "";
       let notifyBits = "";
       try {
@@ -1176,6 +1133,8 @@ function AlertPathStatus() {
           signal: AbortSignal.timeout(8000),
         });
         const json = (await res.json()) as {
+          alive?: boolean;
+          ageMs?: number | null;
           db?: string;
           lastNotify?: {
             at?: number;
@@ -1186,17 +1145,15 @@ function AlertPathStatus() {
             webhook?: string;
           } | null;
         };
+        grokReachable = res.ok;
+        grokAlive = Boolean(json.alive);
+        ageMs = typeof json.ageMs === "number" ? json.ageMs : null;
         dbLabel =
-          json.db === "neon"
-            ? "Neon (유지됨)"
-            : json.db === "pglite"
-              ? "임시 저장 (새로고침하면 사라질 수 있음)"
-              : "";
+          json.db === "neon" ? "Neon (유지됨)" : json.db === "pglite" ? "임시 저장 (새로고침하면 사라질 수 있음)" : "";
         if (json.lastNotify?.at) {
           const bits = ["telegram", "kakao", "mail", "x", "webhook"]
             .map((key) => {
-              const val =
-                json.lastNotify?.[key as keyof NonNullable<typeof json.lastNotify>];
+              const val = json.lastNotify?.[key as keyof NonNullable<typeof json.lastNotify>];
               if (!val) return "";
               const name =
                 key === "telegram"
@@ -1216,7 +1173,7 @@ function AlertPathStatus() {
             : "";
         }
       } catch {
-        /* ignore */
+        grokReachable = false;
       }
       let gasOk = false;
       let gasRecent = false;
@@ -1225,52 +1182,58 @@ function AlertPathStatus() {
         const health = await probeGasHealth(url);
         gasOk = Boolean(health?.ok);
         gasRecent = Boolean(health?.gasAlive);
-        gasAgeMs = health && health.gasAgeMs > 0 ? health.gasAgeMs : null;
+        gasAgeMs =
+          health && health.gasAgeMs > 0 ? health.gasAgeMs : null;
       }
       if (cancelled) return;
-      setGrokLine(aliveLine(grok));
-      setVercelLine(aliveLine(vercel));
-      setGasLine(
-        !url
-          ? "없음"
-          : gasRecent
-            ? gasAgeMs != null
-              ? `작동 중 · ${Math.max(1, Math.round(gasAgeMs / 60000))}분 전 감시`
-              : "작동 중"
-            : gasOk
-              ? "웹앱은 응답 · 감시 기록이 없습니다. 스크립트를 최신화하세요."
-              : "웹앱이 응답하지 않습니다",
-      );
+      const grokOn = grokReachable;
+      const nextGrok = !grokReachable
+        ? "확인 못 함"
+        : grokAlive
+          ? ageMs != null
+            ? `작동 중 · ${Math.max(1, Math.round(ageMs / 60000))}분 전 조회`
+            : "작동 중"
+          : "연결됨 · 다음 주기 대기";
+      const nextGas = !url
+        ? "없음"
+        : gasRecent
+          ? gasAgeMs != null
+            ? `작동 중 · ${Math.max(1, Math.round(gasAgeMs / 60000))}분 전 감시`
+            : "작동 중"
+          : gasOk
+            ? "웹앱은 응답 · 감시 기록이 없습니다. 스크립트를 최신화하세요."
+            : "웹앱이 응답하지 않습니다";
+      setGrokLine(nextGrok);
+      setGasLine(nextGas);
       setDbLine(dbLabel);
       setNotifyLine(notifyBits);
-      const n =
-        Number(grok.alive || grok.reachable) +
-        Number(vercel.alive || vercel.reachable) +
-        Number(gasRecent);
-      if (n >= 2) {
+      if (grokOn && gasRecent) {
         setKind("both");
+        setSummary("그록 서버와 구글 스크립트가 둘 다 알림을 보냅니다.");
+        return;
+      }
+      if (grokOn) {
+        setKind("grok");
         setSummary(
-          "그록·베셀·구글 스크립트가 각각 알림을 보냅니다. 같은 오픈이 여러 번 갈 수 있습니다.",
+          !url
+            ? "그록 서버만 알림을 보냅니다. 구글 스크립트가 없습니다."
+            : gasRecent
+              ? "그록 서버와 구글 스크립트가 둘 다 알림을 보냅니다."
+              : "그록 서버가 알림을 보냅니다. 구글 스크립트 감시는 아직 확인되지 않았습니다.",
         );
-        return;
-      }
-      if (grok.reachable || grok.alive) {
-        setKind("grok");
-        setSummary("그록 서버가 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다.");
-        return;
-      }
-      if (vercel.reachable || vercel.alive) {
-        setKind("grok");
-        setSummary("베셀이 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다.");
         return;
       }
       if (gasRecent) {
         setKind("gas");
-        setSummary("구글 스크립트가 알림을 보냅니다. 그록·베셀은 확인하지 못했습니다.");
+        setSummary("구글 스크립트가 알림을 보냅니다. 그록 서버는 확인하지 못했습니다.");
         return;
       }
       setKind("none");
-      setSummary("알림 경로를 아직 확인하지 못했습니다.");
+      setSummary(
+        url
+          ? "그록 서버와 구글 스크립트 감시를 아직 확인하지 못했습니다."
+          : "그록 서버를 아직 확인하지 못했습니다. 구글 스크립트가 없습니다.",
+      );
     }
     void load();
     const timer = window.setInterval(() => {
@@ -1299,8 +1262,6 @@ function AlertPathStatus() {
       <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
         <dt className="text-muted">그록 서버</dt>
         <dd className="text-fg">{grokLine}</dd>
-        <dt className="text-muted">베셀</dt>
-        <dd className="text-fg">{vercelLine}</dd>
         <dt className="text-muted">구글 스크립트</dt>
         <dd className="text-fg">{gasLine}</dd>
         {dbLine ? (

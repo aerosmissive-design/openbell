@@ -63,18 +63,14 @@ export async function writeLastNotify(log: ChannelSendLog) {
   await writeAppMeta("last_notify", JSON.stringify(log));
 }
 
-export function watchHost(): "grok" | "vercel" {
-  return process.env.VERCEL ? "vercel" : "grok";
-}
-
 export async function readWatchLastRun() {
-  const raw = await readAppMeta(`watch_last_run_${watchHost()}`);
+  const raw = await readAppMeta("watch_last_run");
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 export async function writeWatchLastRun(at: number) {
-  await writeAppMeta(`watch_last_run_${watchHost()}`, String(at));
+  await writeAppMeta("watch_last_run", String(at));
 }
 
 export function dbLabel() {
