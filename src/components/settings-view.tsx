@@ -1,24 +1,16 @@
 import { ExternalLink } from "lucide-react";
-import { type ReactNode, Fragment, useEffect, useRef, useState } from "react";
+import { type ReactNode, Fragment, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { authEnabled, signIn, signOut } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { extractKakaoCode, kakaoRedirectUri } from "@/lib/cinema/kakao";
 import {
-  attachInstalledScript,
-  connectedEditorUrl,
   currentGasScript,
   ensureGasSyncKey,
-  existingScriptEditorUrl,
   forgetGasLink,
   gasHomeUrl,
-  gasIsLinked,
-  peekGasOauthClient,
-  pushLinkedGasSource,
   refreshGasMeta,
-  syncGasScript,
-  waitForGasBind,
 } from "@/lib/cinema/gas-provision";
 import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
 import { pullGasMeta } from "@/lib/cinema/cloud";
@@ -47,15 +39,11 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const [showTelegram, setShowTelegram] = useState(false);
   const [showX, setShowX] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
-  const [provisioning, setProvisioning] = useState(false);
-  const [wizard, setWizard] = useState(false);
-  const [canOauth, setCanOauth] = useState(false);
   const [showStages, setShowStages] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showGasHelp, setShowGasHelp] = useState(false);
   const [showGasUrlHelp, setShowGasUrlHelp] = useState(false);
   const [remoteStamp, setRemoteStamp] = useState<string | null>(null);
-  const wizardAbort = useRef<AbortController | null>(null);
   const setTab = useAppStore((s) => s.setTab);
   const [redirectUri, setRedirectUri] = useState("");
   const [gasUrlDraft, setGasUrlDraft] = useState(config.gasWebUrl);
@@ -67,21 +55,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   useEffect(() => {
     setGasUrlDraft(config.gasWebUrl);
   }, [config.gasWebUrl]);
-
-  useEffect(() => {
-    if (!loginEmail) return;
-    const timer = window.setTimeout(() => {
-      if (useAppStore.getState().config.gasWebUrl.trim()) return;
-      void attachInstalledScript(loginEmail);
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [loginEmail]);
-
-  useEffect(() => {
-    void peekGasOauthClient()
-      .then((id) => setCanOauth(Boolean(id)))
-      .catch(() => setCanOauth(false));
-  }, []);
 
   useEffect(() => {
     const url = config.gasWebUrl.trim();
@@ -179,134 +152,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       .catch(() => false);
   }
 
-  function listenForCopiedInstall() {
-    wizardAbort.current?.abort();
-    const ac = new AbortController();
-    wizardAbort.current = ac;
-    const started = Date.now();
-    setWizard(true);
-    setProvisioning(true);
-    void (async () => {
-      try {
-        await waitForGasBind(ensureGasSyncKey(), ac.signal, started, loginEmail);
-        await flushSettings(Boolean(loginEmail));
-        markScriptCurrent();
-        setWizard(false);
-        toast.success("설치한 스크립트를 찾았습니다. 이제 최신화가 이 스크립트를 고칩니다.");
-      } catch (err) {
-        if (ac.signal.aborted) return;
-        const message = err instanceof Error ? err.message : "스크립트를 찾지 못했습니다.";
-        if (message !== "취소했습니다.") toast.error(message);
-      } finally {
-        if (!ac.signal.aborted) setProvisioning(false);
-      }
-    })();
-  }
-
-  function openConnected(url: string) {
-    window.open(url, "openbell-connected");
-  }
-
   async function pushWatchWindow() {
     const gas = await flushSettings(Boolean(loginEmail));
     const live = describeGasPush(gas);
-    const source = await pushLinkedGasSource();
-    if (source.status === "ok") {
-      toast.success("구글 스크립트 코드를 지금 설정으로 고쳤습니다.");
-      return;
-    }
     if (live) toast.success(live);
-  }
-
-  function startSyncScript() {
-    if (authEnabled && !loginEmail) {
-      void signIn("grok-google", { callbackURL: "/" }).catch((err) =>
-        toast.error(err instanceof Error ? err.message : "로그인하지 못했습니다."),
-      );
-      return;
-    }
-    setProvisioning(true);
-    void (async () => {
-      try {
-        await flushSettings(Boolean(loginEmail));
-        const found = await attachInstalledScript(loginEmail);
-        if (found) {
-          wizardAbort.current?.abort();
-          setWizard(false);
-          markScriptCurrent();
-          openConnected(await connectedEditorUrl(loginEmail));
-          toast.success("설치한 스크립트를 찾았습니다. 이 스크립트와 동기화합니다.");
-          return;
-        }
-        wizardAbort.current?.abort();
-        const ac = new AbortController();
-        wizardAbort.current = ac;
-        const linked = gasIsLinked();
-        void copyGasScript();
-        if (!linked && !canOauth) {
-          openConnected(gasHomeUrl(loginEmail));
-          setWizard(true);
-          toast.success(
-            "코드를 복사했습니다. 오픈벨에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
-          );
-        }
-        const result = await syncGasScript();
-        if (result.mode === "oauth") {
-          setWizard(false);
-          await flushSettings(Boolean(loginEmail));
-          if (result.scriptId) {
-            openConnected(existingScriptEditorUrl(result.scriptId, loginEmail));
-          } else {
-            openConnected(await connectedEditorUrl(loginEmail));
-          }
-          toast.success(
-            result.created
-              ? "스크립트를 만들었습니다. 위쪽 함수를 설치 로 실행하세요."
-              : "연결된 스크립트를 열었습니다.",
-          );
-          markScriptCurrent();
-          return;
-        }
-        if (result.mode === "upgrade" || result.mode === "editor") {
-          setWizard(false);
-          await flushSettings(Boolean(loginEmail));
-          openConnected(await connectedEditorUrl(loginEmail));
-          toast.success("연결된 스크립트를 열었습니다. 저장하면 반영됩니다.");
-          markScriptCurrent();
-          return;
-        }
-        const hit = await waitForGasBind(
-          ensureGasSyncKey(),
-          ac.signal,
-          undefined,
-          loginEmail,
-        );
-        await flushSettings(Boolean(loginEmail));
-        setWizard(false);
-        markScriptCurrent();
-        openConnected(await connectedEditorUrl(loginEmail));
-        toast.success("연결됐습니다. 다시 누르면 이 스크립트만 엽니다.");
-        void hit;
-      } catch (err) {
-        if (err instanceof Error && err.message === "취소했습니다.") return;
-        const message = err instanceof Error ? err.message : "최신화하지 못했습니다.";
-        void copyGasScript();
-        setWizard(true);
-        openConnected(
-          config.gasScriptId.trim()
-            ? existingScriptEditorUrl(config.gasScriptId.trim(), loginEmail)
-            : gasHomeUrl(loginEmail),
-        );
-        toast.error(
-          `${message}\n(코드를 복사했습니다. script.google.com에서 스크립트에 붙여넣고 저장하세요.)`,
-        );
-        if (message.includes("앱스 스크립트 API")) {
-          window.open("https://script.google.com/home/usersettings", "_blank", "noopener");
-        }
-      } finally {
-        setProvisioning(false);
-      }
-    })();
   }
 
   return (
@@ -364,18 +213,9 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         </ol>
         <p className="mt-3 text-sm font-medium text-fg">이후 업데이트</p>
         <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
-          <li>스크립트 자동 최신화를 누르세요.</li>
+          <li>스크립트 복사를 누르세요.</li>
           <li>
-            안 되면 스크립트 복사 후{" "}
-            <a
-              href={gasHomeUrl(loginEmail) || "https://script.google.com"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-fg underline underline-offset-2"
-            >
-              script.google.com
-            </a>
-            오픈벨에 붙여넣고 저장하세요.
+            script.google.com 열기로 오픈벨을 연 뒤, 붙여넣고 저장하세요.
           </li>
         </ol>
           </>
@@ -468,18 +308,14 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             연결 끊기
           </button>
         ) : null}
-        <button
-          type="button"
-          disabled={provisioning}
-          className="mt-3 min-h-11 w-full rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong disabled:opacity-60"
-          onClick={startSyncScript}
+        <a
+          href={gasHomeUrl(loginEmail) || "https://script.google.com"}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex min-h-11 w-full items-center justify-center rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong"
         >
-          {provisioning
-            ? wizard
-              ? "설치되면 붙습니다…"
-              : "같은 스크립트를 고치는 중…"
-            : "스크립트 자동 최신화"}
-        </button>
+          script.google.com 열기
+        </a>
         <button
           type="button"
           className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border"
@@ -490,10 +326,9 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                 return;
               }
               toast.success(
-                `스크립트를 복사했습니다. ${config.intervalMin}분 · ${config.daysAhead}일. 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.`,
+                `스크립트를 복사했습니다. ${config.intervalMin}분 · ${config.daysAhead}일. script.google.com에 붙여넣고 저장하세요.`,
               );
               markScriptCurrent();
-              listenForCopiedInstall();
             });
           }}
         >
@@ -505,13 +340,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             Boolean(config.gasSourceStamp) &&
             config.gasSourceStamp !== GAS_SOURCE_STAMP)) ? (
           <p className="mt-2 text-sm text-danger">
-            변경되었습니다. 업데이트해주십시오
-          </p>
-        ) : null}
-        {wizard ? (
-          <p className="mt-2 text-sm text-muted">
-            설치가 끝나면 이 화면이 그 스크립트를 찾습니다. 새 프로젝트나 휴지통
-            복원은 하지 마세요.
+            변경되었습니다. 복사한 코드를 붙여넣고 저장하세요
           </p>
         ) : null}
         </div>

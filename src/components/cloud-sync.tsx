@@ -12,7 +12,7 @@ import {
   type GasPushResult,
 } from "@/lib/cinema/cloud";
 import { DEFAULT_WATCH } from "@/lib/cinema/gas-script";
-import { forgetGasLink, gasWatchFingerprint, pushLinkedGasSource } from "@/lib/cinema/gas-provision";
+import { forgetGasLink, gasWatchFingerprint } from "@/lib/cinema/gas-provision";
 import { useAppStore } from "@/lib/store";
 
 function localSnapshot(): CloudSnapshot {
@@ -174,11 +174,7 @@ export function CloudSync() {
     }
     const timer = window.setTimeout(() => {
       void flushSettings(Boolean(userId)).catch(() => {});
-      const sig = gasWatchFingerprint();
-      if (sig === lastWatch.current) return;
-      lastWatch.current = sig;
-      if (!useAppStore.getState().config.gasWebUrl.trim()) return;
-      void pushLinkedGasSource().catch(() => {});
+      lastWatch.current = gasWatchFingerprint();
     }, 900);
     return () => window.clearTimeout(timer);
   }, [
