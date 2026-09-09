@@ -15,7 +15,9 @@ import {
   gasHomeUrl,
   gasIsLinked,
   peekGasOauthClient,
+  preloadGasOauth,
   pushLinkedGasSource,
+  googleTokenFromClick,
   syncGasScript,
   waitForGasBind,
 } from "@/lib/cinema/gas-provision";
@@ -61,6 +63,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   }, []);
 
   useEffect(() => {
+    void preloadGasOauth();
     void peekGasOauthClient()
       .then((id) => setCanOauth(Boolean(id)))
       .catch(() => setCanOauth(false));
@@ -208,16 +211,23 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       );
       return;
     }
+    const tokenPromise = canOauth
+      ? googleTokenFromClick(loginEmail)
+      : Promise.resolve("");
+    const editorWin = window.open("about:blank", "openbell-connected");
     setProvisioning(true);
     void (async () => {
       try {
+        const accessToken = await tokenPromise;
         await flushSettings(Boolean(loginEmail));
         const found = await attachInstalledScript(loginEmail);
-        if (found) {
+        if (found && !accessToken) {
           wizardAbort.current?.abort();
           setWizard(false);
           markScriptCurrent();
-          openConnected(await connectedEditorUrl(loginEmail));
+          const url = await connectedEditorUrl(loginEmail);
+          if (editorWin && !editorWin.closed) editorWin.location.href = url;
+          else openConnected(url);
           toast.success("설치한 스크립트를 찾았습니다. 이 스크립트와 동기화합니다.");
           return;
         }
@@ -227,21 +237,25 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         const linked = gasIsLinked();
         void copyGasScript();
         if (!linked && !canOauth) {
-          openConnected(gasHomeUrl(loginEmail));
+          const home = gasHomeUrl(loginEmail);
+          if (editorWin && !editorWin.closed) editorWin.location.href = home;
+          else openConnected(home);
           setWizard(true);
           toast.success(
             "코드를 복사했습니다. 오픈벨에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
           );
         }
-        const result = await syncGasScript();
+        const result = await syncGasScript(accessToken || undefined);
+        const editorUrl = result.mode === "oauth" && result.scriptId
+          ? existingScriptEditorUrl(result.scriptId, loginEmail)
+          : result.mode === "editor"
+            ? result.editorUrl
+            : await connectedEditorUrl(loginEmail);
         if (result.mode === "oauth") {
           setWizard(false);
           await flushSettings(Boolean(loginEmail));
-          if (result.scriptId) {
-            openConnected(existingScriptEditorUrl(result.scriptId, loginEmail));
-          } else {
-            openConnected(await connectedEditorUrl(loginEmail));
-          }
+          if (editorWin && !editorWin.closed) editorWin.location.href = editorUrl;
+          else openConnected(editorUrl);
           toast.success(
             result.created
               ? "스크립트를 만들었습니다. 위쪽 함수를 설치 로 실행하세요."
@@ -253,7 +267,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         if (result.mode === "upgrade" || result.mode === "editor") {
           setWizard(false);
           await flushSettings(Boolean(loginEmail));
-          openConnected(await connectedEditorUrl(loginEmail));
+          if (editorWin && !editorWin.closed) editorWin.location.href = editorUrl;
+          else openConnected(editorUrl);
           toast.success("연결된 스크립트를 열었습니다. 저장하면 반영됩니다.");
           markScriptCurrent();
           return;
@@ -267,10 +282,13 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         await flushSettings(Boolean(loginEmail));
         setWizard(false);
         markScriptCurrent();
-        openConnected(await connectedEditorUrl(loginEmail));
+        const bound = await connectedEditorUrl(loginEmail);
+        if (editorWin && !editorWin.closed) editorWin.location.href = bound;
+        else openConnected(bound);
         toast.success("연결됐습니다. 다시 누르면 이 스크립트만 엽니다.");
         void hit;
       } catch (err) {
+        if (editorWin && !editorWin.closed) editorWin.close();
         if (err instanceof Error && err.message === "취소했습니다.") return;
         const message = err instanceof Error ? err.message : "최신화하지 못했습니다.";
         toast.error(message);
