@@ -1,7 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { runWatchTick } from "@/lib/cinema/watch-tick.server";
+import { writeAppMeta } from "@/lib/cinema/app-meta.server";
 
 async function handle(request: Request) {
+  const ua = request.headers.get("user-agent") || "";
+  if (ua.includes("openbell-github-watch")) {
+    await writeAppMeta("github_watch_at", String(Date.now()));
+  }
   const secret = process.env.CRON_SECRET;
   const vercelCron = request.headers.get("x-vercel-cron") === "1";
   const auth = request.headers.get("authorization") ?? "";

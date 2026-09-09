@@ -18,7 +18,7 @@ import { probeGasHealth } from "@/lib/cinema/gas-health";
 import { describeGasPush, flushSettings } from "./cloud-sync";
 import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram, sendXPost } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
-import type { ScanResult } from "@/lib/cinema/types";
+import type { ScanResult, WatchConfig } from "@/lib/cinema/types";
 import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, seatSourceLabel, timetableSourceLabel, xEnabled } from "@/lib/cinema/types";
 import { THEME_MODES } from "@/lib/theme";
 import { useAppStore } from "@/lib/store";
@@ -47,6 +47,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const setTab = useAppStore((s) => s.setTab);
   const [redirectUri, setRedirectUri] = useState("");
   const [gasUrlDraft, setGasUrlDraft] = useState(config.gasWebUrl);
+  const notifyHealth = useNotifyHealth(config);
 
   useEffect(() => {
     setRedirectUri(kakaoRedirectUri());
@@ -509,7 +510,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           보냅니다. 베셀은 깃허브가 5분마다 깨웁니다. 같은 오픈이 두세 번 갈 수
           있습니다.
         </p>
-        <AlertPathStatus />
+        <AlertPathStatus health={notifyHealth} />
 
       <ChannelCard
         embedded
@@ -520,6 +521,11 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             : mailEnabled(config)
               ? `연결됨 · ${loginEmail || config.email}`
               : "꺼짐"
+        }
+        detail={
+          user && mailEnabled(config)
+            ? channelWorkLine("mail", notifyHealth)
+            : undefined
         }
         open={showMail}
         onToggle={() => setShowMail((v) => !v)}
@@ -610,6 +616,11 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         embedded
         title="카톡으로 받기"
         summary={config.kakaoRefreshToken ? "연결됨" : "꺼짐"}
+        detail={
+          config.kakaoRefreshToken
+            ? channelWorkLine("kakao", notifyHealth)
+            : undefined
+        }
         open={showKakao}
         onToggle={() => setShowKakao((v) => !v)}
       >
@@ -753,6 +764,11 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         summary={
           config.telegramToken && config.telegramChatId ? "연결됨" : "꺼짐"
         }
+        detail={
+          config.telegramToken && config.telegramChatId
+            ? channelWorkLine("telegram", notifyHealth)
+            : undefined
+        }
         open={showTelegram}
         onToggle={() => setShowTelegram((v) => !v)}
       >
@@ -827,6 +843,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         embedded
         title="X로 올리기"
         summary={xEnabled(config) ? "연결됨 · @aerosmissive2" : "꺼짐"}
+        detail={xEnabled(config) ? channelWorkLine("x", notifyHealth) : undefined}
         open={showX}
         onToggle={() => setShowX((v) => !v)}
       >
@@ -953,6 +970,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
 function ChannelCard({
   title,
   summary,
+  detail,
   open,
   onToggle,
   children,
@@ -960,6 +978,7 @@ function ChannelCard({
 }: {
   title: string;
   summary: string;
+  detail?: string;
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -982,7 +1001,10 @@ function ChannelCard({
           <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
             {title}
           </h2>
-          <p className="mt-1 truncate text-sm text-fg">{summary}</p>
+          <p className="mt-1 text-sm text-fg">{summary}</p>
+          {detail ? (
+            <p className="mt-0.5 text-[10px] leading-4 text-muted">{detail}</p>
+          ) : null}
         </div>
         <span className="shrink-0 text-xs text-muted">
           {open ? "접기" : "펼치기"}
@@ -1108,6 +1130,8 @@ type AliveProbe = {
   reachable: boolean;
   alive: boolean;
   ageMs: number | null;
+  githubWakeAlive?: boolean;
+  githubWakeAgeMs?: number | null;
   lastNotify: {
     at?: number;
     mail?: string;
@@ -1115,6 +1139,23 @@ type AliveProbe = {
     kakao?: string;
     x?: string;
   } | null;
+};
+
+type NotifyHealth = {
+  grok: AliveProbe;
+  vercel: AliveProbe;
+  gasOk: boolean;
+  gasAlive: boolean;
+  gasAgeMs: number;
+  gasNotify: AliveProbe["lastNotify"];
+  dbLine: string;
+};
+
+const emptyProbe: AliveProbe = {
+  reachable: false,
+  alive: false,
+  ageMs: null,
+  lastNotify: null,
 };
 
 function agoLabel(at?: number | null, ageMs?: number | null) {
@@ -1126,116 +1167,90 @@ function agoLabel(at?: number | null, ageMs?: number | null) {
 function watchLine(probe: AliveProbe) {
   if (!probe.reachable) return "확인 못 함";
   if (probe.alive) return "켜짐";
-  return "연결됨 · 다음 주기 대기";
+  return "다음 주기 대기";
 }
 
 function queryLine(probe: AliveProbe) {
   if (!probe.reachable) return "확인 못 함";
   if (probe.ageMs != null) return agoLabel(null, probe.ageMs);
-  if (probe.alive) return "방금 대기";
+  if (probe.alive) return "대기";
   return "아직 없음";
 }
 
-function channelLine(
+function githubWakeLine(probe: AliveProbe) {
+  if (probe.githubWakeAlive) {
+    return probe.githubWakeAgeMs != null
+      ? `됨 ${agoLabel(null, probe.githubWakeAgeMs)}`
+      : "됨";
+  }
+  if (probe.reachable) return "아직 없음";
+  return "확인 못 함";
+}
+
+function channelShot(
   on: boolean,
   result?: string,
   at?: number,
 ) {
   if (!on) return "꺼짐";
-  if (!result || result === "off") return "대기 · 아직 발송 없음";
+  if (!result || result === "off") return "대기";
   const when = agoLabel(at);
-  if (result === "ok") return when ? `됨 · ${when}` : "됨";
-  const short = result.length > 28 ? `${result.slice(0, 28)}…` : result;
-  return when ? `실패 · ${short} · ${when}` : `실패 · ${short}`;
+  if (result === "ok") return when ? `됨 ${when}` : "됨";
+  return when ? `실패 ${when}` : "실패";
+}
+
+function channelWorkLine(
+  key: "mail" | "telegram" | "kakao" | "x",
+  health: NotifyHealth,
+) {
+  return [
+    `그록 ${channelShot(true, health.grok.lastNotify?.[key], health.grok.lastNotify?.at)}`,
+    `베셀 ${channelShot(true, health.vercel.lastNotify?.[key], health.vercel.lastNotify?.at)}`,
+    `스크립트 ${
+      health.gasNotify
+        ? channelShot(true, health.gasNotify[key], health.gasNotify.at)
+        : health.gasOk
+          ? "대기"
+          : "확인 못 함"
+    }`,
+  ].join(" · ");
 }
 
 async function probeWatchAlive(url: string): Promise<AliveProbe> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) {
-      return { reachable: false, alive: false, ageMs: null, lastNotify: null };
-    }
+    if (!res.ok) return { ...emptyProbe };
     const json = (await res.json()) as {
       alive?: boolean;
       ageMs?: number | null;
+      githubWakeAlive?: boolean;
+      githubWakeAgeMs?: number | null;
       lastNotify?: AliveProbe["lastNotify"];
     };
     return {
       reachable: true,
       alive: Boolean(json.alive),
       ageMs: typeof json.ageMs === "number" ? json.ageMs : null,
+      githubWakeAlive: Boolean(json.githubWakeAlive),
+      githubWakeAgeMs:
+        typeof json.githubWakeAgeMs === "number" ? json.githubWakeAgeMs : null,
       lastNotify: json.lastNotify ?? null,
     };
   } catch {
-    return { reachable: false, alive: false, ageMs: null, lastNotify: null };
+    return { ...emptyProbe };
   }
 }
 
-function PathRows({
-  title,
-  watch,
-  query,
-  mail,
-  telegram,
-  kakao,
-  x,
-}: {
-  title: string;
-  watch: string;
-  query: string;
-  mail: string;
-  telegram: string;
-  kakao: string;
-  x: string;
-}) {
-  const rows: [string, string][] = [
-    ["감시", watch],
-    ["조회", query],
-    ["메일", mail],
-    ["텔레그램", telegram],
-    ["카톡", kakao],
-    ["X", x],
-  ];
-  return (
-    <div className="mt-3">
-      <p className="text-xs font-medium text-fg">{title}</p>
-      <dl className="mt-1 grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-0.5 text-xs">
-        {rows.map(([k, v]) => (
-          <Fragment key={k}>
-            <dt className="text-muted">{k}</dt>
-            <dd className="text-fg">{v}</dd>
-          </Fragment>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
-function AlertPathStatus() {
-  const config = useAppStore((s) => s.config);
-  const [kind, setKind] = useState<"both" | "grok" | "gas" | "wait" | "none">(
-    "wait",
-  );
-  const [summary, setSummary] = useState("현황을 확인하는 중…");
-  const [dbLine, setDbLine] = useState("");
-  const [grok, setGrok] = useState({
-    watch: "확인 중",
-    query: "확인 중",
-    mail: "확인 중",
-    telegram: "확인 중",
-    kakao: "확인 중",
-    x: "확인 중",
+function useNotifyHealth(config: WatchConfig): NotifyHealth {
+  const [health, setHealth] = useState<NotifyHealth>({
+    grok: emptyProbe,
+    vercel: emptyProbe,
+    gasOk: false,
+    gasAlive: false,
+    gasAgeMs: 0,
+    gasNotify: null,
+    dbLine: "",
   });
-  const [vercel, setVercel] = useState(grok);
-  const [gas, setGas] = useState({
-    watch: "확인 중",
-    query: "확인 중",
-    mail: "확인 중",
-    telegram: "확인 중",
-    kakao: "확인 중",
-    x: "확인 중",
-  });
-
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -1244,128 +1259,42 @@ function AlertPathStatus() {
         ? "vercel"
         : "grok";
       const local = await probeWatchAlive("/api/watch-alive");
-      const grokProbe =
+      const grok =
         here === "grok"
           ? local
           : await probeWatchAlive("https://openbell.grok.me/api/watch-alive");
-      const vercelProbe =
+      const vercel =
         here === "vercel"
           ? local
           : await probeWatchAlive(
               "https://openbell-fawn.vercel.app/api/watch-alive",
             );
-      let dbLabel = "";
+      let dbLine = "";
       try {
         const res = await fetch("/api/watch-alive", {
           signal: AbortSignal.timeout(8000),
         });
         const json = (await res.json()) as { db?: string };
-        dbLabel =
+        dbLine =
           json.db === "neon"
             ? "Neon (유지됨)"
             : json.db === "pglite"
               ? "임시 저장 (새로고침하면 사라질 수 있음)"
               : "";
       } catch {
-        dbLabel = "";
+        dbLine = "";
       }
-      const health = url ? await probeGasHealth(url) : null;
+      const gas = url ? await probeGasHealth(url) : null;
       if (cancelled) return;
-      const mailOn = mailEnabled(config);
-      const teleOn = Boolean(config.telegramToken && config.telegramChatId);
-      const kakaoOn = Boolean(config.kakaoRestKey && config.kakaoRefreshToken);
-      const xOn = xEnabled(config);
-      const pack = (probe: AliveProbe) => ({
-        watch: watchLine(probe),
-        query: queryLine(probe),
-        mail: channelLine(mailOn, probe.lastNotify?.mail, probe.lastNotify?.at),
-        telegram: channelLine(
-          teleOn,
-          probe.lastNotify?.telegram,
-          probe.lastNotify?.at,
-        ),
-        kakao: channelLine(kakaoOn, probe.lastNotify?.kakao, probe.lastNotify?.at),
-        x: channelLine(xOn, probe.lastNotify?.x, probe.lastNotify?.at),
+      setHealth({
+        grok,
+        vercel,
+        gasOk: Boolean(gas?.ok),
+        gasAlive: Boolean(gas?.gasAlive),
+        gasAgeMs: Number(gas?.gasAgeMs || 0),
+        gasNotify: gas?.lastNotify ?? null,
+        dbLine,
       });
-      setGrok(pack(grokProbe));
-      setVercel(pack(vercelProbe));
-      if (!url) {
-        setGas({
-          watch: "없음",
-          query: "없음",
-          mail: "없음",
-          telegram: "없음",
-          kakao: "없음",
-          x: "없음",
-        });
-      } else if (!health?.ok) {
-        setGas({
-          watch: "웹앱이 응답하지 않습니다",
-          query: "확인 못 함",
-          mail: "확인 못 함",
-          telegram: "확인 못 함",
-          kakao: "확인 못 함",
-          x: "확인 못 함",
-        });
-      } else {
-        const notify = health.lastNotify;
-        setGas({
-          watch: health.gasAlive ? "켜짐" : "웹앱은 응답 · 감시 기록이 없습니다",
-          query:
-            health.gasAlive && health.gasAgeMs > 0
-              ? agoLabel(null, health.gasAgeMs)
-              : "아직 없음",
-          mail: notify
-            ? channelLine(mailOn, notify.mail, notify.at)
-            : mailOn
-              ? "대기 · 스크립트 최신화 후 기록이 생깁니다"
-              : "꺼짐",
-          telegram: notify
-            ? channelLine(teleOn, notify.telegram, notify.at)
-            : teleOn
-              ? "대기 · 스크립트 최신화 후 기록이 생깁니다"
-              : "꺼짐",
-          kakao: notify
-            ? channelLine(kakaoOn, notify.kakao, notify.at)
-            : kakaoOn
-              ? "대기 · 스크립트 최신화 후 기록이 생깁니다"
-              : "꺼짐",
-          x: notify
-            ? channelLine(xOn, notify.x, notify.at)
-            : xOn
-              ? "대기 · 스크립트 최신화 후 기록이 생깁니다"
-              : "꺼짐",
-        });
-      }
-      setDbLine(dbLabel);
-      const n =
-        Number(grokProbe.alive || grokProbe.reachable) +
-        Number(vercelProbe.alive || vercelProbe.reachable) +
-        Number(Boolean(health?.gasAlive));
-      if (n >= 2) {
-        setKind("both");
-        setSummary(
-          "그록·베셀·구글 스크립트가 서로 독립적으로 알림을 보냅니다. 같은 오픈이 여러 번 갈 수 있습니다.",
-        );
-        return;
-      }
-      if (grokProbe.reachable || grokProbe.alive) {
-        setKind("grok");
-        setSummary("그록 서버가 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다.");
-        return;
-      }
-      if (vercelProbe.reachable || vercelProbe.alive) {
-        setKind("grok");
-        setSummary("베셀이 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다.");
-        return;
-      }
-      if (health?.gasAlive) {
-        setKind("gas");
-        setSummary("구글 스크립트가 알림을 보냅니다. 그록·베셀은 확인하지 못했습니다.");
-        return;
-      }
-      setKind("none");
-      setSummary("알림 경로를 아직 확인하지 못했습니다.");
     }
     void load();
     const timer = window.setInterval(() => {
@@ -1375,27 +1304,99 @@ function AlertPathStatus() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [config]);
+  }, [config.gasWebUrl]);
+  return health;
+}
 
+function PathLine({
+  title,
+  watch,
+  query,
+  github,
+}: {
+  title: string;
+  watch: string;
+  query: string;
+  github?: string;
+}) {
+  return (
+    <p className="mt-1 overflow-x-auto whitespace-nowrap text-[10px] leading-4 text-fg">
+      <span className="font-medium">{title}</span>
+      <span className="text-faint"> · </span>
+      <span className="text-muted">24시간 감시</span> {watch}
+      {github ? (
+        <>
+          <span className="text-faint"> · </span>
+          <span className="text-muted">깃허브 깨움</span> {github}
+        </>
+      ) : null}
+      <span className="text-faint"> · </span>
+      <span className="text-muted">극장시간표 조회</span> {query}
+    </p>
+  );
+}
+
+function AlertPathStatus({ health }: { health: NotifyHealth }) {
+  const n =
+    Number(health.grok.alive || health.grok.reachable) +
+    Number(health.vercel.alive || health.vercel.reachable) +
+    Number(health.gasAlive);
+  const kind = n >= 2 ? "both" : n === 1 ? "grok" : "none";
+  const summary =
+    n >= 2
+      ? "그록·베셀·구글 스크립트가 서로 독립적으로 알림을 보냅니다. 같은 오픈이 여러 번 갈 수 있습니다."
+      : health.grok.reachable || health.grok.alive
+        ? "그록 서버가 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다."
+        : health.vercel.reachable || health.vercel.alive
+          ? "베셀이 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다."
+          : health.gasAlive
+            ? "구글 스크립트가 알림을 보냅니다. 그록·베셀은 확인하지 못했습니다."
+            : "알림 경로를 아직 확인하지 못했습니다.";
   return (
     <div
       className={cn(
-        "mt-3 rounded-lg px-3 py-3 text-sm leading-relaxed",
+        "mt-3 rounded-lg px-3 py-2 text-sm",
         kind === "both"
           ? "bg-pick text-fg ring-1 ring-border-strong"
           : "bg-bg text-fg ring-1 ring-border",
-        kind === "wait" && "text-muted",
       )}
     >
       <p className="text-[11px] font-medium tracking-[0.16em] text-muted">
         알림 경로
       </p>
-      <p className="mt-1.5 font-medium text-fg">{summary}</p>
-      <PathRows title="그록 서버" {...grok} />
-      <PathRows title="베셀" {...vercel} />
-      <PathRows title="구글 스크립트" {...gas} />
-      {dbLine ? (
-        <p className="mt-2 text-xs text-muted">설정 저장 · {dbLine}</p>
+      <p className="mt-1 text-xs font-medium leading-5 text-fg">{summary}</p>
+      <PathLine
+        title="그록 서버"
+        watch={watchLine(health.grok)}
+        query={queryLine(health.grok)}
+      />
+      <PathLine
+        title="베셀"
+        watch={watchLine(health.vercel)}
+        github={githubWakeLine(health.vercel)}
+        query={queryLine(health.vercel)}
+      />
+      <PathLine
+        title="구글 스크립트"
+        watch={
+          health.gasAlive
+            ? "켜짐"
+            : health.gasOk
+              ? "웹앱 응답 · 감시 기록 없음"
+              : "확인 못 함"
+        }
+        query={
+          health.gasAlive && health.gasAgeMs > 0
+            ? agoLabel(null, health.gasAgeMs)
+            : health.gasOk
+              ? "아직 없음"
+              : "확인 못 함"
+        }
+      />
+      {health.dbLine ? (
+        <p className="mt-1 text-[10px] leading-4 text-muted">
+          설정 저장 · {health.dbLine}
+        </p>
       ) : null}
     </div>
   );

@@ -3,6 +3,7 @@ import { snapshotFromRow, pingGasHeartbeat, type CloudSnapshot } from "./cloud";
 import { ensureUserSettingsSchema } from "./settings-schema.server";
 import {
   dbLabel,
+  readAppMeta,
   readLastNotify,
   readWatchLastRun,
   watchHost,
@@ -43,12 +44,18 @@ export async function watchTickHealth() {
   const stored = await readWatchLastRun();
   const last = Math.max(lastRunAt, stored);
   const notify = await readLastNotify();
+  const githubRaw = await readAppMeta("github_watch_at");
+  const githubAt = Number(githubRaw);
+  const githubWakeAt = Number.isFinite(githubAt) && githubAt > 0 ? githubAt : 0;
   return {
     lastRunAt: last,
     ageMs: last ? Date.now() - last : null,
     alive: last > 0 && Date.now() - last < 10 * 60 * 1000,
     db: dbLabel(),
     lastNotify: notify,
+    githubWakeAt,
+    githubWakeAgeMs: githubWakeAt ? Date.now() - githubWakeAt : null,
+    githubWakeAlive: githubWakeAt > 0 && Date.now() - githubWakeAt < 15 * 60 * 1000,
   };
 }
 
