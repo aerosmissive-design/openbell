@@ -16,9 +16,6 @@ button:not(:disabled),a,[role=button]:not(:disabled){cursor:pointer;}
 img{max-width:100%;height:auto;display:block;}`;
 
 export const Route = createRootRoute({
-  headers: () => ({
-    "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
-  }),
   head: () => ({
     meta: [
       { charSet: "utf-8" },
