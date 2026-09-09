@@ -508,7 +508,7 @@ function TheaterBlock({
       if (delta.lines.length) {
         toast.success("잔여석이 늘었습니다", {
           description: (
-            <span className="mt-1 block whitespace-pre-line text-left leading-relaxed">
+            <span className="mt-1 block text-left leading-relaxed">
               {delta.lines.join("\n")}
             </span>
           ),

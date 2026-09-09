@@ -23,11 +23,16 @@ function ThemeSync() {
     <Toaster
       theme={resolved}
       position="top-center"
+      visibleToasts={5}
       toastOptions={{
+        className: "ob-toast",
         style: {
           background: "var(--ob-surface)",
           color: "var(--ob-fg)",
           border: "1px solid var(--ob-border)",
+          width: "max-content",
+          maxWidth: "min(56rem, 96vw)",
+          whiteSpace: "pre",
         },
       }}
     />
