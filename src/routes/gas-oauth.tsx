@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { GAS_OAUTH_MESSAGE, GAS_OAUTH_SCOPES, googleAuthUrl } from "@/lib/cinema/gas-oauth";
+import { GAS_OAUTH_MESSAGE, GAS_OAUTH_SCOPES } from "@/lib/cinema/gas-oauth";
 import { getGasOauthClient } from "@/lib/cinema/scan";
 
 export const Route = createFileRoute("/gas-oauth")({
@@ -22,7 +22,7 @@ function loadGsi(): Promise<void> {
 function tokenFromGsi(clientId: string, email: string): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!window.google?.accounts?.oauth2) {
-      reject(new Error("gsi"));
+      reject(new Error("구글 로그인 모듈이 없습니다."));
       return;
     }
     const client = window.google.accounts.oauth2.initTokenClient({
@@ -30,10 +30,26 @@ function tokenFromGsi(clientId: string, email: string): Promise<string> {
       scope: GAS_OAUTH_SCOPES,
       hint: email || undefined,
       callback: (resp) => {
-        if (resp.access_token) resolve(resp.access_token);
-        else reject(new Error(resp.error_description || resp.error || "권한 없음"));
+        if (resp.access_token) {
+          resolve(resp.access_token);
+          return;
+        }
+        reject(
+          new Error(
+            resp.error === "access_denied"
+              ? "권한을 허용해야 스크립트를 고칩니다."
+              : resp.error_description || resp.error || "권한을 받지 못했습니다.",
+          ),
+        );
       },
-      error_callback: (err) => reject(new Error(err.message || err.type || "popup")),
+      error_callback: (err) => {
+        const raw = `${err.type || ""} ${err.message || ""}`;
+        if (/popup_closed|closed/i.test(raw)) {
+          reject(new Error("창을 닫았습니다. 다시 눌러 주세요."));
+          return;
+        }
+        reject(new Error("구글 창이 막혔습니다. 이 창에서 다시 눌러 주세요."));
+      },
     });
     client.requestAccessToken({ prompt: "select_account" });
   });
@@ -73,40 +89,54 @@ function sendBack(token: string, error = "") {
 }
 
 function GasOauth() {
-  const [message, setMessage] = useState("구글 계정을 고르는 창을 엽니다.");
+  const email = new URLSearchParams(window.location.search).get("email") || "";
+  const [clientId, setClientId] = useState("");
+  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const token = hash.get("access_token") || "";
-    const error = hash.get("error_description") || hash.get("error") || "";
-    if (token || error) {
-      sendBack(token, error);
-      return;
-    }
-    const email = new URLSearchParams(window.location.search).get("email") || "";
     void (async () => {
       try {
-        const clientId = String((await getGasOauthClient({ data: {} })) || "").trim();
-        if (!clientId) {
+        const [id] = await Promise.all([getGasOauthClient({ data: {} }), loadGsi()]);
+        const client = String(id || "").trim();
+        if (!client) {
           setMessage("구글 스크립트용 클라이언트가 없습니다.");
           return;
         }
-        try {
-          await loadGsi();
-          sendBack(await tokenFromGsi(clientId, email));
-          return;
-        } catch {
-          window.location.replace(googleAuthUrl(clientId, email));
-        }
+        setClientId(client);
+        setReady(true);
       } catch (err) {
-        setMessage(err instanceof Error ? err.message : "구글 창을 열지 못했습니다.");
+        setMessage(err instanceof Error ? err.message : "구글 창을 준비하지 못했습니다.");
       }
     })();
   }, []);
 
+  function pickAccount() {
+    if (!clientId || busy) return;
+    setBusy(true);
+    setMessage("");
+    void tokenFromGsi(clientId, email)
+      .then((token) => sendBack(token))
+      .catch((err) => {
+        setBusy(false);
+        setMessage(err instanceof Error ? err.message : "구글 계정을 받지 못했습니다.");
+      });
+  }
+
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-bg px-6 text-center text-sm text-muted">
-      {message}
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-bg px-6 text-center">
+      <p className="text-sm text-muted">오픈벨에 로그인한 메일로 고르세요.</p>
+      {email ? <p className="text-base font-medium text-fg">{email}</p> : null}
+      <button
+        type="button"
+        disabled={!ready || busy}
+        onClick={pickAccount}
+        className="rounded-full bg-accent px-5 py-3 text-sm font-medium text-accent-fg disabled:opacity-50"
+      >
+        {busy ? "구글 창을 여는 중" : "구글 계정 선택"}
+      </button>
+      {message ? <p className="max-w-sm text-sm text-danger">{message}</p> : null}
     </main>
   );
 }
