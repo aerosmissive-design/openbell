@@ -50,7 +50,7 @@ export async function writeAppMeta(key: string, value: string) {
 }
 
 export async function readLastNotify(): Promise<ChannelSendLog | null> {
-  const raw = await readAppMeta("last_notify");
+  const raw = await readAppMeta(`last_notify_${watchHost()}`);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as ChannelSendLog;
@@ -60,7 +60,7 @@ export async function readLastNotify(): Promise<ChannelSendLog | null> {
 }
 
 export async function writeLastNotify(log: ChannelSendLog) {
-  await writeAppMeta("last_notify", JSON.stringify(log));
+  await writeAppMeta(`last_notify_${watchHost()}`, JSON.stringify(log));
 }
 
 export function watchHost(): "grok" | "vercel" {

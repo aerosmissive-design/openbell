@@ -1,8 +1,17 @@
+export type ChannelLog = {
+  at?: number;
+  mail?: string;
+  telegram?: string;
+  kakao?: string;
+  x?: string;
+};
+
 export type GasHealth = {
   ok: boolean;
   gasAlive: boolean;
   gasAgeMs: number;
   intervalMin: number;
+  lastNotify?: ChannelLog | null;
 };
 
 export async function probeGasHealth(url: string): Promise<GasHealth | null> {
@@ -19,6 +28,7 @@ export async function probeGasHealth(url: string): Promise<GasHealth | null> {
       gasAlive: Boolean(gas.gasAlive),
       gasAgeMs: Number(gas.gasAgeMs || 0),
       intervalMin: Number(gas.intervalMin || 5),
+      lastNotify: gas.lastNotify ?? null,
     };
   } catch {
     return null;
@@ -47,7 +57,7 @@ function jsonpGasHealth(url: string): Promise<GasHealth> {
       script.remove();
       delete (window as unknown as Record<string, unknown>)[cb];
     };
-    (window as unknown as Record<string, (data: Partial<GasHealth>) => void>)[cb] = (data) => {
+    (window as unknown as Record<string, (data: Partial<GasHealth> & { lastNotify?: ChannelLog | null }) => void>)[cb] = (data) => {
       cleanup();
       if (!data || data.ok !== true) {
         reject(new Error("status"));
@@ -58,6 +68,7 @@ function jsonpGasHealth(url: string): Promise<GasHealth> {
         gasAlive: Boolean(data.gasAlive),
         gasAgeMs: Number(data.gasAgeMs || 0),
         intervalMin: Number(data.intervalMin || 5),
+        lastNotify: data.lastNotify ?? null,
       });
     };
     script.onerror = () => {

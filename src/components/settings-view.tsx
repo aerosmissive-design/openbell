@@ -1104,143 +1104,244 @@ function Steps({ items }: { items: ReactNode[] }) {
   );
 }
 
-function aliveLine(opts: {
+type AliveProbe = {
   reachable: boolean;
   alive: boolean;
   ageMs: number | null;
-}) {
-  if (!opts.reachable) return "확인 못 함";
-  if (opts.alive) {
-    return opts.ageMs != null
-      ? `작동 중 · ${Math.max(1, Math.round(opts.ageMs / 60000))}분 전 조회`
-      : "작동 중";
-  }
+  lastNotify: {
+    at?: number;
+    mail?: string;
+    telegram?: string;
+    kakao?: string;
+    x?: string;
+  } | null;
+};
+
+function agoLabel(at?: number | null, ageMs?: number | null) {
+  const ms = at ? Date.now() - at : ageMs;
+  if (ms == null || ms < 0) return "";
+  return `${Math.max(1, Math.round(ms / 60000))}분 전`;
+}
+
+function watchLine(probe: AliveProbe) {
+  if (!probe.reachable) return "확인 못 함";
+  if (probe.alive) return "켜짐";
   return "연결됨 · 다음 주기 대기";
 }
 
-async function probeWatchAlive(url: string) {
+function queryLine(probe: AliveProbe) {
+  if (!probe.reachable) return "확인 못 함";
+  if (probe.ageMs != null) return agoLabel(null, probe.ageMs);
+  if (probe.alive) return "방금 대기";
+  return "아직 없음";
+}
+
+function channelLine(
+  on: boolean,
+  result?: string,
+  at?: number,
+) {
+  if (!on) return "꺼짐";
+  if (!result || result === "off") return "대기 · 아직 발송 없음";
+  const when = agoLabel(at);
+  if (result === "ok") return when ? `됨 · ${when}` : "됨";
+  const short = result.length > 28 ? `${result.slice(0, 28)}…` : result;
+  return when ? `실패 · ${short} · ${when}` : `실패 · ${short}`;
+}
+
+async function probeWatchAlive(url: string): Promise<AliveProbe> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return { reachable: false, alive: false, ageMs: null as number | null };
-    const json = (await res.json()) as { alive?: boolean; ageMs?: number | null };
+    if (!res.ok) {
+      return { reachable: false, alive: false, ageMs: null, lastNotify: null };
+    }
+    const json = (await res.json()) as {
+      alive?: boolean;
+      ageMs?: number | null;
+      lastNotify?: AliveProbe["lastNotify"];
+    };
     return {
       reachable: true,
       alive: Boolean(json.alive),
       ageMs: typeof json.ageMs === "number" ? json.ageMs : null,
+      lastNotify: json.lastNotify ?? null,
     };
   } catch {
-    return { reachable: false, alive: false, ageMs: null as number | null };
+    return { reachable: false, alive: false, ageMs: null, lastNotify: null };
   }
 }
 
+function PathRows({
+  title,
+  watch,
+  query,
+  mail,
+  telegram,
+  kakao,
+  x,
+}: {
+  title: string;
+  watch: string;
+  query: string;
+  mail: string;
+  telegram: string;
+  kakao: string;
+  x: string;
+}) {
+  const rows: [string, string][] = [
+    ["감시", watch],
+    ["조회", query],
+    ["메일", mail],
+    ["텔레그램", telegram],
+    ["카톡", kakao],
+    ["X", x],
+  ];
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-fg">{title}</p>
+      <dl className="mt-1 grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-0.5 text-xs">
+        {rows.map(([k, v]) => (
+          <Fragment key={k}>
+            <dt className="text-muted">{k}</dt>
+            <dd className="text-fg">{v}</dd>
+          </Fragment>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function AlertPathStatus() {
-  const gasWebUrl = useAppStore((s) => s.config.gasWebUrl);
+  const config = useAppStore((s) => s.config);
   const [kind, setKind] = useState<"both" | "grok" | "gas" | "wait" | "none">(
     "wait",
   );
   const [summary, setSummary] = useState("현황을 확인하는 중…");
-  const [grokLine, setGrokLine] = useState("확인 중");
-  const [vercelLine, setVercelLine] = useState("확인 중");
-  const [gasLine, setGasLine] = useState("확인 중");
   const [dbLine, setDbLine] = useState("");
-  const [notifyLine, setNotifyLine] = useState("");
+  const [grok, setGrok] = useState({
+    watch: "확인 중",
+    query: "확인 중",
+    mail: "확인 중",
+    telegram: "확인 중",
+    kakao: "확인 중",
+    x: "확인 중",
+  });
+  const [vercel, setVercel] = useState(grok);
+  const [gas, setGas] = useState({
+    watch: "확인 중",
+    query: "확인 중",
+    mail: "확인 중",
+    telegram: "확인 중",
+    kakao: "확인 중",
+    x: "확인 중",
+  });
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const url = gasWebUrl.trim();
+      const url = config.gasWebUrl.trim();
       const here = window.location.hostname.includes("vercel.app")
         ? "vercel"
         : "grok";
       const local = await probeWatchAlive("/api/watch-alive");
-      const grok =
+      const grokProbe =
         here === "grok"
           ? local
           : await probeWatchAlive("https://openbell.grok.me/api/watch-alive");
-      const vercel =
+      const vercelProbe =
         here === "vercel"
           ? local
           : await probeWatchAlive(
               "https://openbell-fawn.vercel.app/api/watch-alive",
             );
       let dbLabel = "";
-      let notifyBits = "";
       try {
         const res = await fetch("/api/watch-alive", {
           signal: AbortSignal.timeout(8000),
         });
-        const json = (await res.json()) as {
-          db?: string;
-          lastNotify?: {
-            at?: number;
-            telegram?: string;
-            kakao?: string;
-            mail?: string;
-            x?: string;
-            webhook?: string;
-          } | null;
-        };
+        const json = (await res.json()) as { db?: string };
         dbLabel =
           json.db === "neon"
             ? "Neon (유지됨)"
             : json.db === "pglite"
               ? "임시 저장 (새로고침하면 사라질 수 있음)"
               : "";
-        if (json.lastNotify?.at) {
-          const bits = ["telegram", "kakao", "mail", "x", "webhook"]
-            .map((key) => {
-              const val =
-                json.lastNotify?.[key as keyof NonNullable<typeof json.lastNotify>];
-              if (!val) return "";
-              const name =
-                key === "telegram"
-                  ? "텔레그램"
-                  : key === "kakao"
-                    ? "카톡"
-                    : key === "mail"
-                      ? "메일"
-                      : key === "x"
-                        ? "X"
-                        : "웹훅";
-              return `${name} ${val === "ok" ? "됨" : val}`;
-            })
-            .filter(Boolean);
-          notifyBits = bits.length
-            ? `${Math.max(1, Math.round((Date.now() - json.lastNotify.at) / 60000))}분 전 · ${bits.join(" · ")}`
-            : "";
-        }
       } catch {
-        /* ignore */
+        dbLabel = "";
       }
-      let gasOk = false;
-      let gasRecent = false;
-      let gasAgeMs: number | null = null;
-      if (url) {
-        const health = await probeGasHealth(url);
-        gasOk = Boolean(health?.ok);
-        gasRecent = Boolean(health?.gasAlive);
-        gasAgeMs = health && health.gasAgeMs > 0 ? health.gasAgeMs : null;
-      }
+      const health = url ? await probeGasHealth(url) : null;
       if (cancelled) return;
-      setGrokLine(aliveLine(grok));
-      setVercelLine(aliveLine(vercel));
-      setGasLine(
-        !url
-          ? "없음"
-          : gasRecent
-            ? gasAgeMs != null
-              ? `작동 중 · ${Math.max(1, Math.round(gasAgeMs / 60000))}분 전 감시`
-              : "작동 중"
-            : gasOk
-              ? "웹앱은 응답 · 감시 기록이 없습니다. 스크립트를 최신화하세요."
-              : "웹앱이 응답하지 않습니다",
-      );
+      const mailOn = mailEnabled(config);
+      const teleOn = Boolean(config.telegramToken && config.telegramChatId);
+      const kakaoOn = Boolean(config.kakaoRestKey && config.kakaoRefreshToken);
+      const xOn = xEnabled(config);
+      const pack = (probe: AliveProbe) => ({
+        watch: watchLine(probe),
+        query: queryLine(probe),
+        mail: channelLine(mailOn, probe.lastNotify?.mail, probe.lastNotify?.at),
+        telegram: channelLine(
+          teleOn,
+          probe.lastNotify?.telegram,
+          probe.lastNotify?.at,
+        ),
+        kakao: channelLine(kakaoOn, probe.lastNotify?.kakao, probe.lastNotify?.at),
+        x: channelLine(xOn, probe.lastNotify?.x, probe.lastNotify?.at),
+      });
+      setGrok(pack(grokProbe));
+      setVercel(pack(vercelProbe));
+      if (!url) {
+        setGas({
+          watch: "없음",
+          query: "없음",
+          mail: "없음",
+          telegram: "없음",
+          kakao: "없음",
+          x: "없음",
+        });
+      } else if (!health?.ok) {
+        setGas({
+          watch: "웹앱이 응답하지 않습니다",
+          query: "확인 못 함",
+          mail: "확인 못 함",
+          telegram: "확인 못 함",
+          kakao: "확인 못 함",
+          x: "확인 못 함",
+        });
+      } else {
+        const notify = health.lastNotify;
+        setGas({
+          watch: health.gasAlive ? "켜짐" : "웹앱은 응답 · 감시 기록이 없습니다",
+          query:
+            health.gasAlive && health.gasAgeMs > 0
+              ? agoLabel(null, health.gasAgeMs)
+              : "아직 없음",
+          mail: notify
+            ? channelLine(mailOn, notify.mail, notify.at)
+            : mailOn
+              ? "대기 · 스크립트 최신화 후 기록이 생깁니다"
+              : "꺼짐",
+          telegram: notify
+            ? channelLine(teleOn, notify.telegram, notify.at)
+            : teleOn
+              ? "대기 · 스크립트 최신화 후 기록이 생깁니다"
+              : "꺼짐",
+          kakao: notify
+            ? channelLine(kakaoOn, notify.kakao, notify.at)
+            : kakaoOn
+              ? "대기 · 스크립트 최신화 후 기록이 생깁니다"
+              : "꺼짐",
+          x: notify
+            ? channelLine(xOn, notify.x, notify.at)
+            : xOn
+              ? "대기 · 스크립트 최신화 후 기록이 생깁니다"
+              : "꺼짐",
+        });
+      }
       setDbLine(dbLabel);
-      setNotifyLine(notifyBits);
       const n =
-        Number(grok.alive || grok.reachable) +
-        Number(vercel.alive || vercel.reachable) +
-        Number(gasRecent);
+        Number(grokProbe.alive || grokProbe.reachable) +
+        Number(vercelProbe.alive || vercelProbe.reachable) +
+        Number(Boolean(health?.gasAlive));
       if (n >= 2) {
         setKind("both");
         setSummary(
@@ -1248,17 +1349,17 @@ function AlertPathStatus() {
         );
         return;
       }
-      if (grok.reachable || grok.alive) {
+      if (grokProbe.reachable || grokProbe.alive) {
         setKind("grok");
         setSummary("그록 서버가 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다.");
         return;
       }
-      if (vercel.reachable || vercel.alive) {
+      if (vercelProbe.reachable || vercelProbe.alive) {
         setKind("grok");
         setSummary("베셀이 알림을 보냅니다. 나머지 경로는 아직 확인되지 않았습니다.");
         return;
       }
-      if (gasRecent) {
+      if (health?.gasAlive) {
         setKind("gas");
         setSummary("구글 스크립트가 알림을 보냅니다. 그록·베셀은 확인하지 못했습니다.");
         return;
@@ -1274,7 +1375,7 @@ function AlertPathStatus() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [gasWebUrl]);
+  }, [config]);
 
   return (
     <div
@@ -1290,26 +1391,12 @@ function AlertPathStatus() {
         알림 경로
       </p>
       <p className="mt-1.5 font-medium text-fg">{summary}</p>
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-        <dt className="text-muted">그록 서버</dt>
-        <dd className="text-fg">{grokLine}</dd>
-        <dt className="text-muted">베셀</dt>
-        <dd className="text-fg">{vercelLine}</dd>
-        <dt className="text-muted">구글 스크립트</dt>
-        <dd className="text-fg">{gasLine}</dd>
-        {dbLine ? (
-          <>
-            <dt className="text-muted">설정 저장</dt>
-            <dd className="text-fg">{dbLine}</dd>
-          </>
-        ) : null}
-        {notifyLine ? (
-          <>
-            <dt className="text-muted">마지막 발송</dt>
-            <dd className="text-fg">{notifyLine}</dd>
-          </>
-        ) : null}
-      </dl>
+      <PathRows title="그록 서버" {...grok} />
+      <PathRows title="베셀" {...vercel} />
+      <PathRows title="구글 스크립트" {...gas} />
+      {dbLine ? (
+        <p className="mt-2 text-xs text-muted">설정 저장 · {dbLine}</p>
+      ) : null}
     </div>
   );
 }

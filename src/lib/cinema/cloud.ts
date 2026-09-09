@@ -467,6 +467,13 @@ export type GasAlertStatus =
       gasAlive?: boolean;
       gasAgeMs?: number;
       gasLastRun?: number;
+      lastNotify?: {
+        at?: number;
+        mail?: string;
+        telegram?: string;
+        kakao?: string;
+        x?: string;
+      } | null;
     };
 
 export const pullGasAlertStatus = createServerFn({ method: "POST" })
@@ -488,6 +495,13 @@ export const pullGasAlertStatus = createServerFn({ method: "POST" })
         gasAlive?: boolean;
         gasAgeMs?: number;
         gasLastRun?: number;
+        lastNotify?: {
+          at?: number;
+          mail?: string;
+          telegram?: string;
+          kakao?: string;
+          x?: string;
+        } | null;
       } | null;
       if (!json?.ok) return { status: "error", message: "status" };
       return {
@@ -501,6 +515,7 @@ export const pullGasAlertStatus = createServerFn({ method: "POST" })
         gasAlive: Boolean(json.gasAlive),
         gasAgeMs: Number(json.gasAgeMs || 0),
         gasLastRun: Number(json.gasLastRun || 0),
+        lastNotify: json.lastNotify ?? null,
       };
     } catch {
       return { status: "error", message: "status" };

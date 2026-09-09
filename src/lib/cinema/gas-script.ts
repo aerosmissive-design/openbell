@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260909-cgvlink";
+export const GAS_SOURCE_STAMP = "20260910-path";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -462,7 +462,14 @@ function grokStatus_() {
     intervalMin: interval,
     gasLastRun: last,
     gasAgeMs: last ? now - last : 0,
-    gasAlive: last > 0 && now - last < gasWait
+    gasAlive: last > 0 && now - last < gasWait,
+    lastNotify: (function () {
+      try {
+        return JSON.parse(PropertiesService.getScriptProperties().getProperty("lastNotify") || "null");
+      } catch (e) {
+        return null;
+      }
+    })()
   };
 }
 
@@ -898,14 +905,28 @@ function upgradeSelf_(source) {
 
 function notify_(subject, body, alerts) {
   const html = buildMailHtml_(subject, body, alerts);
+  var log = { at: Date.now(), mail: "", telegram: "", kakao: "", x: "" };
   if (CONFIG.email) {
     try {
       GmailApp.sendEmail(CONFIG.email, subject, body, { htmlBody: html, name: "오픈벨" });
+      log.mail = "ok";
     } catch (e) {
+      log.mail = String(e).slice(0, 80);
       Logger.log("mail " + String(e));
     }
+  } else {
+    log.mail = "off";
   }
-  sendTelegram_(subject, body, alerts);
+  try {
+    if (!CONFIG.telegramToken || !CONFIG.telegramChatId) {
+      log.telegram = "off";
+    } else {
+      sendTelegram_(subject, body, alerts);
+      log.telegram = "ok";
+    }
+  } catch (e) {
+    log.telegram = String(e).slice(0, 80);
+  }
   if (CONFIG.webhookUrl) {
     try {
       UrlFetchApp.fetch(CONFIG.webhookUrl, {
@@ -918,8 +939,31 @@ function notify_(subject, body, alerts) {
       Logger.log("webhook " + String(e));
     }
   }
-  try { sendKakao_(subject, alerts); } catch (e) { Logger.log("kakao " + String(e)); }
-  try { sendX_(subject, body, alerts); } catch (e) { Logger.log("x " + String(e)); }
+  try {
+    if (!CONFIG.kakaoRestKey || !CONFIG.kakaoRefreshToken) {
+      log.kakao = "off";
+    } else {
+      sendKakao_(subject, alerts);
+      log.kakao = "ok";
+    }
+  } catch (e) {
+    log.kakao = String(e).slice(0, 80);
+    Logger.log("kakao " + String(e));
+  }
+  try {
+    if (!CONFIG.xAccessToken && !CONFIG.xApiKey) {
+      log.x = "off";
+    } else {
+      sendX_(subject, body, alerts);
+      log.x = "ok";
+    }
+  } catch (e) {
+    log.x = String(e).slice(0, 80);
+    Logger.log("x " + String(e));
+  }
+  try {
+    PropertiesService.getScriptProperties().setProperty("lastNotify", JSON.stringify(log));
+  } catch (e2) {}
 }
 
 function telegramChatId_() {
