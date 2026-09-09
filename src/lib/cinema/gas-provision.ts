@@ -1,82 +1,93 @@
 import { buildGasScript } from "./gas-script";
 import { pullGasMeta, upgradeExistingGas } from "./cloud";
 import { claimGasBind, getGasOauthClient, provisionGasScript } from "./scan";
-import { GAS_OAUTH_MESSAGE, gasOauthStartPath } from "./gas-oauth";
 import { useAppStore } from "@/lib/store";
 
-let cachedOauthClientId = "";
-let gasOauthPopup: Window | null = null;
+const SCOPES = [
+  "https://www.googleapis.com/auth/script.projects",
+  "https://www.googleapis.com/auth/script.deployments",
+  "https://www.googleapis.com/auth/drive.metadata.readonly",
+].join(" ");
 
-export function preloadGasOauth() {
-  void peekGasOauthClient()
-    .then((id) => {
-      cachedOauthClientId = id;
-    })
-    .catch(() => {});
-}
-
-export function peekCachedOauthClient() {
-  return cachedOauthClientId;
-}
-
-export function googleTokenFromClick(email?: string): Promise<string> {
-  const start = gasOauthStartPath(email);
-  const popup = window.open(start, "openbell-gas-oauth", "popup=yes,width=520,height=740");
-  gasOauthPopup = popup && !popup.closed ? popup : null;
-  if (!popup) {
-    window.location.assign(start);
-    return new Promise(() => {});
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (resp: {
+              access_token?: string;
+              error?: string;
+              error_description?: string;
+            }) => void;
+            error_callback?: (err: { type?: string; message?: string }) => void;
+          }) => { requestAccessToken: (opts?: { prompt?: string }) => void };
+        };
+      };
+    };
   }
+}
+
+function loadGsi(): Promise<void> {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const timer = window.setInterval(() => {
-      if (popup.closed) {
-        cleanup();
-        reject(new Error("구글 창을 닫았습니다. 다시 눌러 주세요."));
-      }
-    }, 400);
-    function onMsg(ev: MessageEvent) {
-      if (ev.origin !== window.location.origin) return;
-      if (!ev.data || ev.data.type !== GAS_OAUTH_MESSAGE) return;
-      cleanup();
-      if (ev.data.token) {
-        resolve(String(ev.data.token));
+    const existing = document.querySelector(
+      'script[src="https://accounts.google.com/gsi/client"]',
+    );
+    if (existing) {
+      if (window.google?.accounts?.oauth2) {
+        resolve();
         return;
       }
-      reject(new Error(String(ev.data.error || "구글 권한을 받지 못했습니다.")));
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () =>
+        reject(new Error("구글 로그인 모듈을 불러오지 못했습니다.")),
+      );
+      return;
     }
-    function cleanup() {
-      window.clearInterval(timer);
-      window.removeEventListener("message", onMsg);
-    }
-    window.addEventListener("message", onMsg);
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () =>
+      reject(new Error("구글 로그인 모듈을 불러오지 못했습니다."));
+    document.head.appendChild(script);
   });
 }
 
-export function takeStoredGasOauthToken() {
-  try {
-    const raw = sessionStorage.getItem(GAS_OAUTH_MESSAGE);
-    if (!raw) return "";
-    sessionStorage.removeItem(GAS_OAUTH_MESSAGE);
-    const parsed = JSON.parse(raw) as { token?: string };
-    return String(parsed.token || "");
-  } catch {
-    return "";
-  }
-}
-
-export function openOwnedScript(scriptId: string) {
-  const url = existingScriptEditorUrl(scriptId);
-  if (gasOauthPopup && !gasOauthPopup.closed) {
-    try {
-      gasOauthPopup.location.href = url;
-      gasOauthPopup.focus();
-      return true;
-    } catch {
-      // fall through
+function requestGoogleToken(clientId: string, prompt?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!window.google?.accounts?.oauth2) {
+      reject(new Error("구글 로그인 모듈이 없습니다."));
+      return;
     }
-  }
-  const next = window.open(url, "openbell-gas-oauth");
-  return Boolean(next);
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: SCOPES,
+      callback: (resp) => {
+        if (resp.access_token) {
+          resolve(resp.access_token);
+          return;
+        }
+        reject(
+          new Error(
+            resp.error_description ||
+              (resp.error === "access_denied"
+                ? "구글 권한을 허용해야 스크립트를 만듭니다."
+                : "구글 권한을 받지 못했습니다."),
+          ),
+        );
+      },
+      error_callback: (err) => {
+        reject(
+          new Error(err.message || "구글 팝업이 막혔습니다. 팝업을 허용해 주세요."),
+        );
+      },
+    });
+    client.requestAccessToken(prompt ? { prompt } : {});
+  });
 }
 
 export function ensureGasSyncKey() {
@@ -140,28 +151,19 @@ export function gasIsLinked() {
 
 const LAST_SCRIPT_ID_KEY = "openbell-last-gas-id";
 
-function lastScriptStorageKey(ownerId?: string | null) {
-  const id = String(ownerId || useAppStore.getState().ownerId || "").trim();
-  return id ? `${LAST_SCRIPT_ID_KEY}:${id}` : "";
-}
-
 function rememberLastScriptId(scriptId: string) {
   const id = String(scriptId || "").trim();
-  const key = lastScriptStorageKey();
-  if (!id || !key || typeof localStorage === "undefined") return;
+  if (!id || typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(key, id);
-    localStorage.removeItem(LAST_SCRIPT_ID_KEY);
+    localStorage.setItem(LAST_SCRIPT_ID_KEY, id);
   } catch {
     // ignore
   }
 }
 
 export function forgetGasLink() {
-  useAppStore.getState().setConfig({ gasWebUrl: "", gasScriptId: "", gasSyncKey: "" });
-  const key = lastScriptStorageKey();
+  useAppStore.getState().setConfig({ gasWebUrl: "", gasScriptId: "" });
   try {
-    if (key) localStorage.removeItem(key);
     localStorage.removeItem(LAST_SCRIPT_ID_KEY);
   } catch {
     // ignore
@@ -171,10 +173,8 @@ export function forgetGasLink() {
 export function lastKnownScriptId() {
   const fromConfig = useAppStore.getState().config.gasScriptId.trim();
   if (fromConfig) return fromConfig;
-  const key = lastScriptStorageKey();
-  if (!key) return "";
   try {
-    return String(localStorage.getItem(key) || "").trim();
+    return String(localStorage.getItem(LAST_SCRIPT_ID_KEY) || "").trim();
   } catch {
     return "";
   }
@@ -193,21 +193,17 @@ export async function peekGasOauthClient() {
   return String((await getGasOauthClient({ data: {} })) || "").trim();
 }
 
-async function oauthSync(
-  createNew: boolean,
-  scriptId?: string,
-  email?: string,
-  accessToken?: string,
-) {
-  const token = String(accessToken || "").trim();
-  if (!token) return null;
+async function oauthSync(createNew: boolean, scriptId?: string) {
+  const clientId = await peekGasOauthClient();
+  if (!clientId) return null;
+  await loadGsi();
+  const token = await requestGoogleToken(clientId, createNew ? "consent" : undefined);
   const result = await provisionGasScript({
     data: {
       accessToken: token,
       source: currentGasScript(),
-      scriptId: createNew ? undefined : scriptId,
+      scriptId: scriptId || undefined,
       createNew,
-      expectedEmail: email || undefined,
     },
   });
   saveGasTarget(result.url, result.scriptId);
@@ -237,35 +233,43 @@ export async function waitForGasBind(
   throw new Error("취소했습니다.");
 }
 
-export async function refreshGasMeta(url: string, email?: string) {
+export async function refreshGasMeta(url: string) {
   const meta = await pullGasMeta({ data: { url } });
   if (meta.status !== "ok") return "";
-  const owner = String(meta.email || "").trim().toLowerCase();
-  const want = String(email || "").trim().toLowerCase();
-  if (want && owner && owner !== want) return "";
   if (meta.scriptId) saveGasTarget(meta.url || url, meta.scriptId);
   return meta.scriptId;
 }
 
-export function existingScriptEditorUrl(scriptId: string, _email?: string) {
-  return `https://script.google.com/home/projects/${encodeURIComponent(scriptId)}/edit`;
-}
-
-export function gasHomeUrl(email?: string) {
+function withGoogleAccount(target: string, email?: string) {
   const mail = String(email || "").trim();
-  const home = "https://script.google.com/home";
-  if (!mail) return home;
+  if (!mail) return target;
   return (
     "https://accounts.google.com/AccountChooser?Email=" +
     encodeURIComponent(mail) +
     "&continue=" +
-    encodeURIComponent(home)
+    encodeURIComponent(target)
   );
 }
 
+export function existingScriptEditorUrl(scriptId: string, email?: string) {
+  return withGoogleAccount(
+    `https://script.google.com/home/projects/${encodeURIComponent(scriptId)}/edit`,
+    email,
+  );
+}
+
+export function gasHomeUrl(email?: string) {
+  return withGoogleAccount("https://script.google.com/home", email);
+}
+
 export async function connectedEditorUrl(email?: string) {
-  const { gasScriptId } = useAppStore.getState().config;
-  if (gasScriptId.trim()) return existingScriptEditorUrl(gasScriptId.trim());
+  const { gasWebUrl, gasScriptId } = useAppStore.getState().config;
+  const url = gasWebUrl.trim();
+  if (url) {
+    const id = await refreshGasMeta(url);
+    if (id) return existingScriptEditorUrl(id, email);
+  }
+  if (gasScriptId.trim()) return existingScriptEditorUrl(gasScriptId.trim(), email);
   return gasHomeUrl(email);
 }
 
@@ -279,44 +283,53 @@ export async function attachInstalledScript(email?: string) {
   return hit;
 }
 
-export async function syncGasScript(
-  email?: string,
-  accessToken?: string,
-): Promise<
+export async function syncGasScript(): Promise<
   | { mode: "oauth"; created: boolean; installUrl: string; scriptId: string }
   | { mode: "upgrade" }
   | { mode: "wizard" }
   | { mode: "editor"; editorUrl: string }
 > {
   ensureGasSyncKey();
-  const mail = String(email || "").trim().toLowerCase();
-  if (accessToken) {
-    const before = useAppStore.getState().config.gasScriptId.trim();
-    const result = await oauthSync(true, undefined, mail, accessToken);
-    if (result) {
+  const store = useAppStore.getState();
+  const url = store.config.gasWebUrl.trim();
+
+  if (!url) {
+    const created = await oauthSync(true);
+    if (created) {
       return {
         mode: "oauth",
-        created: !before,
-        installUrl: result.installUrl,
-        scriptId: result.scriptId,
+        created: true,
+        installUrl: created.installUrl,
+        scriptId: created.scriptId,
       };
+    }
+    return { mode: "wizard" };
+  }
+
+  const liveId = (await refreshGasMeta(url)) || store.config.gasScriptId.trim();
+  if (liveId) {
+    try {
+      const updated = await oauthSync(false, liveId);
+      if (updated) {
+        return {
+          mode: "oauth",
+          created: false,
+          installUrl: updated.installUrl,
+          scriptId: updated.scriptId || liveId,
+        };
+      }
+    } catch {
+      // 웹앱으로 이어서 고칩니다.
     }
   }
 
-  const url = useAppStore.getState().config.gasWebUrl.trim();
-  if (url && mail) {
-    const meta = await pullGasMeta({ data: { url } });
-    const owner = String(meta.status === "ok" ? meta.email || "" : "").toLowerCase();
-    if (owner && owner !== mail) {
-      forgetGasLink();
-      return { mode: "wizard" };
-    }
-    if (meta.status === "ok") {
-      const pushed = await upgradeExistingGas({
-        data: { url, key: ensureGasSyncKey(), source: currentGasScript() },
-      });
-      if (pushed.status === "ok") return { mode: "upgrade" };
-    }
+  const pushed = await upgradeExistingGas({
+    data: { url, key: ensureGasSyncKey(), source: currentGasScript() },
+  });
+  if (pushed.status === "ok") return { mode: "upgrade" };
+
+  if (liveId) {
+    return { mode: "editor", editorUrl: existingScriptEditorUrl(liveId) };
   }
-  return { mode: "wizard" };
+  throw new Error("연결된 스크립트를 찾지 못했습니다. 새 프로젝트는 만들지 않았습니다.");
 }

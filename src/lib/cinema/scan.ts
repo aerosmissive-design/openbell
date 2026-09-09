@@ -1,6 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { authMiddleware } from "@/lib/auth/middleware";
 
 const ScanInput = z.object({
   daysAhead: z.number().min(1).max(30).default(7),
@@ -495,7 +494,6 @@ const ProvisionInput = z.object({
   source: z.string().min(20),
   scriptId: z.string().optional(),
   createNew: z.boolean().optional(),
-  expectedEmail: z.string().optional(),
 });
 
 export const provisionGasScript = createServerFn({ method: "POST" })
@@ -503,54 +501,5 @@ export const provisionGasScript = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { provisionGasProject } = await import("./gas-provision.server");
     return provisionGasProject(data);
-  });
-
-export const getGoogleScriptToken = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const { auth } = await import("@/lib/auth/server");
-    const { getRequest } = await import("@tanstack/react-start/server");
-    const request = getRequest();
-    if (!request) return { status: "need-consent" as const };
-    try {
-      const result = await auth.api.getAccessToken({
-        body: { providerId: "google", userId: context.userId },
-        headers: request.headers,
-      });
-      const token = String(result?.accessToken || "").trim();
-      const scopes = Array.isArray(result?.scopes)
-        ? result.scopes.join(" ")
-        : String(result?.scopes || "");
-      if (!token || !scopes.includes("script.projects")) {
-        return { status: "need-consent" as const };
-      }
-      return { status: "ok" as const, accessToken: token };
-    } catch {
-      return { status: "need-consent" as const };
-    }
-  });
-
-export const pingGasInstall = createServerFn({ method: "POST" })
-  .validator(z.object({ url: z.string().min(8) }))
-  .handler(async ({ data }) => {
-    try {
-      const target = new URL(data.url.trim());
-      const host = target.hostname;
-      if (
-        !host.endsWith("script.google.com") &&
-        !host.endsWith("googleusercontent.com")
-      ) {
-        return { status: "skip" as const };
-      }
-      target.searchParams.set("op", "install");
-      await fetch(target.toString(), {
-        method: "GET",
-        redirect: "follow",
-        signal: AbortSignal.timeout(20000),
-      });
-      return { status: "ok" as const };
-    } catch {
-      return { status: "skip" as const };
-    }
   });
 

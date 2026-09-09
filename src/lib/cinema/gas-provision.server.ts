@@ -61,80 +61,15 @@ function webAppUrl(deployment: {
   return String(hit?.webApp?.url ?? "").replace(/\/dev$/, "/exec");
 }
 
-async function googleTokenEmail(token: string) {
-  try {
-    const info = await gfetch<{ email?: string }>(
-      token,
-      "https://www.googleapis.com/oauth2/v2/userinfo",
-    );
-    return String(info.email || "").trim().toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-async function listOwnedOpenbellIds(token: string): Promise<string[]> {
-  const q = encodeURIComponent(
-    "mimeType='application/vnd.google-apps.script' and trashed=false and 'me' in owners",
-  );
-  try {
-    const listed = await gfetch<{
-      files?: Array<{ id?: string; name?: string; modifiedTime?: string }>;
-    }>(
-      token,
-      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&pageSize=20`,
-    );
-    return (listed.files ?? [])
-      .filter((f) => String(f.name || "").includes("오픈벨") && f.id)
-      .map((f) => String(f.id));
-  } catch {
-    return [];
-  }
-}
-
-async function resolveOwnedScriptId(
-  token: string,
-  preferred: string,
-  _createNew: boolean,
-) {
-  const owned = await listOwnedOpenbellIds(token);
-  if (preferred && owned.includes(preferred)) return preferred;
-  if (owned[0]) return owned[0];
-  if (preferred) {
-    try {
-      const meta = await gfetch<{ ownedByMe?: boolean }>(
-        token,
-        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(preferred)}?fields=id,ownedByMe`,
-      );
-      if (meta.ownedByMe) return preferred;
-    } catch {
-      // 다른 계정 스크립트입니다.
-    }
-  }
-  return "";
-}
-
 export async function provisionGasProject(input: {
   accessToken: string;
   source: string;
   scriptId?: string;
   createNew?: boolean;
-  expectedEmail?: string;
 }): Promise<{ url: string; scriptId: string }> {
   const token = input.accessToken.trim();
   if (!token) throw new Error("구글 권한이 없습니다.");
-  const tokenEmail = await googleTokenEmail(token);
-  const expected = String(input.expectedEmail || "").trim().toLowerCase();
-  if (expected && tokenEmail && tokenEmail !== expected) {
-    throw new Error(
-      `구글 창에서 ${expected}를 고르세요. 지금은 ${tokenEmail}로 열렸습니다.`,
-    );
-  }
-  let scriptId = await resolveOwnedScriptId(
-    token,
-    input.scriptId?.trim() ?? "",
-    Boolean(input.createNew),
-  );
+  let scriptId = input.scriptId?.trim() ?? "";
   if (!scriptId && input.createNew) {
     const created = await gfetch<{ scriptId?: string }>(
       token,
@@ -147,7 +82,7 @@ export async function provisionGasProject(input: {
     scriptId = String(created.scriptId ?? "");
   }
   if (!scriptId) {
-    throw new Error("이 구글 계정의 오픈벨 스크립트를 찾지 못했습니다.");
+    throw new Error("수정할 스크립트를 찾지 못했습니다. 새 프로젝트는 만들지 않았습니다.");
   }
 
   await gfetch(token, `https://script.googleapis.com/v1/projects/${scriptId}/content`, {

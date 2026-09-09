@@ -12,7 +12,7 @@ import {
   type GasPushResult,
 } from "@/lib/cinema/cloud";
 import { DEFAULT_WATCH } from "@/lib/cinema/gas-script";
-import { forgetGasLink, gasWatchFingerprint, preloadGasOauth, pushLinkedGasSource } from "@/lib/cinema/gas-provision";
+import { forgetGasLink, gasWatchFingerprint, pushLinkedGasSource } from "@/lib/cinema/gas-provision";
 import { useAppStore } from "@/lib/store";
 
 function localSnapshot(): CloudSnapshot {
@@ -92,10 +92,6 @@ export function CloudSync() {
   const skipSave = useRef(true);
   const pulledFor = useRef<string | null>(null);
   const lastWatch = useRef("");
-
-  useEffect(() => {
-    void preloadGasOauth();
-  }, []);
 
   useEffect(() => {
     const api = useAppStore.persist;
