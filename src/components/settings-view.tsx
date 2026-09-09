@@ -211,51 +211,78 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       );
       return;
     }
-    const tokenPromise = canOauth
-      ? googleTokenFromClick(loginEmail)
-      : Promise.resolve("");
-    const editorWin = window.open("about:blank", "openbell-connected");
+    const vercelHost =
+      typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app");
+    const tokenPromise =
+      canOauth && !vercelHost ? googleTokenFromClick(loginEmail) : Promise.resolve("");
+    const startUrl = config.gasScriptId.trim()
+      ? existingScriptEditorUrl(config.gasScriptId.trim(), loginEmail)
+      : gasHomeUrl(loginEmail);
+    const editorWin = vercelHost ? window.open(startUrl, "openbell-connected") : null;
     setProvisioning(true);
     void (async () => {
       try {
-        const accessToken = await tokenPromise;
+        const accessToken = vercelHost ? "" : await tokenPromise;
         await flushSettings(Boolean(loginEmail));
-        const found = await attachInstalledScript(loginEmail);
-        if (found && !accessToken) {
+        if (vercelHost || !accessToken) {
+          const pushed = await pushLinkedGasSource();
+          if (pushed.status === "ok") {
+            wizardAbort.current?.abort();
+            setWizard(false);
+            markScriptCurrent();
+            toast.success("연결된 스크립트에 반영했습니다.");
+            return;
+          }
           wizardAbort.current?.abort();
+          const ac = new AbortController();
+          wizardAbort.current = ac;
+          void copyGasScript();
+          setWizard(true);
+          toast.success(
+            "코드를 복사했습니다. 열린 창에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
+          );
+          const hit = await waitForGasBind(
+            ensureGasSyncKey(),
+            ac.signal,
+            undefined,
+            loginEmail,
+          );
+          await flushSettings(Boolean(loginEmail));
           setWizard(false);
           markScriptCurrent();
-          const url = await connectedEditorUrl(loginEmail);
-          if (editorWin && !editorWin.closed) editorWin.location.href = url;
-          else openConnected(url);
-          toast.success("설치한 스크립트를 찾았습니다. 이 스크립트와 동기화합니다.");
+          toast.success("연결됐습니다. 다시 누르면 이 스크립트를 고칩니다.");
+          void hit;
           return;
         }
         wizardAbort.current?.abort();
         const ac = new AbortController();
         wizardAbort.current = ac;
+        const found = await attachInstalledScript(loginEmail);
+        if (found && !accessToken) {
+          setWizard(false);
+          markScriptCurrent();
+          openConnected(await connectedEditorUrl(loginEmail));
+          toast.success("설치한 스크립트를 찾았습니다. 이 스크립트와 동기화합니다.");
+          return;
+        }
         const linked = gasIsLinked();
         void copyGasScript();
         if (!linked && !canOauth) {
-          const home = gasHomeUrl(loginEmail);
-          if (editorWin && !editorWin.closed) editorWin.location.href = home;
-          else openConnected(home);
+          openConnected(gasHomeUrl(loginEmail));
           setWizard(true);
           toast.success(
             "코드를 복사했습니다. 오픈벨에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
           );
         }
         const result = await syncGasScript(accessToken || undefined);
-        const editorUrl = result.mode === "oauth" && result.scriptId
-          ? existingScriptEditorUrl(result.scriptId, loginEmail)
-          : result.mode === "editor"
-            ? result.editorUrl
-            : await connectedEditorUrl(loginEmail);
         if (result.mode === "oauth") {
           setWizard(false);
           await flushSettings(Boolean(loginEmail));
-          if (editorWin && !editorWin.closed) editorWin.location.href = editorUrl;
-          else openConnected(editorUrl);
+          openConnected(
+            result.scriptId
+              ? existingScriptEditorUrl(result.scriptId, loginEmail)
+              : await connectedEditorUrl(loginEmail),
+          );
           toast.success(
             result.created
               ? "스크립트를 만들었습니다. 위쪽 함수를 설치 로 실행하세요."
@@ -267,8 +294,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         if (result.mode === "upgrade" || result.mode === "editor") {
           setWizard(false);
           await flushSettings(Boolean(loginEmail));
-          if (editorWin && !editorWin.closed) editorWin.location.href = editorUrl;
-          else openConnected(editorUrl);
+          openConnected(await connectedEditorUrl(loginEmail));
           toast.success("연결된 스크립트를 열었습니다. 저장하면 반영됩니다.");
           markScriptCurrent();
           return;
@@ -282,11 +308,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         await flushSettings(Boolean(loginEmail));
         setWizard(false);
         markScriptCurrent();
-        const bound = await connectedEditorUrl(loginEmail);
-        if (editorWin && !editorWin.closed) editorWin.location.href = bound;
-        else openConnected(bound);
+        openConnected(await connectedEditorUrl(loginEmail));
         toast.success("연결됐습니다. 다시 누르면 이 스크립트만 엽니다.");
         void hit;
+        void editorWin;
       } catch (err) {
         if (editorWin && !editorWin.closed) editorWin.close();
         if (err instanceof Error && err.message === "취소했습니다.") return;
