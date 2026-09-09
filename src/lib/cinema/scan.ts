@@ -494,6 +494,7 @@ const ProvisionInput = z.object({
   source: z.string().min(20),
   scriptId: z.string().optional(),
   createNew: z.boolean().optional(),
+  expectedEmail: z.string().optional(),
 });
 
 export const provisionGasScript = createServerFn({ method: "POST" })

@@ -7,6 +7,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/script.projects",
   "https://www.googleapis.com/auth/script.deployments",
   "https://www.googleapis.com/auth/drive.metadata.readonly",
+  "https://www.googleapis.com/auth/userinfo.email",
 ].join(" ");
 
 declare global {
@@ -104,7 +105,7 @@ function requestGoogleToken(
         reject(new Error(googleAuthError(err)));
       },
     });
-    client.requestAccessToken(prompt ? { prompt } : {});
+    client.requestAccessToken({ prompt: prompt || "select_account" });
   });
 }
 
@@ -129,7 +130,7 @@ export function googleTokenFromClick(email?: string): Promise<string> {
       new Error("구글 창 준비가 끝나지 않았습니다. 한 번만 더 눌러 주세요."),
     );
   }
-  return requestGoogleToken(clientId, undefined, email);
+  return requestGoogleToken(clientId, "select_account", email);
 }
 
 export function ensureGasSyncKey() {
@@ -258,7 +259,7 @@ async function oauthSync(
       const clientId = cachedOauthClientId || (await peekGasOauthClient());
       if (!clientId) return "";
       await loadGsi();
-      return requestGoogleToken(clientId, undefined, email);
+      return requestGoogleToken(clientId, "select_account", email);
     })());
   if (!token) return null;
   const mine = useAppStore.getState().config.gasScriptId.trim();
@@ -269,6 +270,7 @@ async function oauthSync(
       source: currentGasScript(),
       scriptId: targetId,
       createNew,
+      expectedEmail: email || undefined,
     },
   });
   saveGasTarget(result.url, result.scriptId);
