@@ -16,6 +16,7 @@ import {
   gasIsLinked,
   peekGasOauthClient,
   pushLinkedGasSource,
+  refreshGasMeta,
   syncGasScript,
   waitForGasBind,
 } from "@/lib/cinema/gas-provision";
@@ -55,10 +56,24 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const wizardAbort = useRef<AbortController | null>(null);
   const setTab = useAppStore((s) => s.setTab);
   const [redirectUri, setRedirectUri] = useState("");
+  const [gasUrlDraft, setGasUrlDraft] = useState(config.gasWebUrl);
 
   useEffect(() => {
     setRedirectUri(kakaoRedirectUri());
   }, []);
+
+  useEffect(() => {
+    setGasUrlDraft(config.gasWebUrl);
+  }, [config.gasWebUrl]);
+
+  useEffect(() => {
+    if (!loginEmail) return;
+    const timer = window.setTimeout(() => {
+      if (useAppStore.getState().config.gasWebUrl.trim()) return;
+      void attachInstalledScript(loginEmail);
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [loginEmail]);
 
   useEffect(() => {
     void peekGasOauthClient()
@@ -320,6 +335,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           </li>
           <li>코드를 붙여넣고 저장하세요.</li>
           <li>위쪽 함수를 설치 로 실행하고 권한을 허용하세요.</li>
+          <li>배포된 웹앱 주소(/exec)를 아래 칸에 붙이세요.</li>
         </ol>
         <p className="mt-3 text-sm font-medium text-fg">이후 업데이트</p>
         <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
@@ -337,6 +353,65 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             오픈벨에 붙여넣고 저장하세요.
           </li>
         </ol>
+        <label className="mt-4 block text-xs text-muted">웹앱 주소</label>
+        <input
+          value={gasUrlDraft}
+          onChange={(e) => setGasUrlDraft(e.target.value)}
+          placeholder="https://script.google.com/macros/s/…/exec"
+          className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+        />
+        <button
+          type="button"
+          className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border"
+          onClick={() => {
+            const raw = gasUrlDraft.trim();
+            if (!raw) {
+              toast.error("웹앱 주소를 붙여넣으세요.");
+              return;
+            }
+            let parsed: URL;
+            try {
+              parsed = new URL(raw);
+            } catch {
+              toast.error("주소가 올바르지 않습니다.");
+              return;
+            }
+            if (
+              !parsed.hostname.endsWith("script.google.com") &&
+              !parsed.hostname.endsWith("googleusercontent.com")
+            ) {
+              toast.error("구글 스크립트 웹앱 주소만 됩니다.");
+              return;
+            }
+            ensureGasSyncKey();
+            setConfig({ gasWebUrl: raw });
+            void (async () => {
+              const id = await refreshGasMeta(raw).catch(() => "");
+              await flushSettings(Boolean(loginEmail));
+              toast.success(
+                id
+                  ? "웹앱을 연결했습니다. 알림 경로에서 구글 스크립트를 확인하세요."
+                  : "주소를 저장했습니다. 알림 경로에서 확인하세요.",
+              );
+            })();
+          }}
+        >
+          웹앱 주소 연결
+        </button>
+        {config.gasWebUrl.trim() ? (
+          <button
+            type="button"
+            className="mt-2 min-h-11 w-full text-sm text-muted"
+            onClick={() => {
+              forgetGasLink();
+              setGasUrlDraft("");
+              void flushSettings(Boolean(loginEmail));
+              toast.success("웹앱 연결을 끊었습니다.");
+            }}
+          >
+            연결 끊기
+          </button>
+        ) : null}
         <button
           type="button"
           disabled={provisioning}
