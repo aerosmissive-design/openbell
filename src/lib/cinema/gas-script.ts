@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260909-othercgv";
+export const GAS_SOURCE_STAMP = "20260909-ownmail";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -589,7 +589,7 @@ function doGet(e) {
   if (op === "meta") {
     var web = "";
     try { web = ScriptApp.getService().getUrl() || ""; } catch (err) {}
-    return jsonOut_({ ok: true, url: web, id: ScriptApp.getScriptId(), stamp: SCRIPT_STAMP });
+    return jsonOut_({ ok: true, url: web, id: ScriptApp.getScriptId(), stamp: SCRIPT_STAMP, email: CONFIG.email || "" });
   }
   if (op === "test") {
     testNotify();

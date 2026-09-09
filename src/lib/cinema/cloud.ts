@@ -438,6 +438,7 @@ export const pullGasMeta = createServerFn({ method: "POST" })
         id?: string;
         url?: string;
         stamp?: string;
+        email?: string;
       } | null;
       if (!json?.ok) return { status: "need-script" as const };
       return {
@@ -445,6 +446,7 @@ export const pullGasMeta = createServerFn({ method: "POST" })
         scriptId: String(json.id || ""),
         url: String(json.url || ""),
         stamp: String(json.stamp || ""),
+        email: String(json.email || "").trim().toLowerCase(),
       };
     } catch {
       return { status: "need-script" as const };

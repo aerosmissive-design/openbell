@@ -14,11 +14,13 @@ import {
   forgetGasLink,
   gasHomeUrl,
   gasIsLinked,
+  googleTokenFromClick,
+  openOwnedScript,
   peekGasOauthClient,
   preloadGasOauth,
   pushLinkedGasSource,
-  googleTokenFromClick,
   syncGasScript,
+  takeStoredGasOauthToken,
   waitForGasBind,
 } from "@/lib/cinema/gas-provision";
 import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
@@ -68,6 +70,13 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       .then((id) => setCanOauth(Boolean(id)))
       .catch(() => setCanOauth(false));
   }, []);
+
+  useEffect(() => {
+    if (!loginEmail) return;
+    const token = takeStoredGasOauthToken();
+    if (!token) return;
+    void finishSync(Promise.resolve(token));
+  }, [loginEmail]);
 
   useEffect(() => {
     const url = config.gasWebUrl.trim();
@@ -211,9 +220,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       );
       return;
     }
-    const tokenPromise = canOauth
-      ? googleTokenFromClick(loginEmail)
-      : Promise.resolve("");
+    void finishSync(googleTokenFromClick(loginEmail));
+  }
+
+  function finishSync(tokenPromise: Promise<string>) {
     setProvisioning(true);
     void (async () => {
       try {
@@ -225,49 +235,37 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           }
         }
         await flushSettings(Boolean(loginEmail));
-        const found = await attachInstalledScript(loginEmail);
-        if (found && !accessToken) {
-          wizardAbort.current?.abort();
-          setWizard(false);
-          markScriptCurrent();
-          openConnected(await connectedEditorUrl(loginEmail));
-          toast.success("설치한 스크립트를 찾았습니다. 이 스크립트와 동기화합니다.");
-          return;
-        }
         wizardAbort.current?.abort();
         const ac = new AbortController();
         wizardAbort.current = ac;
-        const linked = gasIsLinked();
-        void copyGasScript();
-        if (!linked && !canOauth) {
+        if (!accessToken) {
+          void copyGasScript();
           openConnected(gasHomeUrl(loginEmail));
           setWizard(true);
           toast.success(
             "코드를 복사했습니다. 오픈벨에 붙여넣고 설치하면 이 앱이 그 스크립트를 찾습니다.",
           );
+          return;
         }
-        const result = await syncGasScript(loginEmail, accessToken || undefined);
+        const result = await syncGasScript(loginEmail, accessToken);
         if (result.mode === "oauth") {
           setWizard(false);
           await flushSettings(Boolean(loginEmail));
-          if (result.scriptId) {
-            openConnected(existingScriptEditorUrl(result.scriptId, loginEmail));
-          } else {
-            openConnected(await connectedEditorUrl(loginEmail));
-          }
+          if (result.scriptId) openOwnedScript(result.scriptId);
           toast.success(
             result.created
-              ? "스크립트를 만들었습니다. 위쪽 함수를 설치 로 실행하세요."
-              : "연결된 스크립트를 열었습니다.",
+              ? "이 계정 스크립트를 만들었습니다. 위쪽 함수를 설치 로 실행하세요."
+              : "이 계정 스크립트를 열었습니다.",
           );
           markScriptCurrent();
           return;
         }
-        if (result.mode === "upgrade" || result.mode === "editor") {
+        if (result.mode === "upgrade") {
           setWizard(false);
           await flushSettings(Boolean(loginEmail));
-          openConnected(await connectedEditorUrl(loginEmail));
-          toast.success("연결된 스크립트를 열었습니다. 저장하면 반영됩니다.");
+          const id = useAppStore.getState().config.gasScriptId.trim();
+          if (id) openOwnedScript(id);
+          toast.success("이 계정 스크립트를 고쳤습니다.");
           markScriptCurrent();
           return;
         }
@@ -280,9 +278,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         await flushSettings(Boolean(loginEmail));
         setWizard(false);
         markScriptCurrent();
-        openConnected(await connectedEditorUrl(loginEmail));
+        if (hit.scriptId) openOwnedScript(hit.scriptId);
         toast.success("연결됐습니다. 다시 누르면 이 스크립트만 엽니다.");
-        void hit;
       } catch (err) {
         if (err instanceof Error && err.message === "취소했습니다.") return;
         const message = err instanceof Error ? err.message : "최신화하지 못했습니다.";
