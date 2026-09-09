@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as GasOauthRouteImport } from './routes/gas-oauth'
 import { Route as GoRouteImport } from './routes/go'
 import { Route as KakaoRouteImport } from './routes/kakao'
 import { Route as LoginRouteImport } from './routes/login'
@@ -21,6 +22,11 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GasOauthRoute = GasOauthRouteImport.update({
+  id: '/gas-oauth',
+  path: '/gas-oauth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GoRoute = GoRouteImport.update({
@@ -61,6 +67,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/gas-oauth': typeof GasOauthRoute
   '/go': typeof GoRoute
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/gas-oauth': typeof GasOauthRoute
   '/go': typeof GoRoute
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
@@ -82,6 +90,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/gas-oauth': typeof GasOauthRoute
   '/go': typeof GoRoute
   '/kakao': typeof KakaoRoute
   '/login': typeof LoginRoute
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/gas-oauth'
     | '/go'
     | '/kakao'
     | '/login'
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/gas-oauth'
     | '/go'
     | '/kakao'
     | '/login'
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/gas-oauth'
     | '/go'
     | '/kakao'
     | '/login'
@@ -125,6 +137,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  GasOauthRoute: typeof GasOauthRoute
   GoRoute: typeof GoRoute
   KakaoRoute: typeof KakaoRoute
   LoginRoute: typeof LoginRoute
@@ -141,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gas-oauth': {
+      id: '/gas-oauth'
+      path: '/gas-oauth'
+      fullPath: '/gas-oauth'
+      preLoaderRoute: typeof GasOauthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/go': {
@@ -197,6 +217,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  GasOauthRoute: GasOauthRoute,
   GoRoute: GoRoute,
   KakaoRoute: KakaoRoute,
   LoginRoute: LoginRoute,
