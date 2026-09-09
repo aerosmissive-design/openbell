@@ -5,6 +5,7 @@ import {
   dbLabel,
   readLastNotify,
   readWatchLastRun,
+  watchHost,
   writeLastNotify,
   writeWatchLastRun,
   type ChannelSendLog,
@@ -21,6 +22,19 @@ import { diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBod
 import { THEATERS } from "./theaters";
 import type { AlertItem, BookingIntent, Showtime, TheaterId, WatchConfig } from "./types";
 import { mailEnabled, xEnabled } from "./types";
+
+function hostSeenFromPrefs(prefs: unknown): string[] {
+  const bag =
+    prefs && typeof prefs === "object"
+      ? (prefs as { seenByHost?: unknown })
+      : {};
+  const byHost =
+    bag.seenByHost && typeof bag.seenByHost === "object"
+      ? (bag.seenByHost as Record<string, unknown>)
+      : {};
+  const mine = byHost[watchHost()];
+  return Array.isArray(mine) ? mine.map(String) : [];
+}
 
 const THEATER_IDS = THEATERS.map((t) => t.id);
 let lastRunAt = 0;
@@ -255,12 +269,41 @@ async function persistWatch(
   },
 ) {
   const sql = await getSql();
+  const prevRows = await sql.query<{ prefs: unknown }>(
+    "select prefs from user_settings where user_id = $1 limit 1",
+    [userId],
+  );
+  let prevByHost: Record<string, string[]> = {};
+  try {
+    const raw = prevRows[0]?.prefs;
+    const parsed =
+      typeof raw === "string"
+        ? JSON.parse(raw)
+        : raw && typeof raw === "object"
+          ? raw
+          : {};
+    const bag = (parsed as { seenByHost?: Record<string, unknown> }).seenByHost;
+    if (bag && typeof bag === "object") {
+      prevByHost = Object.fromEntries(
+        Object.entries(bag).map(([key, val]) => [
+          key,
+          Array.isArray(val) ? val.map(String) : [],
+        ]),
+      );
+    }
+  } catch {
+    prevByHost = {};
+  }
   const prefs = {
     onlyAlerted: snap.onlyAlerted,
     primed: extras.primed,
     seenIds: uniqueCap(extras.seenIds, 2500),
     seenDates: uniqueCap(extras.seenDates, 40),
     watchSig: extras.watchSig,
+    seenByHost: {
+      ...prevByHost,
+      [watchHost()]: uniqueCap(extras.seenIds, 2500),
+    },
   };
   await sql.query(
     `update user_settings
@@ -305,6 +348,7 @@ export async function runWatchTick() {
       const email = String(row.account_email || snap.config.email || "").trim();
       return {
         userId: row.user_id,
+        hostSeen: hostSeenFromPrefs(row.prefs),
         snap: {
           ...snap,
           config: { ...snap.config, email },
@@ -329,7 +373,7 @@ export async function runWatchTick() {
   });
   const allShows = scan.theaters.flatMap((t) => t.showtimes);
   let sent = 0;
-  for (const { userId, snap } of accounts) {
+  for (const { userId, snap, hostSeen } of accounts) {
     const config = snap.config;
     const enabled = new Set(
       THEATERS.filter((t) => config.theaters[t.id]).map((t) => t.id),
@@ -341,11 +385,11 @@ export async function runWatchTick() {
       titles,
     );
     const sig = watchSignature(config);
-    if (!snap.primed) {
+    if (!hostSeen.length) {
       const primedQueue = diffStarSeats(snap.queue, allShows).nextQueue;
       await persistWatch(userId, snap, {
         primed: true,
-        seenIds: uniqueCap([...snap.seenIds, ...watched.map((s) => s.id)], 2500),
+        seenIds: uniqueCap(watched.map((s) => s.id), 2500),
         seenDates: snap.seenDates,
         watchSig: sig,
         alerts: snap.alerts,
@@ -361,10 +405,10 @@ export async function runWatchTick() {
       extraSeen = primeIdsForWatchChange(snap.watchSig, config, scan.ranking, watched);
       nextSig = sig;
     }
-    const seen = new Set([...snap.seenIds, ...extraSeen]);
+    const seen = new Set([...hostSeen, ...extraSeen]);
     const fresh = watched.filter((s) => !seen.has(s.id));
     const nextSeen = uniqueCap(
-      [...snap.seenIds, ...extraSeen, ...fresh.map((s) => s.id)],
+      [...hostSeen, ...extraSeen, ...fresh.map((s) => s.id)],
       2500,
     );
     const { nextQueue, changes } = diffStarSeats(snap.queue, allShows);
