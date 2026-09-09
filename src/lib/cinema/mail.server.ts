@@ -15,7 +15,7 @@ function mailHtml(
   url?: string,
   items?: Array<{ title: string; body: string; bookingUrl: string }>,
 ) {
-  const cards = (items?.length ? items.slice(0, 8) : []).map((item) => {
+  const cards = (items?.length ? items.slice(0, 20) : []).map((item) => {
     const href = escapeAttr(item.bookingUrl);
     return `<div style="margin:0 0 14px;padding:16px;background:#161617;border-radius:12px">
       <p style="margin:0 0 6px;font-size:15px;font-weight:600;color:#f4f1ea">${escapeHtml(item.title)}</p>

@@ -17,7 +17,7 @@ import {
   watchSignature,
 } from "./match";
 import { runScan } from "./scan-impl.server";
-import { diffStarSeats, notifyCopy, seatChangeAlert, showAlertBody, tweetCopy } from "./seats";
+import { diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBody, tweetCopy } from "./seats";
 import { THEATERS } from "./theaters";
 import type { AlertItem, BookingIntent, Showtime, TheaterId, WatchConfig } from "./types";
 import { mailEnabled, xEnabled } from "./types";
@@ -123,17 +123,24 @@ async function sendKakao(restKey: string, refreshToken: string, text: string, ur
 }
 
 async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
-  const { subject, text, telegramHtml } = notifyCopy(items);
+  const batches = notifyBatches(items, 8);
+  const first = notifyCopy(batches[0] ?? items, { total: items.length });
+  const { subject, text } = first;
   const log: ChannelSendLog = { at: Date.now() };
   const jobs: Promise<void>[] = [];
   if (config.telegramToken && config.telegramChatId) {
     jobs.push(
-      sendTelegram(
-        config.telegramToken,
-        config.telegramChatId,
-        telegramHtml,
-        true,
-      )
+      (async () => {
+        for (const part of batches) {
+          const { telegramHtml } = notifyCopy(part, { total: items.length });
+          await sendTelegram(
+            config.telegramToken,
+            config.telegramChatId,
+            telegramHtml,
+            true,
+          );
+        }
+      })()
         .then(() => {
           log.telegram = "ok";
         })
@@ -179,15 +186,21 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
     );
   }
   if (mailEnabled(config)) {
+    const mailItems = items.slice(0, 20);
+    const mailCopy = notifyCopy(mailItems, { total: items.length });
     jobs.push(
       import("./mail.server")
         .then(({ sendOpenbellMail }) =>
           sendOpenbellMail({
             to: config.email,
             subject,
-            text,
+            text: mailCopy.text,
             url: items[0]?.bookingUrl,
-            items,
+            items: mailItems.map((a) => ({
+              title: a.title,
+              body: a.body,
+              bookingUrl: a.bookingUrl,
+            })),
             gasWebUrl: config.gasWebUrl,
             gmailAppPassword: config.gmailAppPassword,
           }),

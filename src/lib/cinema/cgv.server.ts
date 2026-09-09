@@ -7,17 +7,19 @@ export type CgvId = "cgv_yongsan" | "cgv_yeongdeungpo";
 
 const CGV_SITES: Record<
   CgvId,
-  { placeId: string; siteNo: string; theaterName: string }
+  { placeId: string; siteNo: string; theaterName: string; siteNm: string }
 > = {
   cgv_yongsan: {
     placeId: "12298207",
     siteNo: "0013",
     theaterName: "용산아이파크몰",
+    siteNm: "용산아이파크몰",
   },
   cgv_yeongdeungpo: {
     placeId: "13141635",
     siteNo: "0059",
     theaterName: "영등포",
+    siteNm: "영등포타임스퀘어",
   },
 };
 
@@ -50,6 +52,12 @@ function pickCgvField(row: Record<string, unknown> | undefined, keys: string[]):
   return "";
 }
 
+function padCgvScreen(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.padStart(3, "0");
+}
+
 function cgvMovieBookUrl(
   theaterId: CgvId,
   playDate: string,
@@ -61,18 +69,24 @@ function cgvMovieBookUrl(
   let movieNo = pickCgvField(row, ["movNo", "movieNo", "midx", "movieCode", "MOV_NO"]);
   const fromGiven = given.match(/movNo=(\d+)/)?.[1] ?? "";
   if (fromGiven) movieNo = movieNo || fromGiven;
-  if (given.includes("movNo=") && given.includes("/movie")) return given;
+  const screenNo =
+    padCgvScreen(pickCgvField(row, ["scnsNo", "scrnNo", "scnNo", "theabNo", "SCNS_NO"])) ||
+    padCgvScreen(given.match(/scnsNo=(\d+)/)?.[1] ?? "");
+  const seq =
+    pickCgvField(row, ["scnSseq", "scnsrtNo", "sseq", "playSseq", "SCN_SSEQ"]) ||
+    (given.match(/scnSseq=(\d+)/)?.[1] ?? "");
+  if (given.includes("movNo=") && given.includes("scnsNo=") && given.includes("scnSseq=")) {
+    return given;
+  }
   if (!movieNo) {
-    return `https://cgv.co.kr/cnm/movieBook/cinema?siteNo=${site.siteNo}&siteNm=${encodeURIComponent(site.theaterName)}&date=${playDate}`;
+    return `https://cgv.co.kr/cnm/movieBook/cinema?siteNo=${site.siteNo}&siteNm=${encodeURIComponent(site.siteNm)}&date=${playDate}`;
   }
   const params = new URLSearchParams({
     movNo: movieNo,
     scnYmd: playDate,
     siteNo: site.siteNo,
-    siteNm: site.theaterName,
+    siteNm: site.siteNm,
   });
-  const screenNo = pickCgvField(row, ["scnsNo", "scrnNo", "scnNo", "theabNo", "SCNS_NO"]);
-  const seq = pickCgvField(row, ["scnSseq", "scnsrtNo", "sseq", "playSseq", "SCN_SSEQ"]);
   if (screenNo) params.set("scnsNo", screenNo);
   if (seq) params.set("scnSseq", seq);
   return `https://cgv.co.kr/cnm/movieBook/movie?${params.toString()}`;

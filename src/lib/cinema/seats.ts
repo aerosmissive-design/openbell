@@ -404,27 +404,42 @@ export function seatChangeAlert(change: SeatChange, all: Showtime[] = []): Alert
   };
 }
 
-export function notifyCopy(items: AlertItem[]): {
+export function notifyBatches(items: AlertItem[], size = 8): AlertItem[][] {
+  const out: AlertItem[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+export function notifyCopy(
+  items: AlertItem[],
+  opts?: { total?: number },
+): {
   subject: string;
   text: string;
   telegramHtml: string;
 } {
+  const total = opts?.total ?? items.length;
   const seats = items.filter((i) => i.kind === "seat").length;
   const opens = items.length - seats;
+  const allSeats = seats === items.length;
+  const allOpens = opens === items.length;
   const subject =
-    seats && !opens
-      ? `[오픈벨] 잔여석 변동 ${seats}건`
-      : opens && !seats
-        ? `[오픈벨] ${opens}건 오픈`
-        : `[오픈벨] 알림 ${items.length}건`;
-  const rows = items.slice(0, 8);
-  const text = `${subject}\n\n${rows
-    .map((a) => `· ${a.title}\n  ${a.body}`)
+    allSeats
+      ? `[오픈벨] 잔여석 변동 ${total}건`
+      : allOpens
+        ? `[오픈벨] 예매 오픈 ${total}건`
+        : `[오픈벨] 알림 ${total}건`;
+  const text = `${subject}\n\n${items
+    .map((a) => {
+      const link = a.bookingUrl ? `\n바로 예매 ${a.bookingUrl}` : "";
+      return `${a.title}\n${a.body}${link}`;
+    })
     .join("\n\n")}`;
-  const telegramHtml = `${escapeHtml(subject)}\n\n${rows
+  const telegramHtml = `${escapeHtml(subject)}\n\n${items
     .map((a) => {
       const href = escapeAttr(a.bookingUrl);
-      return `<b>${escapeHtml(a.title)}</b>\n${escapeHtml(a.body)}\n<a href="${href}">바로 예매</a>`;
+      const link = href ? `\n<a href="${href}">바로 예매</a>` : "";
+      return `<b>${escapeHtml(a.title)}</b>\n${escapeHtml(a.body)}${link}`;
     })
     .join("\n\n")}`;
   return { subject, text, telegramHtml };

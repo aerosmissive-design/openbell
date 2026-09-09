@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260909-cgvbook";
+export const GAS_SOURCE_STAMP = "20260909-cgvlink";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -932,38 +932,46 @@ function sendTelegram_(subject, body, alerts) {
   if (!CONFIG.telegramToken || !CONFIG.telegramChatId) return;
   var chatId = telegramChatId_();
   var items = (alerts || []).filter(function (a) { return a && (a.title || a.url); });
-  var text = String(subject || "");
-  var keys = [];
-  if (items.length) {
-    items.forEach(function (a, i) {
-      if (i < 12) text += "\\n\\n" + alertLine_(a);
-      if (a.url && keys.length < 20) {
-        var label = items.length === 1 ? "바로 예매" : buttonLabel_(a);
-        keys.push([{ text: label, url: String(a.url) }]);
-      }
-    });
-    if (items.length > 12) text += "\\n\\n외 " + (items.length - 12) + "건";
+  var groups = [];
+  if (!items.length) {
+    groups.push([]);
   } else {
-    text += "\\n\\n" + stripMailUrls_(body);
+    for (var i = 0; i < items.length; i += 8) groups.push(items.slice(i, i + 8));
   }
-  var payload = {
-    chat_id: chatId,
-    text: text.substring(0, 3500),
-    disable_web_page_preview: true,
-  };
-  if (keys.length) payload.reply_markup = { inline_keyboard: keys };
-  try {
-    var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + CONFIG.telegramToken + "/sendMessage", {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true,
-    });
-    var json = JSON.parse(res.getContentText());
-    if (!json.ok) Logger.log("telegram " + (json.description || res.getResponseCode()));
-  } catch (e) {
-    Logger.log("telegram " + String(e));
-  }
+  groups.forEach(function (group) {
+    var text = "<b>" + escHtml_(subject) + "</b>";
+    if (group.length) {
+      group.forEach(function (a) {
+        text += "\\n\\n<b>" + escHtml_(a.title || "") + "</b>";
+        var meta = alertMeta_(a);
+        if (meta) text += "\\n" + escHtml_(meta);
+        if (a.restSeats != null) {
+          text += "\\n" + escHtml_("잔여 " + a.restSeats + (a.delta != null ? " (" + (a.delta > 0 ? "+" : "") + a.delta + ")" : ""));
+        }
+        if (a.url) text += "\\n<a href=\\"" + escAttr_(a.url) + "\\">바로 예매</a>";
+      });
+    } else {
+      text += "\\n\\n" + escHtml_(stripMailUrls_(body));
+    }
+    var payload = {
+      chat_id: chatId,
+      text: text.substring(0, 3900),
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    };
+    try {
+      var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + CONFIG.telegramToken + "/sendMessage", {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true,
+      });
+      var json = JSON.parse(res.getContentText());
+      if (!json.ok) Logger.log("telegram " + (json.description || res.getResponseCode()));
+    } catch (e) {
+      Logger.log("telegram " + String(e));
+    }
+  });
 }
 
 function withRound_(row) {
@@ -1040,15 +1048,6 @@ function buildMailHtml_(subject, body, alerts) {
 
 function sendKakao_(subject, alerts) {
   if (!CONFIG.kakaoRestKey || !CONFIG.kakaoRefreshToken) return;
-  const first = (alerts && alerts[0]) || {};
-  const text = (first.title
-    ? "[오픈벨] " + first.title + "\\n" + [first.theater, first.hall, first.date, first.time].filter(Boolean).join(" · ")
-    : subject).substring(0, 200);
-  const extra = a.restSeats != null
-    ? "잔여 " + a.restSeats + (a.delta != null ? " (+" + a.delta + ")" : "")
-    : "";
-  const rawLink = first.url || "https://www.megabox.co.kr/booking";
-  const link = rawLink;
   const tokenRes = UrlFetchApp.fetch("https://kauth.kakao.com/oauth/token", {
     method: "post",
     payload: {
@@ -1060,17 +1059,25 @@ function sendKakao_(subject, alerts) {
   });
   const tokenJson = JSON.parse(tokenRes.getContentText());
   if (!tokenJson.access_token) return;
-  const template = {
-    object_type: "text",
-    text: text,
-    link: { web_url: link, mobile_web_url: link },
-    button_title: "바로 예매",
-  };
-  UrlFetchApp.fetch("https://kapi.kakao.com/v2/api/talk/memo/default/send", {
-    method: "post",
-    headers: { Authorization: "Bearer " + tokenJson.access_token },
-    payload: { template_object: JSON.stringify(template) },
-    muteHttpExceptions: true,
+  const items = (alerts || []).filter(function (a) { return a && (a.title || a.url); }).slice(0, 8);
+  if (!items.length) items.push({ title: subject, url: CONFIG.appUrl || "https://www.megabox.co.kr/booking" });
+  items.forEach(function (a) {
+    const text = (a.title
+      ? "[오픈벨] " + a.title + "\\n" + alertMeta_(a)
+      : subject).substring(0, 200);
+    const link = a.url || "https://www.megabox.co.kr/booking";
+    const template = {
+      object_type: "text",
+      text: text,
+      link: { web_url: link, mobile_web_url: link },
+      button_title: "바로 예매",
+    };
+    UrlFetchApp.fetch("https://kapi.kakao.com/v2/api/talk/memo/default/send", {
+      method: "post",
+      headers: { Authorization: "Bearer " + tokenJson.access_token },
+      payload: { template_object: JSON.stringify(template) },
+      muteHttpExceptions: true,
+    });
   });
 }
 
@@ -1440,8 +1447,8 @@ function cgvHeaders_() {
 }
 
 var CGV_SITES_ = {
-  cgv_yongsan: { placeId: "12298207", siteNo: "0013", name: "CGV 용산아이파크몰", book: "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=0013" },
-  cgv_yeongdeungpo: { placeId: "13141635", siteNo: "0059", name: "CGV 영등포", book: "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=0059" },
+  cgv_yongsan: { placeId: "12298207", siteNo: "0013", name: "CGV 용산아이파크몰", siteNm: "용산아이파크몰", book: "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=0013" },
+  cgv_yeongdeungpo: { placeId: "13141635", siteNo: "0059", name: "CGV 영등포", siteNm: "영등포타임스퀘어", book: "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=0059" },
 };
 
 function fetchCgv_(theaterId, playDate) {
@@ -1969,16 +1976,28 @@ function cgvBookUrl_(theaterId, playDate, row, extra) {
   var movNo = pickField_(row, ["movNo", "movieNo", "midx", "movieCode", "MOV_NO"]);
   var fromGiven = given.match(/movNo=(\\d+)/);
   if (fromGiven && fromGiven[1]) movNo = movNo || fromGiven[1];
-  if (given.indexOf("movNo=") >= 0 && given.indexOf("/movie") >= 0) return given;
-  if (!movNo) {
-    return "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=" + site.siteNo + "&siteNm=" + encodeURIComponent(site.name) + "&date=" + playDate;
-  }
-  var url = "https://cgv.co.kr/cnm/movieBook/movie?movNo=" + movNo + "&scnYmd=" + playDate + "&siteNo=" + site.siteNo + "&siteNm=" + encodeURIComponent(site.name);
-  var scnsNo = pickField_(row, ["scnsNo", "scrnNo", "scnNo", "theabNo", "SCNS_NO"]);
+  var scnsNo = padCgv_(pickField_(row, ["scnsNo", "scrnNo", "scnNo", "theabNo", "SCNS_NO"]));
+  var fromScr = given.match(/scnsNo=(\\d+)/);
+  if (!scnsNo && fromScr) scnsNo = padCgv_(fromScr[1]);
   var sseq = pickField_(row, ["scnSseq", "scnsrtNo", "sseq", "playSseq", "SCN_SSEQ"]);
+  var fromSeq = given.match(/scnSseq=(\\d+)/);
+  if (!sseq && fromSeq) sseq = fromSeq[1];
+  if (given.indexOf("movNo=") >= 0 && given.indexOf("scnsNo=") >= 0 && given.indexOf("scnSseq=") >= 0) return given;
+  var siteNm = site.siteNm || site.name.replace(/^CGV\\s*/, "");
+  if (!movNo) {
+    return "https://cgv.co.kr/cnm/movieBook/cinema?siteNo=" + site.siteNo + "&siteNm=" + encodeURIComponent(siteNm) + "&date=" + playDate;
+  }
+  var url = "https://cgv.co.kr/cnm/movieBook/movie?movNo=" + movNo + "&scnYmd=" + playDate + "&siteNo=" + site.siteNo + "&siteNm=" + encodeURIComponent(siteNm);
   if (scnsNo) url += "&scnsNo=" + scnsNo;
   if (sseq) url += "&scnSseq=" + sseq;
   return url;
+}
+
+function padCgv_(v) {
+  var d = String(v || "").replace(/\\D/g, "");
+  if (!d) return "";
+  while (d.length < 3) d = "0" + d;
+  return d;
 }
 
 function cgvRow_(playDate, time, hall, title, url, theaterId, row) {
@@ -2057,6 +2076,12 @@ function decode_(s) {
 
 function esc_(s) {
   return String(s || "").split('"').join("'");
+}
+function escHtml_(s) {
+  return String(s || "").split("&").join("&").split("<").join("<").split(">").join(">");
+}
+function escAttr_(s) {
+  return String(s || "").split("&").join("&").split('"').join(""").split("<").join("<");
 }
 
 function megaboxUrl_(brch, playDate, movieNo, playSchdlNo) {

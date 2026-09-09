@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
 import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook, sendXPost } from "@/lib/cinema/scan";
-import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, tweetCopy, type SeatHitMap } from "@/lib/cinema/seats";
+import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, tweetCopy, type SeatHitMap } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { AlertItem, RankingMovie, Showtime, WatchConfig } from "@/lib/cinema/types";
 import { mailEnabled, inferSeatSource, xEnabled } from "@/lib/cinema/types";
@@ -285,7 +285,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.5
+                v3.5.1
               </span>
             </h1>
           </div>
@@ -429,24 +429,28 @@ function announce(items: AlertItem[], config: WatchConfig) {
   if (typeof Notification !== "undefined" && Notification.permission === "granted") {
     new Notification(head.title, { body: head.body });
   }
-  const { subject, text, telegramHtml } = notifyCopy(items);
+  const batches = notifyBatches(items, 8);
+  const first = notifyCopy(batches[0] ?? items, { total: items.length });
   if (config.telegramToken && config.telegramChatId) {
-    void sendTelegram({
-      data: {
-        token: config.telegramToken,
-        chatId: config.telegramChatId,
-        text: telegramHtml,
-        html: true,
-      },
-    }).catch((err: unknown) => {
-      toast.error(err instanceof Error ? err.message : "텔레그램 실패");
-    });
+    for (const part of batches) {
+      const { telegramHtml } = notifyCopy(part, { total: items.length });
+      void sendTelegram({
+        data: {
+          token: config.telegramToken,
+          chatId: config.telegramChatId,
+          text: telegramHtml,
+          html: true,
+        },
+      }).catch((err: unknown) => {
+        toast.error(err instanceof Error ? err.message : "텔레그램 실패");
+      });
+    }
   }
   if (config.webhookUrl) {
     void sendWebhook({
       data: {
         url: config.webhookUrl,
-        payload: { title: subject, alerts: items },
+        payload: { title: first.subject, alerts: items },
       },
     }).catch(() => {
       toast.error("카카오 웹훅 전송 실패");
@@ -467,13 +471,15 @@ function announce(items: AlertItem[], config: WatchConfig) {
     }
   }
   if (mailEnabled(config)) {
+    const mailItems = items.slice(0, 20);
+    const mailCopy = notifyCopy(mailItems, { total: items.length });
     void sendAlertEmail({
       data: {
         to: config.email.trim(),
-        subject,
-        text,
+        subject: first.subject,
+        text: mailCopy.text,
         url: head.bookingUrl,
-        items: items.slice(0, 8).map((a) => ({
+        items: mailItems.map((a) => ({
           title: a.title,
           body: a.body,
           bookingUrl: a.bookingUrl,
