@@ -690,14 +690,19 @@ function MovieTimes({
   onJump: (show: Showtime) => void;
   onQueue: (show: Showtime) => void;
 }) {
-  const flagged = shows.filter((s) => alertedShows.has(showAlertKey(s)));
-  const rest = shows.filter((s) => !alertedShows.has(showAlertKey(s)));
-  let visible = [...flagged, ...rest].slice(0, Math.max(8, flagged.length));
-  if (focusShowId && shows.some((s) => s.id === focusShowId) && !visible.some((s) => s.id === focusShowId)) {
+  const near = new Set(kstDateKeys(2));
+  const groups = groupShowsByDate(shows);
+  const [openDates, setOpenDates] = useState<string[]>([]);
+  useEffect(() => {
+    if (!focusShowId) return;
     const hit = shows.find((s) => s.id === focusShowId);
-    if (hit) visible = [hit, ...visible.filter((s) => s.id !== hit.id)].slice(0, 9);
-  }
-  const hidden = Math.max(0, shows.length - visible.length);
+    if (!hit) return;
+    const nearDates = new Set(kstDateKeys(2));
+    if (nearDates.has(hit.playDate)) return;
+    setOpenDates((prev) =>
+      prev.includes(hit.playDate) ? prev : [...prev, hit.playDate],
+    );
+  }, [focusShowId, shows]);
   const elseList = elsewhere
     .slice()
     .sort((a, b) =>
@@ -745,59 +750,133 @@ function MovieTimes({
           )}
         </div>
       ) : (
-        <ul className="mt-2 flex flex-col gap-1.5">
-          {visible.map((show) => {
-            const isAlert = alertedShows.has(showAlertKey(show));
+        <div className="mt-2 flex flex-col gap-2">
+          {groups.map(([date, list]) => {
+            const open = near.has(date) || openDates.includes(date);
+            if (near.has(date)) {
+              return (
+                <ShowDateList
+                  key={date}
+                  shows={list}
+                  focusShowId={focusShowId}
+                  alertedShows={alertedShows}
+                  onQueue={onQueue}
+                />
+              );
+            }
             return (
-            <li
-              key={show.id}
-              id={`show-${show.id}`}
-              className={cn(
-                "rounded-md bg-bg px-3 py-2",
-                isAlert && "outline outline-2 outline-offset-1 outline-notify",
-                focusShowId === show.id && "ring-1 ring-border-strong",
-              )}
-            >
-              <p className="truncate text-[11px] text-muted">
-                {formatPlayDate(show.playDate)}
-                {" · "}
-                {show.hallName}
-              </p>
-              <div className="mt-1 flex items-center gap-3">
-                <p className="min-w-0 flex-1 truncate text-sm text-fg">
-                  <span className="tabular-nums font-medium">{show.startTime}</span>
-                  {isAlert ? (
-                    <span className="ml-1.5 rounded-sm bg-notify px-1 py-px text-[10px] font-medium text-notify-fg">
-                      알림
-                    </span>
-                  ) : null}
-                  {show.restSeats != null ? (
-                    <span className="ml-1.5 tabular-nums text-[11px] text-open">
-                      {show.totalSeats != null
-                        ? `${show.restSeats}/${show.totalSeats}`
-                        : `잔여 ${show.restSeats}`}
-                    </span>
-                  ) : null}
-                </p>
-                <a
-                  href={show.bookingUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-open px-2.5 text-[11px] font-medium tracking-wide text-open-fg"
+              <div key={date}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenDates((prev) =>
+                      prev.includes(date)
+                        ? prev.filter((d) => d !== date)
+                        : [...prev, date],
+                    )
+                  }
+                  className={cn(
+                    "inline-flex min-h-9 items-center rounded-md px-2.5 text-xs text-muted",
+                    "ring-1 ring-transparent hover:ring-border-strong hover:text-fg",
+                    open && "bg-pick text-fg ring-border-strong",
+                  )}
                 >
-                  예매
-                </a>
-                <StarBtn show={show} onQueue={onQueue} />
+                  {formatPlayDate(date)} · {list.length}회
+                </button>
+                {open ? (
+                  <div className="mt-1.5">
+                    <ShowDateList
+                      shows={list}
+                      focusShowId={focusShowId}
+                      alertedShows={alertedShows}
+                      onQueue={onQueue}
+                    />
+                  </div>
+                ) : null}
               </div>
-            </li>
             );
           })}
-          {hidden > 0 ? (
-            <li className="px-1 text-[11px] text-faint">외 {hidden}건</li>
-          ) : null}
-        </ul>
+        </div>
       )}
     </div>
+  );
+}
+
+function groupShowsByDate(shows: Showtime[]): [string, Showtime[]][] {
+  const map = new Map<string, Showtime[]>();
+  for (const show of shows) {
+    const list = map.get(show.playDate) ?? [];
+    list.push(show);
+    map.set(show.playDate, list);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, list]) => [
+      date,
+      list.slice().sort((a, b) => a.startTime.localeCompare(b.startTime)),
+    ]);
+}
+
+function ShowDateList({
+  shows,
+  focusShowId,
+  alertedShows,
+  onQueue,
+}: {
+  shows: Showtime[];
+  focusShowId: string | null;
+  alertedShows: Set<string>;
+  onQueue: (show: Showtime) => void;
+}) {
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {shows.map((show) => {
+        const isAlert = alertedShows.has(showAlertKey(show));
+        return (
+          <li
+            key={show.id}
+            id={`show-${show.id}`}
+            className={cn(
+              "rounded-md bg-bg px-3 py-2",
+              isAlert && "outline outline-2 outline-offset-1 outline-notify",
+              focusShowId === show.id && "ring-1 ring-border-strong",
+            )}
+          >
+            <p className="truncate text-[11px] text-muted">
+              {formatPlayDate(show.playDate)}
+              {" · "}
+              {show.hallName}
+            </p>
+            <div className="mt-1 flex items-center gap-3">
+              <p className="min-w-0 flex-1 truncate text-sm text-fg">
+                <span className="tabular-nums font-medium">{show.startTime}</span>
+                {isAlert ? (
+                  <span className="ml-1.5 rounded-sm bg-notify px-1 py-px text-[10px] font-medium text-notify-fg">
+                    알림
+                  </span>
+                ) : null}
+                {show.restSeats != null ? (
+                  <span className="ml-1.5 tabular-nums text-[11px] text-open">
+                    {show.totalSeats != null
+                      ? `${show.restSeats}/${show.totalSeats}`
+                      : `잔여 ${show.restSeats}`}
+                  </span>
+                ) : null}
+              </p>
+              <a
+                href={show.bookingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-open px-2.5 text-[11px] font-medium tracking-wide text-open-fg"
+              >
+                예매
+              </a>
+              <StarBtn show={show} onQueue={onQueue} />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
