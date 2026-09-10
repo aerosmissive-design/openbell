@@ -1,1 +1,14 @@
-PLACEHOLDER_USE_FILE
+import { ChevronDown, RefreshCw, Search, Star, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { intentFromShowtime } from "@/lib/cinema/auto-booking";
+import { selectedMovies, titlesMatch, titleInSet, watchedTitleSet } from "@/lib/cinema/match";
+import { applyCgvSeatHits, formatShowPlace, mergeShowtimes, summarizeSeatDelta } from "@/lib/cinema/seats";
+import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
+import { THEATERS } from "@/lib/cinema/theaters";
+import type { MovieTab, RankingMovie, ScanProps, Showtime, TheaterId } from "@/lib/cinema/types";
+import { CHART_SIZE } from "@/lib/cinema/types";
+import { useAppStore } from "@/lib/store";
+import { cn, formatPlayDate, kstDateKeys, normalizeTitle } from "@/lib/utils";
+import { SourceStatus } from "./source-status";
+import { FormatChips } from "./theater-picks";
