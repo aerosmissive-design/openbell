@@ -273,7 +273,7 @@ export function CinemaApp() {
     };
     tick();
     const timer = window.setInterval(tick, 3 * 60 * 1000);
-    return () => window.clearInterval(timer);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -294,7 +294,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.7
+                v3.9.8
               </span>
             </h1>
           </div>
