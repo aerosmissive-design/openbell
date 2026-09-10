@@ -2150,7 +2150,7 @@ function setup() { 설치(); }
 }
 
 export const DEFAULT_WATCH: WatchConfig = {
-  ranks: [1, 2, 3],
+  ranks: [],
   watchTitles: [],
   movieTab: "chart",
   theaters: {

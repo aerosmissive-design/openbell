@@ -274,7 +274,7 @@ function uniqueCap(ids: string[], cap: number): string[] {
 }
 
 function clampStoredRanks(raw: number[] | undefined): number[] {
-  if (raw === undefined) return DEFAULT_WATCH.ranks;
+  if (!Array.isArray(raw)) return [];
   return raw.filter((n) => n >= 1 && n <= CHART_SIZE);
 }
 

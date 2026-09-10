@@ -60,7 +60,7 @@ export function hydrateConfig(raw: unknown): WatchConfig {
 }
 
 function clampRanks(raw: unknown): number[] {
-  if (!Array.isArray(raw)) return DEFAULT_WATCH.ranks;
+  if (!Array.isArray(raw)) return [];
   return raw.filter(
     (n): n is number => typeof n === "number" && n >= 1 && n <= CHART_SIZE,
   );
