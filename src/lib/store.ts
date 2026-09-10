@@ -274,10 +274,8 @@ function uniqueCap(ids: string[], cap: number): string[] {
 }
 
 function clampStoredRanks(raw: number[] | undefined): number[] {
-  const ranks = (raw ?? DEFAULT_WATCH.ranks).filter(
-    (n) => n >= 1 && n <= CHART_SIZE,
-  );
-  return ranks.length ? ranks : DEFAULT_WATCH.ranks;
+  if (raw === undefined) return DEFAULT_WATCH.ranks;
+  return raw.filter((n) => n >= 1 && n <= CHART_SIZE);
 }
 
 function syncTheatersFromFormats(

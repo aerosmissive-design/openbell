@@ -60,10 +60,10 @@ export function hydrateConfig(raw: unknown): WatchConfig {
 }
 
 function clampRanks(raw: unknown): number[] {
-  const list = Array.isArray(raw)
-    ? raw.filter((n): n is number => typeof n === "number" && n >= 1 && n <= CHART_SIZE)
-    : [];
-  return list.length ? list : DEFAULT_WATCH.ranks;
+  if (!Array.isArray(raw)) return DEFAULT_WATCH.ranks;
+  return raw.filter(
+    (n): n is number => typeof n === "number" && n >= 1 && n <= CHART_SIZE,
+  );
 }
 
 function asList<T>(raw: unknown): T[] {
