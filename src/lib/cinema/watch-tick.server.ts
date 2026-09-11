@@ -19,10 +19,10 @@ import {
   watchSignature,
 } from "./match";
 import { runScan } from "./scan-impl.server";
-import { diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBody, tweetCopy } from "./seats";
+import { diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBody } from "./seats";
 import { THEATERS } from "./theaters";
 import type { AlertItem, BookingIntent, Showtime, TheaterId, WatchConfig } from "./types";
-import { mailEnabled, xEnabled } from "./types";
+import { mailEnabled } from "./types";
 
 function hostSeenFromPrefs(prefs: unknown): string[] {
   const bag =
@@ -87,8 +87,7 @@ function canNotify(config: WatchConfig) {
     (config.telegramToken && config.telegramChatId) ||
       (config.kakaoRestKey && config.kakaoRefreshToken) ||
       config.webhookUrl.trim() ||
-      mailEnabled(config) ||
-      xEnabled(config),
+      mailEnabled(config),
   );
 }
 
@@ -231,31 +230,6 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
         })
         .catch((err: unknown) => {
           log.mail = err instanceof Error ? err.message : "실패";
-        }),
-    );
-  }
-  if (xEnabled(config)) {
-    jobs.push(
-      import("./x-post.server")
-        .then(({ postXTweet }) =>
-          postXTweet(
-            {
-              accessToken: config.xAccessToken,
-              clientId: config.xClientId,
-              clientSecret: config.xClientSecret,
-              refreshToken: config.xRefreshToken,
-              apiKey: config.xApiKey,
-              apiSecret: config.xApiSecret,
-              accessSecret: config.xAccessSecret,
-            },
-            tweetCopy(items),
-          ),
-        )
-        .then(() => {
-          log.x = "ok";
-        })
-        .catch((err: unknown) => {
-          log.x = err instanceof Error ? err.message : "실패";
         }),
     );
   }

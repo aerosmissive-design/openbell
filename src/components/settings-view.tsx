@@ -1062,7 +1062,6 @@ type AliveProbe = {
 };
 
 type NotifyHealth = {
-  grok: AliveProbe;
   vercel: AliveProbe;
   gasOk: boolean;
   gasAlive: boolean;
@@ -1120,7 +1119,7 @@ function channelShot(
 }
 
 function channelWorkLine(
-  key: "mail" | "telegram" | "kakao" | "x",
+  key: "mail" | "telegram" | "kakao",
   health: NotifyHealth,
 ) {
   return [
@@ -1162,7 +1161,6 @@ async function probeWatchAlive(url: string): Promise<AliveProbe> {
 
 function useNotifyHealth(config: WatchConfig): NotifyHealth {
   const [health, setHealth] = useState<NotifyHealth>({
-    grok: emptyProbe,
     vercel: emptyProbe,
     gasOk: false,
     gasAlive: false,
@@ -1174,20 +1172,13 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
     let cancelled = false;
     async function load() {
       const url = config.gasWebUrl.trim();
-      const here = window.location.hostname.includes("vercel.app")
-        ? "vercel"
-        : "grok";
+      const here = window.location.hostname.includes("vercel.app");
       const local = await probeWatchAlive("/api/watch-alive");
-      const grok =
-        here === "grok"
-          ? local
-          : await probeWatchAlive("https://openbell.grok.me/api/watch-alive");
-      const vercel =
-        here === "vercel"
-          ? local
-          : await probeWatchAlive(
-              "https://openbell-fawn.vercel.app/api/watch-alive",
-            );
+      const vercel = here
+        ? local
+        : await probeWatchAlive(
+            "https://openbell-fawn.vercel.app/api/watch-alive",
+          );
       let dbLine = "";
       try {
         const res = await fetch("/api/watch-alive", {
@@ -1206,7 +1197,6 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
       const gas = url ? await probeGasHealth(url) : null;
       if (cancelled) return;
       setHealth({
-        grok,
         vercel,
         gasOk: Boolean(gas?.ok),
         gasAlive: Boolean(gas?.gasAlive),
