@@ -1,6 +1,7 @@
 import { kstDateKeys } from "@/lib/utils";
 import {
   fetchCgvNaver,
+  fetchCgvOfficialSeatmap,
   fetchCgvRelaySeatmap,
   fetchCgvUpcomingCatalog,
   fetchYongsanTelegram,
@@ -51,20 +52,26 @@ export async function runScan(input: {
         status: "empty" as const,
         map: {} as GasSeatMap,
       });
+  const officialCgvSeats = [...wanted].some(isCgvId)
+    ? fetchCgvOfficialSeatmap({ days: Math.min(days, 7) }).catch(() => ({
+        map: {} as SeatHitMap,
+        showtimes: [] as Showtime[],
+      }))
+    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const relaySeats = [...wanted].some(isCgvId)
     ? fetchCgvRelaySeatmap({ days }).catch(() => ({
         map: {} as SeatHitMap,
         showtimes: [] as Showtime[],
       }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
-  const megaSeats =
-    input.gasWebUrl ||
-    ![...wanted].some((id) => id === "megabox_coex" || id === "megabox_namyangju")
-      ? Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] })
-      : fetchMegaboxSeatmap({ days: Math.min(days, 5) }).catch(() => ({
-          map: {} as SeatHitMap,
-          showtimes: [] as Showtime[],
-        }));
+  const megaSeats = [...wanted].some(
+    (id) => id === "megabox_coex" || id === "megabox_namyangju",
+  )
+    ? fetchMegaboxSeatmap({ days: Math.min(days, 5) }).catch(() => ({
+        map: {} as SeatHitMap,
+        showtimes: [] as Showtime[],
+      }))
+    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const gasShows =
     sources.gas && input.gasWebUrl
       ? loadGasTimetable(input.gasWebUrl, days).catch(() => [] as Showtime[])
@@ -83,54 +90,56 @@ export async function runScan(input: {
     }
   }
 
-  const [catalog, cgvComing, seats, relay, mega, gasList, ...theaters] = await Promise.all([
-    rankingPromise,
-    cgvComingPromise,
-    gasSeats,
-    relaySeats,
-    megaSeats,
-    gasShows,
-    ...jobs,
-  ]);
+  const [catalog, cgvComing, seats, officialCgv, relay, mega, gasList, ...theaters] =
+    await Promise.all([
+      rankingPromise,
+      cgvComingPromise,
+      gasSeats,
+      officialCgvSeats,
+      relaySeats,
+      megaSeats,
+      gasShows,
+      ...jobs,
+    ]);
   const gasMap: SeatHitMap = { ...seats.map };
   for (const row of gasList) putSeatHit(gasMap, row);
-  const withSeats = applyCgvSeatHitsAcross(
-    theaters.map((theater) => {
-      const extraMega =
-        theater.theaterId === "megabox_coex" || theater.theaterId === "megabox_namyangju"
-          ? mega.showtimes.filter((row) => row.theaterId === theater.theaterId)
-          : [];
-      const extraRelay = isCgvId(theater.theaterId)
-        ? relay.showtimes.filter((row) => row.theaterId === theater.theaterId)
+  const officialMap: SeatHitMap = { ...officialCgv.map, ...mega.map };
+  const withSeats = theaters.map((theater) => {
+    const extraMega =
+      theater.theaterId === "megabox_coex" || theater.theaterId === "megabox_namyangju"
+        ? mega.showtimes.filter((row) => row.theaterId === theater.theaterId)
         : [];
-      const extraGas = gasList.filter((row) => row.theaterId === theater.theaterId);
-      const extra = [...extraGas, ...extraMega, ...extraRelay];
-      if (!extra.length) return theater;
-      const showtimes = mergeShowtimes(theater.showtimes, extra);
-      let source = theater.source;
-      if (!theater.showtimes.length) {
-        if (extraMega.length) source = "official";
-        else if (extraRelay.length) source = "cgv-relay";
-        else if (extraGas.length) source = "gas-cache";
-      }
-      return {
-        ...theater,
-        showtimes,
-        source,
-        ok: theater.ok || showtimes.length > 0,
-        error: showtimes.length ? null : theater.error,
-      };
-    }),
-    {
-      ...gasMap,
-      ...relay.map,
-      ...mega.map,
-    },
-  );
+    const extraOfficialCgv = isCgvId(theater.theaterId)
+      ? officialCgv.showtimes.filter((row) => row.theaterId === theater.theaterId)
+      : [];
+    const extraRelay = isCgvId(theater.theaterId)
+      ? relay.showtimes.filter((row) => row.theaterId === theater.theaterId)
+      : [];
+    const extraGas = gasList.filter((row) => row.theaterId === theater.theaterId);
+    const extraOfficial = [...extraMega, ...extraOfficialCgv];
+    const extra = [...extraGas, ...extraRelay, ...extraOfficial];
+    const merged = extra.length
+      ? mergeShowtimes(theater.showtimes, extra)
+      : theater.showtimes;
+    const showtimes = applySeatLayers(merged, [officialMap, relay.map, gasMap]);
+    let source = theater.source;
+    if (!theater.showtimes.length) {
+      if (extraOfficial.length) source = "official";
+      else if (extraRelay.length) source = "cgv-relay";
+      else if (extraGas.length) source = "gas-cache";
+    }
+    return {
+      ...theater,
+      showtimes,
+      source,
+      ok: theater.ok || showtimes.length > 0,
+      error: showtimes.length ? null : theater.error,
+    };
+  });
   const tagged = withSeats.map((theater) => ({
     ...theater,
     seatSource: detectSeatSource(theater.showtimes, {
-      official: mega.map,
+      official: officialMap,
       relay: relay.map,
       gas: gasMap,
     }),
@@ -316,15 +325,12 @@ type GasShowRow = {
   url?: string;
 };
 
-function applyCgvSeatHitsAcross(
-  theaters: TheaterScan[],
-  map: GasSeatMap,
-): TheaterScan[] {
-  if (!Object.keys(map).length) return theaters;
-  return theaters.map((t) => ({
-    ...t,
-    showtimes: applyCgvSeatHits(t.showtimes, map),
-  }));
+function applySeatLayers(rows: Showtime[], layers: SeatHitMap[]): Showtime[] {
+  let out = rows;
+  for (const layer of layers) {
+    out = applyCgvSeatHits(out, layer, false);
+  }
+  return out;
 }
 
 function detectSeatSource(
@@ -368,25 +374,6 @@ export async function pingSeatmap(input: {
 }) {
   const days = Math.min(Math.max(input.daysAhead ?? 7, 1), 14);
   const fresh = Boolean(input.fresh);
-  if (input.url?.trim()) {
-    const live = await loadGasTimetable(
-      input.url.trim(),
-      days,
-      input.theaterId,
-    ).catch(() => [] as Showtime[]);
-    if (live.length) {
-      const map: SeatHitMap = {};
-      for (const row of live) putSeatHit(map, row);
-      const cgvCount = live.filter((row) => row.chain === "cgv").length;
-      return {
-        status: "ok" as const,
-        count: live.length,
-        cgvCount,
-        map,
-        showtimes: live,
-      };
-    }
-  }
   const wantMega =
     !input.theaterId ||
     input.theaterId === "megabox_coex" ||
@@ -403,13 +390,33 @@ export async function pingSeatmap(input: {
           input.theaterId === "megabox_namyangju"
             ? input.theaterId
             : undefined,
-        days,
+        days: Math.min(days, 5),
         fresh,
       }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
 
-  const cgvPromise = wantCgv
-    ? fetchCgvRelaySeatmap({
+  const officialCgvPromise = wantCgv
+    ? fetchCgvOfficialSeatmap({
+        theaterId:
+          input.theaterId === "cgv_yongsan" ||
+          input.theaterId === "cgv_yeongdeungpo"
+            ? input.theaterId
+            : undefined,
+        days: Math.min(days, 7),
+        fresh,
+      }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
+    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
+
+  const [mega, officialCgv] = await Promise.all([megaPromise, officialCgvPromise]);
+  const megaHit =
+    Object.keys(mega.map).length > 0 ||
+    mega.showtimes.some((row) => typeof row.restSeats === "number");
+  const cgvOfficialHit =
+    Object.keys(officialCgv.map).length > 0 ||
+    officialCgv.showtimes.some((row) => typeof row.restSeats === "number");
+
+  const relay = wantCgv && !cgvOfficialHit
+    ? await fetchCgvRelaySeatmap({
         theaterId:
           input.theaterId === "cgv_yongsan" ||
           input.theaterId === "cgv_yeongdeungpo"
@@ -418,23 +425,42 @@ export async function pingSeatmap(input: {
         days,
         fresh,
       }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
-    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
+    : { map: {} as SeatHitMap, showtimes: [] as Showtime[] };
+  const cgvHit = cgvOfficialHit || Object.keys(relay.map).length > 0;
 
-  const [mega, relay] = await Promise.all([megaPromise, cgvPromise]);
   let gasMap: SeatHitMap = {};
+  let gasShows: Showtime[] = [];
   let gasStatus: "ok" | "old" | "denied" | "empty" | "badurl" | "timeout" =
     "empty";
-  if (
-    input.url?.trim() &&
-    !Object.keys(mega.map).length &&
-    !Object.keys(relay.map).length
-  ) {
-    const gas = await loadGasSeatmap(input.url, fresh);
-    gasMap = gas.map;
-    gasStatus = gas.status;
+  if (input.url?.trim() && ((wantMega && !megaHit) || (wantCgv && !cgvHit))) {
+    const live = await loadGasTimetable(
+      input.url.trim(),
+      days,
+      input.theaterId,
+    ).catch(() => [] as Showtime[]);
+    if (live.length) {
+      gasShows = live;
+      for (const row of live) putSeatHit(gasMap, row);
+      gasStatus = "ok";
+    } else {
+      const gas = await loadGasSeatmap(input.url, fresh);
+      gasMap = gas.map;
+      gasStatus = gas.status;
+    }
   }
-  const map = { ...gasMap, ...mega.map, ...relay.map };
-  const extraShows = [...mega.showtimes, ...relay.showtimes];
+
+  const map = {
+    ...gasMap,
+    ...relay.map,
+    ...officialCgv.map,
+    ...mega.map,
+  };
+  const extraShows = [
+    ...gasShows,
+    ...relay.showtimes,
+    ...officialCgv.showtimes,
+    ...mega.showtimes,
+  ];
   const keys = Object.keys(map);
   const cgvCount = keys.filter(
     (key) => key.startsWith("k:") || key.startsWith("cgv:"),

@@ -39,6 +39,10 @@ const relayCache = new Map<
   string,
   { at: number; map: SeatHitMap; showtimes: Showtime[] }
 >();
+const officialSeatCache = new Map<
+  string,
+  { at: number; map: SeatHitMap; showtimes: Showtime[] }
+>();
 const RELAY_TTL = 90_000;
 
 function pickCgvField(row: Record<string, unknown> | undefined, keys: string[]): string {
@@ -400,6 +404,68 @@ async function fetchRelayDay(
   } catch {
     return { map: {}, showtimes: [] };
   }
+}
+
+export async function fetchCgvOfficialSeatmap(input?: {
+  theaterId?: CgvId;
+  days?: number;
+  fresh?: boolean;
+}): Promise<{ map: SeatHitMap; showtimes: Showtime[] }> {
+  if (officialCgvBlocked) return { map: {}, showtimes: [] };
+  const days = Math.min(Math.max(input?.days ?? 7, 1), 7);
+  const dates = kstDateKeys(days);
+  const theaters: CgvId[] = input?.theaterId
+    ? [input.theaterId]
+    : (Object.keys(CGV_SITES) as CgvId[]);
+  const map: SeatHitMap = {};
+  const showtimes: Showtime[] = [];
+  const jobs: Array<() => Promise<void>> = [];
+  for (const id of theaters) {
+    for (const date of dates) {
+      jobs.push(async () => {
+        if (officialCgvBlocked) return;
+        const cacheKey = `${id}|${date}`;
+        if (!input?.fresh) {
+          const hit = officialSeatCache.get(cacheKey);
+          if (hit && Date.now() - hit.at < RELAY_TTL) {
+            Object.assign(map, hit.map);
+            showtimes.push(...hit.showtimes);
+            return;
+          }
+        }
+        const rows = await fetchCgvOfficial(id, date);
+        if (officialCgvBlocked) return;
+        const part: SeatHitMap = {};
+        for (const row of rows) {
+          if (typeof row.restSeats === "number" && Number.isFinite(row.restSeats)) {
+            indexSeatHit(
+              part,
+              {
+                theaterId: id,
+                playDate: row.playDate,
+                startTime: row.startTime,
+                movieTitle: row.movieTitle,
+                hallName: row.hallName,
+                movieNo: row.movieNo,
+                chain: "cgv",
+              },
+              { rest: row.restSeats, total: row.totalSeats },
+            );
+          }
+        }
+        const packed = { at: Date.now(), map: part, showtimes: rows };
+        officialSeatCache.set(cacheKey, packed);
+        Object.assign(map, part);
+        showtimes.push(...rows);
+      });
+    }
+  }
+  const size = 4;
+  for (let i = 0; i < jobs.length; i += size) {
+    if (officialCgvBlocked) break;
+    await Promise.all(jobs.slice(i, i + size).map((fn) => fn()));
+  }
+  return { map, showtimes };
 }
 
 export async function fetchCgvOfficial(
