@@ -66,7 +66,7 @@ export function CinemaApp() {
           theaters: enabledTheaters,
           daysAhead: config.daysAhead,
           gasWebUrl: config.gasWebUrl || undefined,
-          sources: { official: true, naver: true, gas: true },
+          sources: { official: true, naver: true, gas: Boolean(config.gasWebUrl) },
         },
       }),
     refetchInterval: scanInterval,
@@ -294,7 +294,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.15
+                v3.9.16
               </span>
             </h1>
           </div>

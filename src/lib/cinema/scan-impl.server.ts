@@ -198,13 +198,10 @@ async function scanTheater(
     }
   }
   if (stillMissing.length && theaterId === "cgv_yongsan") {
-    const needTele = stillMissing.some((d) => !gasByDate.get(d)?.length);
-    if (needTele) {
-      try {
-        teleByDate = await fetchYongsanTelegram();
-      } catch {
-        teleByDate = new Map();
-      }
+    try {
+      teleByDate = await fetchYongsanTelegram();
+    } catch {
+      teleByDate = new Map();
     }
   }
 
@@ -214,27 +211,26 @@ async function scanTheater(
   let usedGas = false;
   let usedTele = false;
   for (const date of playDates) {
-    const merged = mergeShowtimes(
-      mergeShowtimes(officialByDate.get(date) ?? [], naverByDate.get(date) ?? []),
-      gasByDate.get(date) ?? [],
+    const primary = mergeShowtimes(
+      officialByDate.get(date) ?? [],
+      naverByDate.get(date) ?? [],
     );
-    if (merged.length) {
-      showtimes.push(...merged);
+    if (primary.length) {
+      showtimes.push(...primary);
       if (officialByDate.get(date)?.length) usedOfficial = true;
       if (naverByDate.get(date)?.length) usedNaver = true;
-      if (gasByDate.get(date)?.length) usedGas = true;
-      continue;
-    }
-    const gas = gasByDate.get(date);
-    if (gas?.length) {
-      showtimes.push(...gas);
-      usedGas = true;
       continue;
     }
     const tele = teleByDate.get(date);
     if (tele?.length) {
       showtimes.push(...tele);
       usedTele = true;
+      continue;
+    }
+    const gas = gasByDate.get(date);
+    if (gas?.length) {
+      showtimes.push(...gas);
+      usedGas = true;
     }
   }
 
@@ -242,10 +238,10 @@ async function scanTheater(
     ? "official"
     : usedNaver
       ? "naver-place"
-      : usedGas
-        ? "gas-cache"
-        : usedTele
-          ? "yongsan-channel"
+      : usedTele
+        ? "yongsan-channel"
+        : usedGas
+          ? "gas-cache"
           : "none";
 
   if (!showtimes.length) {
@@ -276,11 +272,13 @@ async function fetchNaver(theaterId: TheaterId): Promise<Map<string, Showtime[]>
 
 function failMessage(theaterId: TheaterId, sources: ScanSources) {
   const tried = isCgvId(theaterId)
-    ? [sources.naver ? "네이버" : "", sources.gas ? "구글·기타" : ""].filter(Boolean)
+    ? [
+        sources.naver ? "네이버" : "",
+        theaterId === "cgv_yongsan" ? "용아맥 채널" : "",
+      ].filter(Boolean)
     : [
         sources.official ? "공홈" : "",
         sources.naver ? "네이버" : "",
-        sources.gas ? "구글·기타" : "",
       ].filter(Boolean);
   const name = isCgvId(theaterId) ? "CGV" : "메가박스";
   return `${name} 시간표를 ${tried.join(" → ") || "조회"}에서 가져오지 못했습니다.`;

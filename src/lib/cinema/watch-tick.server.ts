@@ -47,6 +47,7 @@ export async function watchTickHealth() {
   const githubRaw = await readAppMeta("github_watch_at");
   const githubAt = Number(githubRaw);
   const githubWakeAt = Number.isFinite(githubAt) && githubAt > 0 ? githubAt : 0;
+  const { readCgvRelayWatch } = await import("./relay-watch.server");
   return {
     lastRunAt: last,
     ageMs: last ? Date.now() - last : null,
@@ -56,6 +57,7 @@ export async function watchTickHealth() {
     githubWakeAt,
     githubWakeAgeMs: githubWakeAt ? Date.now() - githubWakeAt : null,
     githubWakeAlive: githubWakeAt > 0 && Date.now() - githubWakeAt < 15 * 60 * 1000,
+    cgvRelay: await readCgvRelayWatch(),
   };
 }
 
@@ -89,6 +91,35 @@ function canNotify(config: WatchConfig) {
       config.webhookUrl.trim() ||
       mailEnabled(config),
   );
+}
+
+async function notifyRelayOutage(
+  configs: WatchConfig[],
+  watch: { theaters: TheaterId[]; durationMs: number },
+) {
+  const names =
+    watch.theaters
+      .map((id) => THEATERS.find((row) => row.id === id)?.shortName)
+      .filter(Boolean)
+      .join("·") || "용산·영등포";
+  const mins = Math.max(15, Math.round(watch.durationMs / 60_000));
+  const subject = `[오픈벨] ${names} 잔여석 우회조회가 막혔습니다`;
+  const text = `${names} 잔여석이 ${mins}분째 없습니다. 시간표는 네이버로 유지됩니다. 우회조회가 돌아오면 좌석이 다시 붙습니다.`;
+  const sent = new Set<string>();
+  const { sendOpenbellMail } = await import("./mail.server");
+  for (const config of configs) {
+    if (!mailEnabled(config)) continue;
+    const to = config.email.trim();
+    if (!to || sent.has(to)) continue;
+    sent.add(to);
+    await sendOpenbellMail({
+      to,
+      subject,
+      text,
+      gasWebUrl: config.gasWebUrl,
+      gmailAppPassword: config.gmailAppPassword,
+    }).catch(() => null);
+  }
 }
 
 async function sendTelegram(token: string, chatId: string, text: string, html?: boolean) {
@@ -352,6 +383,11 @@ export async function runWatchTick() {
     gasWebUrl,
     sources: { official: true, naver: true, gas: Boolean(gasWebUrl) },
   });
+  const { noteCgvRelayHealth } = await import("./relay-watch.server");
+  const relayWatch = await noteCgvRelayHealth(scan.theaters);
+  if (relayWatch.shouldAlert) {
+    await notifyRelayOutage(accounts.map((a) => a.snap.config), relayWatch);
+  }
   const allShows = scan.theaters.flatMap((t) => t.showtimes);
   let sent = 0;
   for (const { userId, snap, hostSeen } of accounts) {

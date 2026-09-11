@@ -54,7 +54,10 @@ export const scanCinema = createServerFn({ method: "POST" })
   .validator(ScanInput)
   .handler(async ({ data }) => {
     const { runScan } = await import("./scan-impl.server");
-    return runScan(data);
+    const scan = await runScan(data);
+    const { noteCgvRelayHealth } = await import("./relay-watch.server");
+    await noteCgvRelayHealth(scan.theaters).catch(() => null);
+    return scan;
   });
 
 const TelegramInput = z.object({

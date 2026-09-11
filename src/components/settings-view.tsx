@@ -179,8 +179,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         {showGasSection ? (
           <>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          이중으로 알림이 갈 수 있지만, 베셀 서버에 문제가 있을 때도 확실하게
-          알림을 받고 싶으면 예비로 설정합니다.
+          베셀 서버에 문제가 있을 때도 알림을 받고 싶으면 예비로 켭니다.
+          극장·잔여석 조회는 구글스크립트 없이 돌아갑니다.
         </p>
         <h3 className="mt-4 text-xs font-medium tracking-[0.16em] text-muted">주기</h3>
         <div className="mt-3 grid grid-cols-3 gap-2">
@@ -400,11 +400,16 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
             {showStatus ? "접기" : "펼치기"}
           </span>
         </button>
+        {notifyHealth.cgvRelay?.stale ? (
+          <p className="mt-3 rounded-lg bg-bg px-3 py-2.5 text-sm leading-relaxed text-danger ring-1 ring-border">
+            {relayOutageLine(notifyHealth.cgvRelay)}
+          </p>
+        ) : null}
         {showStatus ? (
           <>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          상영시간과 잔여석을 어디서 받았는지입니다. 세 단계는 항상 켜져 있고,
-          막히면 다음으로 넘어갑니다.
+          상영시간과 잔여석을 어디서 받았는지입니다. 구글스크립트는 없어도
+          돌아갑니다. 막히면 다음으로 넘어갑니다.
         </p>
         <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
           <p className="text-xs text-muted">극장</p>
@@ -412,13 +417,23 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           <p className="text-xs text-muted">잔여석 현황</p>
           {THEATERS.map((theater) => {
             const row = lastScan?.theaters.find((t) => t.theaterId === theater.id);
+            const seatLabel = seatSourceLabel(row?.seatSource);
+            const seatEmpty = theater.chain === "cgv" && seatLabel === "없음";
             return (
               <Fragment key={theater.id}>
                 <p className="text-fg">{theater.shortName}</p>
                 <p className="text-muted">
                   {timetableSourceLabel(row?.source ?? "", row?.ok ?? true)}
                 </p>
-                <p className="text-muted">{seatSourceLabel(row?.seatSource)}</p>
+                <p
+                  className={
+                    seatEmpty && notifyHealth.cgvRelay?.stale
+                      ? "text-danger"
+                      : "text-muted"
+                  }
+                >
+                  {seatLabel}
+                </p>
               </Fragment>
             );
           })}
@@ -519,8 +534,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           앱을 꺼도 알림
         </h3>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          베셀 서버와 구글스크립트(예비)가 이중으로 알림을 보냅니다. 베셀은
-          깃허브가 5분마다 깨웁니다. 같은 오픈이 두 번 갈 수 있습니다.
+          베셀 서버가 알림을 보냅니다. 구글스크립트는 예비이며, 없어도
+          극장·잔여석 조회는 돌아갑니다. 베셀은 깃허브가 5분마다 깨웁니다.
         </p>
         <AlertPathStatus health={notifyHealth} />
 
@@ -966,7 +981,7 @@ function CloudSettingsCard() {
           ) : null}
           <p>
             로그인하면 별표·메일·텔레그램·카톡이 이 계정에 저장됩니다. 베셀
-            서버와 구글스크립트(예비)가 이중으로 알림을 보냅니다.
+            서버가 알림을 보냅니다. 구글스크립트는 예비이며 없어도 됩니다.
           </p>
           {authEnabled ? (
             <Button
@@ -1061,6 +1076,14 @@ type AliveProbe = {
   } | null;
 };
 
+type CgvRelayHealth = {
+  empty: boolean;
+  since: number | null;
+  durationMs: number;
+  theaters: string[];
+  stale: boolean;
+};
+
 type NotifyHealth = {
   vercel: AliveProbe;
   gasOk: boolean;
@@ -1068,6 +1091,7 @@ type NotifyHealth = {
   gasAgeMs: number;
   gasNotify: AliveProbe["lastNotify"];
   dbLine: string;
+  cgvRelay: CgvRelayHealth | null;
 };
 
 const emptyProbe: AliveProbe = {
@@ -1167,6 +1191,7 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
     gasAgeMs: 0,
     gasNotify: null,
     dbLine: "pending",
+    cgvRelay: null,
   });
   useEffect(() => {
     let cancelled = false;
@@ -1180,17 +1205,27 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
             "https://openbell-fawn.vercel.app/api/watch-alive",
           );
       let dbLine = "";
+      let relay: CgvRelayHealth | null = null;
       try {
         const res = await fetch("/api/watch-alive", {
           signal: AbortSignal.timeout(8000),
         });
-        const json = (await res.json()) as { db?: string };
+        const json = (await res.json()) as {
+          alive?: boolean;
+          ageMs?: number | null;
+          githubWakeAlive?: boolean;
+          githubWakeAgeMs?: number | null;
+          lastNotify?: AliveProbe["lastNotify"];
+          db?: string;
+          cgvRelay?: CgvRelayHealth;
+        };
         dbLine =
           json.db === "neon"
             ? "neon"
             : json.db === "pglite"
               ? "pglite"
               : "";
+        relay = json.cgvRelay ?? null;
       } catch {
         dbLine = "pending";
       }
@@ -1203,6 +1238,7 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
         gasAgeMs: Number(gas?.gasAgeMs || 0),
         gasNotify: gas?.lastNotify ?? null,
         dbLine,
+        cgvRelay: relay,
       });
     }
     void load();
@@ -1215,6 +1251,23 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
     };
   }, [config.gasWebUrl]);
   return health;
+}
+
+function durationLabel(ms: number) {
+  const min = Math.max(1, Math.round(ms / 60_000));
+  if (min < 60) return `${min}분째`;
+  const hours = Math.floor(min / 60);
+  const rest = min % 60;
+  return rest ? `${hours}시간 ${rest}분째` : `${hours}시간째`;
+}
+
+function relayOutageLine(watch: CgvRelayHealth) {
+  const names =
+    watch.theaters
+      .map((id) => THEATERS.find((row) => row.id === id)?.shortName)
+      .filter(Boolean)
+      .join("·") || "용산·영등포";
+  return `${names} 잔여석 우회조회가 ${durationLabel(watch.durationMs)} 막혀 있습니다. 시간표는 네이버로 유지됩니다.`;
 }
 
 function PathLine({
@@ -1246,7 +1299,7 @@ function AlertPathStatus({ health }: { health: NotifyHealth }) {
     n >= 2
       ? "베셀 서버, 구글스크립트(예비)가 이중으로 알림을 보냅니다. 같은 오픈이 두 번 갈 수 있습니다."
       : health.vercel.reachable || health.vercel.alive
-        ? "베셀 서버가 알림을 보냅니다. 예비 경로는 아직 확인되지 않았습니다."
+        ? "베셀 서버가 알림을 보냅니다. 구글스크립트는 없어도 됩니다."
         : health.gasAlive
           ? "구글스크립트(예비)가 알림을 보냅니다. 베셀은 확인하지 못했습니다."
           : "알림 경로를 확인하는 중입니다.";
