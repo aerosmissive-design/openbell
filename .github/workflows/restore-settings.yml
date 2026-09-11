@@ -1,0 +1,29 @@
+name: restore-settings
+on:
+  push:
+    paths:
+      - "scripts/settings.z64"
+      - ".github/workflows/restore-settings.yml"
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode settings-view
+        run: |
+          python3 - <<'PY'
+          import zlib, base64
+          from pathlib import Path
+          raw = zlib.decompress(base64.b64decode(Path("scripts/settings.z64").read_text()))
+          Path("src/components/settings-view.tsx").write_bytes(raw)
+          print("wrote", len(raw), "bytes")
+          PY
+      - name: Commit
+        run: |
+          git config user.name "Openbell"
+          git config user.email "openbell@grok.me"
+          git add src/components/settings-view.tsx VERSION
+          git diff --cached --quiet || git commit -m "오픈벨 v3.9.10 — 구글스크립트(예비)·그록/X 제거 (restore from z64)"
+          git push
