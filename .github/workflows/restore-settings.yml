@@ -3,7 +3,10 @@ on:
   push:
     paths:
       - "scripts/settings.z64"
+      - "scripts/settings.z64.a"
+      - "scripts/settings.z64.b"
       - ".github/workflows/restore-settings.yml"
+  workflow_dispatch:
 jobs:
   restore:
     runs-on: ubuntu-latest
@@ -16,8 +19,14 @@ jobs:
           python3 - <<'PY'
           import zlib, base64
           from pathlib import Path
-          raw = zlib.decompress(base64.b64decode(Path("scripts/settings.z64").read_text()))
+          p = Path("scripts")
+          if (p / "settings.z64").exists() and (p / "settings.z64").stat().st_size > 10000:
+              b64 = (p / "settings.z64").read_text().strip()
+          else:
+              b64 = (p / "settings.z64.a").read_text().strip() + (p / "settings.z64.b").read_text().strip()
+          raw = zlib.decompress(base64.b64decode(b64))
           Path("src/components/settings-view.tsx").write_bytes(raw)
+          Path("VERSION").write_text("3.9.10\n")
           print("wrote", len(raw), "bytes")
           PY
       - name: Commit
