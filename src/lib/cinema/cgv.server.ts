@@ -700,7 +700,8 @@ async function fetchOfficialHtml(url: string) {
     if (!res.ok) return "";
     return await res.text();
   } catch {
-    officialCgvBlocked = true;
+    // Network error or timeout — NOT a confirmed block. Fail this one
+    // request only; keep retrying official CGV on future calls.
     return "";
   }
 }
@@ -732,7 +733,8 @@ async function fetchMobileSchedule(theaterId: CgvId, playDate: string) {
     if (!res.ok) return "";
     return await res.text();
   } catch {
-    officialCgvBlocked = true;
+    // Network error or timeout — NOT a confirmed block. Fail this one
+    // request only; keep retrying official CGV on future calls.
     return "";
   }
 }
@@ -958,7 +960,8 @@ async function fetchCgvApi(
     }
     return out;
   } catch {
-    officialCgvBlocked = true;
+    // Network error or timeout — NOT a confirmed block. Fail this one
+    // request only; keep retrying official CGV on future calls.
     return [];
   }
 }
