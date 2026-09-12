@@ -1,5 +1,7 @@
 import { ExternalLink, Share2 } from "lucide-react";
+import { sessionFromAlert } from "@/lib/cinema/hold";
 import { formatLabel, theaterById } from "@/lib/cinema/theaters";
+import { normalizeHold } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { formatClock, formatPlayDate } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -7,6 +9,8 @@ import { Button } from "./ui/button";
 export function AlertsView() {
   const alerts = useAppStore((s) => s.alerts);
   const clearAlerts = useAppStore((s) => s.clearAlerts);
+  const hold = normalizeHold(useAppStore((s) => s.config.hold));
+  const startHold = useAppStore((s) => s.startHold);
 
   if (!alerts.length) {
     return (
@@ -56,8 +60,11 @@ export function AlertsView() {
               target="_blank"
               rel="noreferrer"
               className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-pick text-sm font-medium text-fg ring-1 ring-border-strong"
+              onClick={() => {
+                if (hold.enabled) startHold(sessionFromAlert(alert, hold));
+              }}
             >
-              바로 예매
+              {hold.enabled ? "좌석 홀드" : "바로 예매"}
               <ExternalLink className="size-3.5" strokeWidth={1.75} />
             </a>
             <Button

@@ -19,7 +19,8 @@ import { describeGasPush, flushSettings } from "./cloud-sync";
 import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { ScanResult, WatchConfig } from "@/lib/cinema/types";
-import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
+import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, normalizeHold, seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
+import { HOLD_ZONE_OPTIONS } from "@/lib/cinema/hold";
 import { THEME_MODES } from "@/lib/theme";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ import { SettingsTheaterPicks } from "./theater-picks";
 
 export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const config = useAppStore((s) => s.config);
+  const hold = normalizeHold(config.hold);
   const setConfig = useAppStore((s) => s.setConfig);
   const pushAlerts = useAppStore((s) => s.pushAlerts);
   const { user } = useCurrentUserState();
@@ -497,6 +499,104 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           </>
         ) : null}
         </div>
+      </section>
+
+      <section className="rounded-xl bg-surface p-4 shadow-border">
+        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
+          좌석 홀드
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          지금 알림은 그대로입니다. 예매를 누르면 좌석을 찍고 결제 화면까지만
+          갑니다. 결제는 극장에서 직접 합니다.
+        </p>
+        <div className="mt-3">
+          <Switch
+            checked={hold.enabled}
+            onCheckedChange={(on) =>
+              setConfig({ hold: normalizeHold({ ...hold, enabled: on }) })
+            }
+            label={hold.enabled ? "홀드 켜짐" : "홀드 꺼짐"}
+          />
+        </div>
+        <h3 className="mt-5 text-xs font-medium tracking-[0.16em] text-muted">
+          인원
+        </h3>
+        <div className="mt-3 grid grid-cols-4 gap-1.5">
+          {[1, 2, 3, 4].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() =>
+                setConfig({ hold: normalizeHold({ ...hold, seats: n }) })
+              }
+              className={cn(
+                "min-h-11 rounded-md text-sm tabular-nums",
+                hold.seats === n
+                  ? "bg-pick text-fg ring-1 ring-border-strong"
+                  : "bg-bg text-muted",
+              )}
+            >
+              {n}명
+            </button>
+          ))}
+        </div>
+        <h3 className="mt-5 text-xs font-medium tracking-[0.16em] text-muted">
+          선호 구역
+        </h3>
+        <div className="mt-3 grid grid-cols-3 gap-1.5">
+          {HOLD_ZONE_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() =>
+                setConfig({ hold: normalizeHold({ ...hold, zone: opt.id }) })
+              }
+              className={cn(
+                "min-h-11 rounded-md text-sm",
+                hold.zone === opt.id
+                  ? "bg-pick text-fg ring-1 ring-border-strong"
+                  : "bg-bg text-muted",
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <h3 className="mt-5 text-xs font-medium tracking-[0.16em] text-muted">
+          홀드 시간
+        </h3>
+        <div className="mt-3 grid grid-cols-3 gap-1.5">
+          {[5, 10, 15].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() =>
+                setConfig({ hold: normalizeHold({ ...hold, minutes: n }) })
+              }
+              className={cn(
+                "min-h-11 rounded-md text-sm tabular-nums",
+                hold.minutes === n
+                  ? "bg-pick text-fg ring-1 ring-border-strong"
+                  : "bg-bg text-muted",
+              )}
+            >
+              {n}분
+            </button>
+          ))}
+        </div>
+        <div className="mt-4">
+          <Switch
+            checked={hold.autoOpen}
+            onCheckedChange={(on) =>
+              setConfig({ hold: normalizeHold({ ...hold, autoOpen: on }) })
+            }
+            label="알림 때 좌석 화면 열기"
+          />
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-faint">
+          켜면 예매 오픈·잔여석 알림이 올 때 극장 좌석 화면을 띄웁니다. 팝업이
+          막히면 홀드에서 직접 누르세요.
+        </p>
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">

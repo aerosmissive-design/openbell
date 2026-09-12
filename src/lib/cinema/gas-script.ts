@@ -1,6 +1,6 @@
 import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
-import { DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
+import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
 export const GAS_SOURCE_STAMP = "20260910-esc";
 
@@ -2184,4 +2184,5 @@ export const DEFAULT_WATCH: WatchConfig = {
   gasSourceStamp: "",
   scanSources: { ...DEFAULT_SCAN_SOURCES },
   theme: "dark",
+  hold: { ...DEFAULT_HOLD },
 };

@@ -78,6 +78,13 @@ const config: WatchConfig = {
   gasSourceStamp: "",
   theme: "system",
   movieTab: "chart",
+  hold: {
+    enabled: true,
+    seats: 2,
+    zone: "center",
+    autoOpen: false,
+    minutes: 10,
+  },
 };
 
 describe("match", () => {

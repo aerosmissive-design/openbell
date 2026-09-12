@@ -7,11 +7,13 @@ import type {
   AlertItem,
   BookingIntent,
   FormatId,
+  HoldSession,
+  HoldStep,
   Showtime,
   TheaterId,
   WatchConfig,
 } from "@/lib/cinema/types";
-import { normalizeScanSources, CHART_SIZE } from "@/lib/cinema/types";
+import { normalizeHold, normalizeScanSources, CHART_SIZE } from "@/lib/cinema/types";
 import { stripConfigSecrets } from "@/lib/cinema/secret-fields";
 
 type Tab = "watch" | "alerts" | "star" | "settings";
@@ -31,6 +33,7 @@ type AppState = {
   seatTick: number;
   seatMap: SeatHitMap;
   overlayShows: Record<string, Showtime[]>;
+  hold: HoldSession | null;
   setOnlyAlerted: (on: boolean) => void;
   setWatchSig: (sig: string) => void;
   setOwnerId: (id: string | null) => void;
@@ -50,6 +53,10 @@ type AppState = {
   enqueue: (item: BookingIntent) => void;
   dequeue: (id: string) => void;
   replaceQueue: (queue: BookingIntent[]) => void;
+  startHold: (session: HoldSession) => void;
+  setHoldStep: (step: HoldStep) => void;
+  markHoldArrived: () => void;
+  clearHold: () => void;
   patchQueueSeats: (
     id: string,
     restSeats: number | null,
@@ -84,6 +91,7 @@ export const useAppStore = create<AppState>()(
       seatTick: 0,
       seatMap: {},
       overlayShows: {},
+      hold: null,
       setOnlyAlerted: (on) => set({ onlyAlerted: on }),
       setWatchSig: (sig) => set({ watchSig: sig }),
       setOwnerId: (id) => set({ ownerId: id }),
@@ -179,6 +187,22 @@ export const useAppStore = create<AppState>()(
       dequeue: (id) =>
         set((s) => ({ queue: s.queue.filter((q) => q.id !== id) })),
       replaceQueue: (queue) => set({ queue: queue.slice(0, 40) }),
+      startHold: (session) => set({ hold: session }),
+      setHoldStep: (step) =>
+        set((s) => (s.hold ? { hold: { ...s.hold, step } } : s)),
+      markHoldArrived: () =>
+        set((s) =>
+          s.hold
+            ? {
+                hold: {
+                  ...s.hold,
+                  step: "wait",
+                  holdStartedAt: s.hold.holdStartedAt ?? new Date().toISOString(),
+                },
+              }
+            : s,
+        ),
+      clearHold: () => set({ hold: null }),
       patchQueueSeats: (id, restSeats, totalSeats) =>
         set((s) => ({
           queue: s.queue.map((q) =>
@@ -206,6 +230,7 @@ export const useAppStore = create<AppState>()(
             },
             scanSources: normalizeScanSources(snap.config.scanSources),
             ranks: clampStoredRanks(snap.config.ranks),
+            hold: normalizeHold(snap.config.hold),
             gasSourceStamp:
               snap.config.gasSourceStamp || s.config.gasSourceStamp,
           },
@@ -231,6 +256,7 @@ export const useAppStore = create<AppState>()(
         onlyAlerted: s.onlyAlerted,
         watchSig: s.watchSig,
         ownerId: s.ownerId,
+        hold: s.hold,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;
@@ -254,6 +280,7 @@ export const useAppStore = create<AppState>()(
             scanSources: normalizeScanSources(p.config?.scanSources),
             ranks: clampStoredRanks(p.config?.ranks),
             theme: p.config?.theme ?? DEFAULT_WATCH.theme,
+            hold: normalizeHold(p.config?.hold),
             emailNotify:
               typeof p.config?.emailNotify === "boolean"
                 ? p.config.emailNotify

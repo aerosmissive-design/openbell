@@ -3,12 +3,13 @@ import { Bell, ScanLine, Settings2, Star } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
+import { sessionFromAlert, openBookingTab } from "@/lib/cinema/hold";
 import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, type SeatHitMap } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { AlertItem, RankingMovie, Showtime, WatchConfig } from "@/lib/cinema/types";
-import { mailEnabled, inferSeatSource } from "@/lib/cinema/types";
+import { mailEnabled, inferSeatSource, normalizeHold } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn, formatClock, normalizeTitle } from "@/lib/utils";
 import { AlertsView } from "./alerts-view";
@@ -16,6 +17,7 @@ import { AuthSlot, CloudSync } from "./cloud-sync";
 import { SettingsView } from "./settings-view";
 import { StarsView } from "./stars-view";
 import { WatchView } from "./watch-view";
+import { HoldSheet } from "./hold-sheet";
 
 export function CinemaApp() {
   const tab = useAppStore((s) => s.tab);
@@ -285,6 +287,7 @@ export function CinemaApp() {
   return (
     <div className="mx-auto flex min-h-dvh max-w-lg flex-col bg-bg md:max-w-5xl">
       <CloudSync />
+      <HoldSheet />
       <header className="sticky top-0 z-20 border-b border-border bg-bg px-5 pb-3 pt-[max(1rem,env(safe-area-inset-top))]">
         <div className="flex items-end justify-between gap-3">
           <div>
@@ -294,7 +297,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.16
+                v3.9.18
               </span>
             </h1>
           </div>
@@ -435,6 +438,16 @@ function announce(items: AlertItem[], config: WatchConfig) {
   const head = items[0];
   if (!head) return;
   toast(head.title, { description: head.body });
+  const holdPrefs = normalizeHold(config.hold);
+  if (holdPrefs.enabled && holdPrefs.autoOpen && head.bookingUrl) {
+    const state = useAppStore.getState();
+    if (!state.hold) {
+      state.startHold(sessionFromAlert(head, holdPrefs));
+      if (!openBookingTab(head.bookingUrl)) {
+        toast("팝업이 막혔습니다. 홀드에서 좌석 찍기를 누르세요.");
+      }
+    }
+  }
   if (typeof Notification !== "undefined" && Notification.permission === "granted") {
     new Notification(head.title, { body: head.body });
   }

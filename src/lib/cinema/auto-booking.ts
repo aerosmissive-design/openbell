@@ -1,6 +1,6 @@
 import type { BookingIntent, Showtime } from "./types";
 
-/** Phase 2 hook — queue only. Never talks to a payment gateway. */
+/** Queue only. Seat hold opens the theater page and stops before payment. */
 export function intentFromShowtime(show: Showtime): BookingIntent {
   return {
     id: `intent:${show.id}`,
@@ -14,6 +14,6 @@ export function intentFromShowtime(show: Showtime): BookingIntent {
     bookingUrl: show.bookingUrl,
     restSeats: show.restSeats,
     totalSeats: show.totalSeats,
-    note: "자동결제는 영화관 이용약관상 직접 구현하지 않습니다. 예매 페이지로 바로 이동합니다.",
+    note: "좌석을 찍고 결제 화면까지만 갑니다. 결제는 극장에서 직접 합니다.",
   };
 }

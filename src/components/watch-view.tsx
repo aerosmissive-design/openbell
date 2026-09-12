@@ -2,12 +2,13 @@ import { ChevronDown, RefreshCw, Search, Star, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { intentFromShowtime } from "@/lib/cinema/auto-booking";
+import { sessionFromShowtime } from "@/lib/cinema/hold";
 import { selectedMovies, titlesMatch, titleInSet, watchedTitleSet } from "@/lib/cinema/match";
 import { applyCgvSeatHits, formatShowPlace, mergeShowtimes, summarizeSeatDelta } from "@/lib/cinema/seats";
 import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { MovieTab, RankingMovie, ScanProps, Showtime, TheaterId } from "@/lib/cinema/types";
-import { CHART_SIZE } from "@/lib/cinema/types";
+import { CHART_SIZE, normalizeHold } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn, formatPlayDate, kstDateKeys, normalizeTitle } from "@/lib/utils";
 import { SourceStatus } from "./source-status";
@@ -849,20 +850,31 @@ function ShowDateList({
                   </span>
                 ) : null}
               </p>
-              <a
-                href={show.bookingUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-open px-2.5 text-[11px] font-medium tracking-wide text-open-fg"
-              >
-                예매
-              </a>
+              <BookingLink show={show} />
               <StarBtn show={show} onQueue={onQueue} />
             </div>
           </li>
         );
       })}
     </ul>
+  );
+}
+
+function BookingLink({ show }: { show: Showtime }) {
+  const hold = normalizeHold(useAppStore((s) => s.config.hold));
+  const startHold = useAppStore((s) => s.startHold);
+  return (
+    <a
+      href={show.bookingUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-open px-2.5 text-[11px] font-medium tracking-wide text-open-fg"
+      onClick={() => {
+        if (hold.enabled) startHold(sessionFromShowtime(show, hold));
+      }}
+    >
+      {hold.enabled ? "홀드" : "예매"}
+    </a>
   );
 }
 

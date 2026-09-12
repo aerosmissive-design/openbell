@@ -4,7 +4,7 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { DEFAULT_WATCH } from "./gas-script";
 import { THEATERS } from "./theaters";
 import type { AlertItem, BookingIntent, WatchConfig } from "./types";
-import { CHART_SIZE, normalizeScanSources } from "./types";
+import { CHART_SIZE, normalizeHold, normalizeScanSources } from "./types";
 import { normalizeTheme } from "@/lib/theme";
 
 export type CloudSnapshot = {
@@ -56,6 +56,7 @@ export function hydrateConfig(raw: unknown): WatchConfig {
     gasScriptId: String(c.gasScriptId ?? ""),
     gasSourceStamp: String(c.gasSourceStamp ?? ""),
     theme: normalizeTheme(c.theme),
+    hold: normalizeHold(c.hold),
   };
 }
 

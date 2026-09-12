@@ -94,6 +94,67 @@ export type AlertItem = {
   totalSeats?: number | null;
 };
 
+export type HoldZone = "center" | "rear" | "front";
+
+export type HoldStep = "seats" | "pay" | "wait";
+
+export type HoldPrefs = {
+  enabled: boolean;
+  seats: number;
+  zone: HoldZone;
+  autoOpen: boolean;
+  minutes: number;
+};
+
+export const DEFAULT_HOLD: HoldPrefs = {
+  enabled: true,
+  seats: 2,
+  zone: "center",
+  autoOpen: false,
+  minutes: 10,
+};
+
+export function normalizeHold(raw?: Partial<HoldPrefs> | null): HoldPrefs {
+  const seats = Number(raw?.seats);
+  const minutes = Number(raw?.minutes);
+  const zone = raw?.zone;
+  return {
+    enabled: raw?.enabled ?? DEFAULT_HOLD.enabled,
+    seats:
+      Number.isFinite(seats) && seats >= 1
+        ? Math.min(8, Math.max(1, Math.round(seats)))
+        : DEFAULT_HOLD.seats,
+    zone:
+      zone === "rear" || zone === "front" || zone === "center"
+        ? zone
+        : DEFAULT_HOLD.zone,
+    autoOpen: raw?.autoOpen ?? DEFAULT_HOLD.autoOpen,
+    minutes:
+      Number.isFinite(minutes) && minutes >= 5
+        ? Math.min(20, Math.max(5, Math.round(minutes)))
+        : DEFAULT_HOLD.minutes,
+  };
+}
+
+export type HoldSession = {
+  id: string;
+  startedAt: string;
+  theaterId: TheaterId;
+  movieTitle: string;
+  playDate: string;
+  startTime: string;
+  hallName: string;
+  formats: FormatId[];
+  showtimeId: string;
+  bookingUrl: string;
+  restSeats: number | null;
+  totalSeats: number | null;
+  seats: number;
+  zone: HoldZone;
+  step: HoldStep;
+  holdStartedAt: string | null;
+};
+
 export type BookingIntent = {
   id: string;
   queuedAt: string;
@@ -139,6 +200,7 @@ export type WatchConfig = {
   gasSourceStamp: string;
   scanSources: ScanSources;
   theme: ThemeMode;
+  hold: HoldPrefs;
 };
 
 export type ScanStage = "official" | "naver" | "gas";
