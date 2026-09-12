@@ -1,14 +1,10 @@
 import { Trash2 } from "lucide-react";
-import { sessionFromIntent } from "@/lib/cinema/hold";
-import { normalizeHold } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { formatPlayDate } from "@/lib/utils";
 
 export function StarsView() {
   const queue = useAppStore((s) => s.queue);
   const dequeue = useAppStore((s) => s.dequeue);
-  const hold = normalizeHold(useAppStore((s) => s.config.hold));
-  const startHold = useAppStore((s) => s.startHold);
 
   if (!queue.length) {
     return (
@@ -28,8 +24,7 @@ export function StarsView() {
         별표 {queue.length}건
       </h2>
       <p className="text-sm leading-relaxed text-muted">
-        예매를 누르면 좌석을 찍고 결제 화면까지 갑니다. 결제는 하지 않습니다.
-        잔여석이 늘거나 줄면 알려 드립니다.
+        예매를 누르면 극장 화면으로 갑니다. 잔여석이 늘거나 줄면 알려 드립니다.
       </p>
       <ul className="flex flex-col gap-2">
         {queue.map((item) => (
@@ -53,11 +48,8 @@ export function StarsView() {
               target="_blank"
               rel="noreferrer"
               className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-open px-2.5 text-[11px] font-medium text-open-fg"
-              onClick={() => {
-                if (hold.enabled) startHold(sessionFromIntent(item, hold));
-              }}
             >
-              {hold.enabled ? "홀드" : "예매"}
+              예매
             </a>
             <button
               type="button"
