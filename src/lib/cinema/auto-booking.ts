@@ -14,6 +14,7 @@ export function intentFromShowtime(show: Showtime): BookingIntent {
     bookingUrl: show.bookingUrl,
     restSeats: show.restSeats,
     totalSeats: show.totalSeats,
-    note: "좌석을 찍고 결제 화면까지만 갑니다. 결제는 극장에서 직접 합니다.",
+    note: "별표입니다. 홀드로 분류하면 오픈 때 정중앙 결제 화면까지 갑니다.",
+    hold: false,
   };
 }
