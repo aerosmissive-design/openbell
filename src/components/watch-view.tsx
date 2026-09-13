@@ -708,8 +708,6 @@ function MovieTimes({
         ? a.show.startTime.localeCompare(b.show.startTime)
         : a.show.playDate.localeCompare(b.show.playDate),
     );
-  const elseVisible = elseList.slice(0, 6);
-  const elseHidden = elseList.length - elseVisible.length;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
@@ -722,7 +720,7 @@ function MovieTimes({
         <div className="mt-2 rounded-md bg-bg px-3 py-3">
           {elsewhere.length ? (
             <div className="flex flex-col gap-1.5">
-              {elseVisible.map((row) => (
+              {elseList.map((row) => (
                 <button
                   key={row.show.id}
                   type="button"
@@ -732,11 +730,7 @@ function MovieTimes({
                   {formatShowPlace(row.show)} 오픈
                 </button>
               ))}
-              {elseHidden > 0 ? (
-                <p className="text-[11px] text-faint">외 {elseHidden}건 · 해당 극장 카드를 펼치세요</p>
-              ) : (
-                <p className="text-[11px] text-faint">이 극장에는 아직 없습니다. 눌러서 이동하세요.</p>
-              )}
+              <p className="text-[11px] text-faint">이 극장에는 아직 없습니다. 눌러서 이동하세요.</p>
             </div>
           ) : (
             <>
