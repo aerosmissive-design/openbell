@@ -23,8 +23,12 @@ function wakeKindFromRequest(request: Request): "github" | "gas" | "vercel" | ""
 async function handle(request: Request) {
   const kind = wakeKindFromRequest(request);
   if (kind) {
-    await writeAppMeta("github_watch_at", String(Date.now()));
     await writeAppMeta("watch_wake_kind", kind);
+    if (kind === "github") {
+      await writeAppMeta("github_watch_at", String(Date.now()));
+    } else {
+      await writeAppMeta("external_watch_at", String(Date.now()));
+    }
   }
   const secret = process.env.CRON_SECRET;
   const vercelCron = request.headers.get("x-vercel-cron") === "1";
