@@ -97,7 +97,22 @@ export const useAppStore = create<AppState>()(
       setOwnerId: (id) => set({ ownerId: id }),
       bumpSeatTick: () => set((s) => ({ seatTick: s.seatTick + 1 })),
       mergeSeatMap: (map) =>
-        set((s) => ({ seatMap: { ...s.seatMap, ...map } })),
+        set((s) => {
+          const next = { ...s.seatMap };
+          for (const [key, hit] of Object.entries(map)) {
+            const prev = next[key];
+            const at = hit.at ?? Date.now();
+            if (!prev || (prev.at ?? 0) <= at) next[key] = { ...hit, at };
+          }
+          const keys = Object.keys(next);
+          if (keys.length > 1200) {
+            const keep = keys
+              .sort((a, b) => (next[b].at ?? 0) - (next[a].at ?? 0))
+              .slice(0, 800);
+            return { seatMap: Object.fromEntries(keep.map((k) => [k, next[k]])) };
+          }
+          return { seatMap: next };
+        }),
       mergeOverlayShows: (theaterId, shows) =>
         set((s) => ({
           overlayShows: {
@@ -257,6 +272,7 @@ export const useAppStore = create<AppState>()(
         watchSig: s.watchSig,
         ownerId: s.ownerId,
         hold: s.hold,
+        seatMap: s.seatMap,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;
