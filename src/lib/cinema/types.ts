@@ -48,6 +48,8 @@ export type Showtime = {
   totalSeats: number | null;
   bookingUrl: string;
   bookable: boolean;
+  seatLive?: boolean;
+  seatCheckedAt?: string | null;
 };
 
 export type TheaterScan = {
@@ -260,6 +262,7 @@ export function sourcePlace(source: string) {
   if (source === "gas-cache") return "구글 스크립트";
   if (source === "yongsan-channel") return "용아맥 채널";
   if (source === "cgv-relay") return "CGV 우회조회";
+  if (source === "last-known") return "마지막 확인";
   return "";
 }
 
@@ -278,8 +281,12 @@ export function inferSeatSource(input: {
   seatSource?: string;
   source?: string;
   hasSeats: boolean;
+  cachedOnly?: boolean;
 }) {
-  if (input.seatSource && input.seatSource !== "none") return input.seatSource;
+  if (input.cachedOnly && input.hasSeats) return "last-known";
+  if (input.seatSource && input.seatSource !== "none" && input.seatSource !== "last-known") {
+    return input.seatSource;
+  }
   if (!input.hasSeats) return "none";
   if (input.theaterId.startsWith("cgv")) return "cgv-relay";
   if (input.source === "gas-cache") return "gas-cache";
@@ -290,7 +297,7 @@ export const TIMETABLE_HELP = [
   {
     step: "1",
     title: "극장 공홈",
-    body: "메가박스 공식 시간표입니다. CGV 공홈은 이 서버에서 막혀 있어 건너뜁니다.",
+    body: "메가박스 공식 시간표입니다. CGV 공홈은 이 서버에서 막혀 있어 건너뚱니다.",
   },
   {
     step: "2",
@@ -308,7 +315,7 @@ export const SEAT_HELP = [
   {
     step: "1",
     title: "극장 공홈",
-    body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 서버에서 막혀 건너뜁니다.",
+    body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 서버에서 막혀 건너뚱니다.",
   },
   {
     step: "2",
@@ -318,7 +325,12 @@ export const SEAT_HELP = [
   {
     step: "3",
     title: "장애 알림",
-    body: "우회조회가 15분 넘게 비면 설정에 경고를 띄우고, 메일이 켜져 있으면 알려 줍니다. 시간표는 네이버로 유지됩니다.",
+    body: "우회조회가 15분 넘게 비면 설정에 경고를 띠우고, 메일이 켜져 있으면 알려 줍니다. 시간표는 네이버로 유지됩니다.",
+  },
+  {
+    step: "4",
+    title: "마지막 확인",
+    body: "공홈·우회·구글스크립트가 모두 실패하면, 마지막으로 성공한 숫자를 ‘N분 전 확인’으로 보여 줍니다. 이번 조회에서 받은 숫자는 ‘실시간’입니다.",
   },
 ];
 
