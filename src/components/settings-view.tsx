@@ -1126,16 +1126,16 @@ function githubWakeLine(probe: AliveProbe) {
   if (!probe.reachable) {
     return (
       <span className="block leading-4">
-        깃허브깨움 확인 못 함
-        <span className="mt-0.5 block">외부크론깨움 확인 못 함</span>
+        깃허브 확인 못 함
+        <span className="mt-0.5 block">외부크론 확인 못 함</span>
       </span>
     );
   }
   return (
     <span className="block leading-4">
-      {probe.githubWakeAlive ? "깃허브깨움 작동" : "깃허브깨움 미작동"}
+      {probe.githubWakeAlive ? "깃허브 작동" : "깃허브 미작동"}
       <span className="mt-0.5 block">
-        {probe.externalWakeAlive ? "외부크론깨움 작동" : "외부크론깨움 미작동"}
+        {probe.externalWakeAlive ? "외부크론 작동" : "외부크론 미작동"}
       </span>
     </span>
   );
