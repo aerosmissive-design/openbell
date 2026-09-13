@@ -47,6 +47,10 @@ export async function watchTickHealth() {
   const githubRaw = await readAppMeta("github_watch_at");
   const githubAt = Number(githubRaw);
   const githubWakeAt = Number.isFinite(githubAt) && githubAt > 0 ? githubAt : 0;
+  const externalRaw = await readAppMeta("external_watch_at");
+  const externalAt = Number(externalRaw);
+  const externalWakeAt =
+    Number.isFinite(externalAt) && externalAt > 0 ? externalAt : 0;
   const { readCgvRelayWatch } = await import("./relay-watch.server");
   return {
     lastRunAt: last,
@@ -57,6 +61,10 @@ export async function watchTickHealth() {
     githubWakeAt,
     githubWakeAgeMs: githubWakeAt ? Date.now() - githubWakeAt : null,
     githubWakeAlive: githubWakeAt > 0 && Date.now() - githubWakeAt < 15 * 60 * 1000,
+    externalWakeAt,
+    externalWakeAgeMs: externalWakeAt ? Date.now() - externalWakeAt : null,
+    externalWakeAlive:
+      externalWakeAt > 0 && Date.now() - externalWakeAt < 15 * 60 * 1000,
     cgvRelay: await readCgvRelayWatch(),
   };
 }

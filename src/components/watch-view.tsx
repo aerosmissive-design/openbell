@@ -2,13 +2,12 @@ import { ChevronDown, RefreshCw, Search, Star, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { intentFromShowtime } from "@/lib/cinema/auto-booking";
-import { sessionFromShowtime } from "@/lib/cinema/hold";
 import { selectedMovies, titlesMatch, titleInSet, watchedTitleSet } from "@/lib/cinema/match";
-import { applyCgvSeatHits, formatShowPlace, mergeShowtimes, summarizeSeatDelta } from "@/lib/cinema/seats";
+import { applyCgvSeatHits, formatShowPlace, mergeShowtimes, seatFreshnessLabel, summarizeSeatDelta } from "@/lib/cinema/seats";
 import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { MovieTab, RankingMovie, ScanProps, Showtime, TheaterId } from "@/lib/cinema/types";
-import { CHART_SIZE, normalizeHold } from "@/lib/cinema/types";
+import { CHART_SIZE } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn, formatPlayDate, kstDateKeys, normalizeTitle } from "@/lib/utils";
 import { SourceStatus } from "./source-status";
@@ -500,10 +499,17 @@ function TheaterBlock({
         (row) => row.theaterId === theaterId,
       );
       if (overlay.length) mergeOverlayShows(theaterId, overlay);
-      const next = applyCgvSeatHits(
+      const liveNext = applyCgvSeatHits(
         mergeShowtimes(allShows, [...(timetable?.showtimes ?? []), ...overlay]),
-        { ...useAppStore.getState().seatMap, ...map },
+        map,
+        Boolean(Object.keys(map).length),
         true,
+      );
+      const next = applyCgvSeatHits(
+        liveNext,
+        useAppStore.getState().seatMap,
+        false,
+        false,
       );
       const delta = summarizeSeatDelta(allShows, next);
       if (delta.lines.length) {
@@ -841,6 +847,17 @@ function ShowDateList({
                     {show.totalSeats != null
                       ? `${show.restSeats}/${show.totalSeats}`
                       : `잔여 ${show.restSeats}`}
+                    {seatFreshnessLabel(show) ? (
+                      <span
+                        className={
+                          show.seatLive === false
+                            ? "ml-1 text-[10px] text-muted"
+                            : "ml-1 text-[10px] text-open"
+                        }
+                      >
+                        {seatFreshnessLabel(show)}
+                      </span>
+                    ) : null}
                   </span>
                 ) : null}
               </p>
@@ -855,19 +872,14 @@ function ShowDateList({
 }
 
 function BookingLink({ show }: { show: Showtime }) {
-  const hold = normalizeHold(useAppStore((s) => s.config.hold));
-  const startHold = useAppStore((s) => s.startHold);
   return (
     <a
       href={show.bookingUrl}
       target="_blank"
       rel="noreferrer"
       className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-open px-2.5 text-[11px] font-medium tracking-wide text-open-fg"
-      onClick={() => {
-        if (hold.enabled) startHold(sessionFromShowtime(show, hold));
-      }}
     >
-      {hold.enabled ? "홀드" : "예매"}
+      예매
     </a>
   );
 }

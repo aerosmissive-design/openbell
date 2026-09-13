@@ -9,6 +9,7 @@ import {
 } from "./cgv.server";
 import { fetchMegaboxCatalog, fetchMegaboxSeatmap, fetchNaverMegabox } from "./megabox.server";
 import { applyCgvSeatHits, lookupSeatHit, mergeShowtimes, putSeatHit, type SeatHitMap } from "./seats";
+import { loadSeatLastKnown, saveSeatLastKnown } from "./seat-cache.server";
 import type {
   RankingMovie,
   ScanResult,
@@ -104,6 +105,7 @@ export async function runScan(input: {
   const gasMap: SeatHitMap = { ...seats.map };
   for (const row of gasList) putSeatHit(gasMap, row);
   const officialMap: SeatHitMap = { ...officialCgv.map, ...mega.map };
+  const lastKnown = await loadSeatLastKnown();
   const withSeats = theaters.map((theater) => {
     const extraMega =
       theater.theaterId === "megabox_coex" || theater.theaterId === "megabox_namyangju"
@@ -121,7 +123,8 @@ export async function runScan(input: {
     const merged = extra.length
       ? mergeShowtimes(theater.showtimes, extra)
       : theater.showtimes;
-    const showtimes = applySeatLayers(merged, [officialMap, relay.map, gasMap]);
+    const live = applySeatLayers(merged, [officialMap, relay.map, gasMap]);
+    const showtimes = applyCgvSeatHits(live, lastKnown, false, false);
     let source = theater.source;
     if (!theater.showtimes.length) {
       if (extraOfficial.length) source = "official";
@@ -144,6 +147,11 @@ export async function runScan(input: {
       gas: gasMap,
     }),
   }));
+  const harvested: SeatHitMap = {};
+  for (const theater of tagged) {
+    for (const row of theater.showtimes) putSeatHit(harvested, row);
+  }
+  if (Object.keys(harvested).length) await saveSeatLastKnown(harvested);
   const ranking = catalog.ranking.length
     ? catalog.ranking
     : rankingFromShows(tagged);
@@ -337,8 +345,10 @@ function detectSeatSource(
 ) {
   const seated = rows.filter((row) => row.restSeats != null);
   if (!seated.length) return "none";
+  const live = seated.filter((row) => row.seatLive !== false);
+  if (!live.length) return "last-known";
   const score = (map: SeatHitMap) =>
-    seated.filter((row) => lookupSeatHit(row, map)).length;
+    live.filter((row) => lookupSeatHit(row, map)).length;
   const official = score(maps.official);
   const relay = score(maps.relay);
   const gas = score(maps.gas);

@@ -109,7 +109,7 @@ export type HoldPrefs = {
 };
 
 export const DEFAULT_HOLD: HoldPrefs = {
-  enabled: true,
+  enabled: false,
   seats: 2,
   zone: "center",
   autoOpen: false,

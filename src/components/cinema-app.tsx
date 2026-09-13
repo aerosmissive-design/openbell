@@ -115,8 +115,15 @@ export function CinemaApp() {
       const showtimes = applyCgvSeatHits(
         mergeShowtimes(t.showtimes, overlayShows[t.theaterId] ?? []),
         seatMap,
-        true,
+        false,
+        false,
       );
+      const hasSeats = showtimes.some((row) => row.restSeats != null);
+      const cachedOnly =
+        hasSeats &&
+        showtimes.every(
+          (row) => row.restSeats == null || row.seatLive === false,
+        );
       return {
         ...t,
         showtimes,
@@ -124,7 +131,8 @@ export function CinemaApp() {
           theaterId: t.theaterId,
           seatSource: t.seatSource,
           source: t.source,
-          hasSeats: showtimes.some((row) => row.restSeats != null),
+          hasSeats,
+          cachedOnly,
         }),
       };
     });
@@ -241,7 +249,7 @@ export function CinemaApp() {
   useEffect(() => {
     if (!scan) return;
     const all = (scan.theaters ?? []).flatMap((t) =>
-      applyCgvSeatHits(t.showtimes, seatMap, true),
+      applyCgvSeatHits(t.showtimes, seatMap, false, false),
     );
     const { nextQueue, changes } = diffStarSeats(queue, all);
     const dirty =
@@ -294,7 +302,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.20
+                v3.9.21
               </span>
             </h1>
           </div>

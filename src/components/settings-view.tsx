@@ -19,8 +19,7 @@ import { describeGasPush, flushSettings } from "./cloud-sync";
 import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { ScanResult, WatchConfig } from "@/lib/cinema/types";
-import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, normalizeHold, seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
-import { HOLD_ZONE_OPTIONS } from "@/lib/cinema/hold";
+import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
 import { THEME_MODES } from "@/lib/theme";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -30,7 +29,6 @@ import { SettingsTheaterPicks } from "./theater-picks";
 
 export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const config = useAppStore((s) => s.config);
-  const hold = normalizeHold(config.hold);
   const setConfig = useAppStore((s) => s.setConfig);
   const pushAlerts = useAppStore((s) => s.pushAlerts);
   const { user } = useCurrentUserState();
@@ -499,104 +497,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           </>
         ) : null}
         </div>
-      </section>
-
-      <section className="rounded-xl bg-surface p-4 shadow-border">
-        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
-          좌석 홀드
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          지금 알림은 그대로입니다. 예매를 누르면 좌석을 찍고 결제 화면까지만
-          갑니다. 결제는 극장에서 직접 합니다.
-        </p>
-        <div className="mt-3">
-          <Switch
-            checked={hold.enabled}
-            onCheckedChange={(on) =>
-              setConfig({ hold: normalizeHold({ ...hold, enabled: on }) })
-            }
-            label={hold.enabled ? "홀드 켜짐" : "홀드 꺼짐"}
-          />
-        </div>
-        <h3 className="mt-5 text-xs font-medium tracking-[0.16em] text-muted">
-          인원
-        </h3>
-        <div className="mt-3 grid grid-cols-4 gap-1.5">
-          {[1, 2, 3, 4].map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() =>
-                setConfig({ hold: normalizeHold({ ...hold, seats: n }) })
-              }
-              className={cn(
-                "min-h-11 rounded-md text-sm tabular-nums",
-                hold.seats === n
-                  ? "bg-pick text-fg ring-1 ring-border-strong"
-                  : "bg-bg text-muted",
-              )}
-            >
-              {n}명
-            </button>
-          ))}
-        </div>
-        <h3 className="mt-5 text-xs font-medium tracking-[0.16em] text-muted">
-          선호 구역
-        </h3>
-        <div className="mt-3 grid grid-cols-3 gap-1.5">
-          {HOLD_ZONE_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() =>
-                setConfig({ hold: normalizeHold({ ...hold, zone: opt.id }) })
-              }
-              className={cn(
-                "min-h-11 rounded-md text-sm",
-                hold.zone === opt.id
-                  ? "bg-pick text-fg ring-1 ring-border-strong"
-                  : "bg-bg text-muted",
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <h3 className="mt-5 text-xs font-medium tracking-[0.16em] text-muted">
-          홀드 시간
-        </h3>
-        <div className="mt-3 grid grid-cols-3 gap-1.5">
-          {[5, 10, 15].map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() =>
-                setConfig({ hold: normalizeHold({ ...hold, minutes: n }) })
-              }
-              className={cn(
-                "min-h-11 rounded-md text-sm tabular-nums",
-                hold.minutes === n
-                  ? "bg-pick text-fg ring-1 ring-border-strong"
-                  : "bg-bg text-muted",
-              )}
-            >
-              {n}분
-            </button>
-          ))}
-        </div>
-        <div className="mt-4">
-          <Switch
-            checked={hold.autoOpen}
-            onCheckedChange={(on) =>
-              setConfig({ hold: normalizeHold({ ...hold, autoOpen: on }) })
-            }
-            label="알림 때 좌석 화면 열기"
-          />
-        </div>
-        <p className="mt-2 text-xs leading-relaxed text-faint">
-          켜면 예매 오픈·잔여석 알림이 올 때 극장 좌석 화면을 띄웁니다. 팝업이
-          막히면 홀드에서 직접 누르세요.
-        </p>
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">
@@ -1167,6 +1067,8 @@ type AliveProbe = {
   ageMs: number | null;
   githubWakeAlive?: boolean;
   githubWakeAgeMs?: number | null;
+  externalWakeAlive?: boolean;
+  externalWakeAgeMs?: number | null;
   lastNotify: {
     at?: number;
     mail?: string;
@@ -1221,13 +1123,22 @@ function queryLine(probe: AliveProbe) {
 }
 
 function githubWakeLine(probe: AliveProbe) {
-  if (probe.githubWakeAlive) {
-    return probe.githubWakeAgeMs != null
-      ? `됨 ${agoLabel(null, probe.githubWakeAgeMs)}`
-      : "됨";
+  if (!probe.reachable) {
+    return (
+      <span className="block leading-4">
+        깃허브깨움 확인 못 함
+        <span className="mt-0.5 block">외부크론깨움 확인 못 함</span>
+      </span>
+    );
   }
-  if (probe.reachable) return "아직 없음";
-  return "확인 못 함";
+  return (
+    <span className="block leading-4">
+      {probe.githubWakeAlive ? "깃허브깨움 작동" : "깃허브깨움 미작동"}
+      <span className="mt-0.5 block">
+        {probe.externalWakeAlive ? "외부크론깨움 작동" : "외부크론깨움 미작동"}
+      </span>
+    </span>
+  );
 }
 
 function channelShot(
@@ -1267,6 +1178,8 @@ async function probeWatchAlive(url: string): Promise<AliveProbe> {
       ageMs?: number | null;
       githubWakeAlive?: boolean;
       githubWakeAgeMs?: number | null;
+      externalWakeAlive?: boolean;
+      externalWakeAgeMs?: number | null;
       lastNotify?: AliveProbe["lastNotify"];
     };
     return {
@@ -1276,6 +1189,9 @@ async function probeWatchAlive(url: string): Promise<AliveProbe> {
       githubWakeAlive: Boolean(json.githubWakeAlive),
       githubWakeAgeMs:
         typeof json.githubWakeAgeMs === "number" ? json.githubWakeAgeMs : null,
+      externalWakeAlive: Boolean(json.externalWakeAlive),
+      externalWakeAgeMs:
+        typeof json.externalWakeAgeMs === "number" ? json.externalWakeAgeMs : null,
       lastNotify: json.lastNotify ?? null,
     };
   } catch {
@@ -1315,6 +1231,8 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
           ageMs?: number | null;
           githubWakeAlive?: boolean;
           githubWakeAgeMs?: number | null;
+          externalWakeAlive?: boolean;
+          externalWakeAgeMs?: number | null;
           lastNotify?: AliveProbe["lastNotify"];
           db?: string;
           cgvRelay?: CgvRelayHealth;
@@ -1379,7 +1297,7 @@ function PathLine({
   title: string;
   watch: string;
   query: string;
-  github?: string;
+  github?: ReactNode;
 }) {
   return (
     <>
@@ -1415,11 +1333,11 @@ function AlertPathStatus({ health }: { health: NotifyHealth }) {
     <div className="mt-3 rounded-lg bg-bg px-3 py-2.5 text-fg ring-1 ring-border">
       <p className="text-sm font-semibold leading-none text-fg">알림 경로</p>
       <p className="mt-1.5 text-[11px] leading-4 text-muted">{summary}</p>
-      <div className="mt-2 grid grid-cols-[5.6rem_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)] gap-x-2 gap-y-1 text-[10px] leading-4 text-fg">
+      <div className="mt-2 grid grid-cols-[5.2rem_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.4fr)] gap-x-2 gap-y-1 text-[10px] leading-4 text-fg">
         <span />
         <span className="text-muted">24시간 감시</span>
         <span className="text-muted">극장시간표 조회</span>
-        <span className="text-muted">깃허브 깨움</span>
+        <span className="text-muted">깨움</span>
         <PathLine
           title="베셀"
           watch={watchLine(health.vercel)}
