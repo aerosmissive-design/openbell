@@ -8,6 +8,7 @@ import {
   isCgvId,
 } from "./cgv.server";
 import { fetchMegaboxCatalog, fetchMegaboxSeatmap, fetchNaverMegabox } from "./megabox.server";
+import { fetchCgvKtSeatmap } from "./kt.server";
 import { applyCgvSeatHits, lookupSeatHit, mergeShowtimes, putSeatHit, type SeatHitMap } from "./seats";
 import { loadSeatLastKnown, saveSeatLastKnown } from "./seat-cache.server";
 import type {
@@ -65,6 +66,17 @@ export async function runScan(input: {
         showtimes: [] as Showtime[],
       }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
+  // KT 쇼무비 경로: 공홈/우회조회 다음 3번째 CGV 잔여석 안전망. 극장당 상영작 전체를
+  // 다시 조회하는 구조라 요청량을 아끼려고 오늘·내일 이틀치만 본다.
+  const ktSeats = [...wanted].some(isCgvId)
+    ? fetchCgvKtSeatmap({
+        theaters: [...wanted].filter(isCgvId),
+        dates: playDates.slice(0, 2),
+      }).catch(() => ({
+        map: {} as SeatHitMap,
+        showtimes: [] as Showtime[],
+      }))
+    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const megaSeats = [...wanted].some(
     (id) => id === "megabox_coex" || id === "megabox_namyangju",
   )
@@ -91,13 +103,14 @@ export async function runScan(input: {
     }
   }
 
-  const [catalog, cgvComing, seats, officialCgv, relay, mega, gasList, ...theaters] =
+  const [catalog, cgvComing, seats, officialCgv, relay, kt, mega, gasList, ...theaters] =
     await Promise.all([
       rankingPromise,
       cgvComingPromise,
       gasSeats,
       officialCgvSeats,
       relaySeats,
+      ktSeats,
       megaSeats,
       gasShows,
       ...jobs,
@@ -117,17 +130,21 @@ export async function runScan(input: {
     const extraRelay = isCgvId(theater.theaterId)
       ? relay.showtimes.filter((row) => row.theaterId === theater.theaterId)
       : [];
+    const extraKt = isCgvId(theater.theaterId)
+      ? kt.showtimes.filter((row) => row.theaterId === theater.theaterId)
+      : [];
     const extraGas = gasList.filter((row) => row.theaterId === theater.theaterId);
     const extraOfficial = [...extraMega, ...extraOfficialCgv];
-    const extra = [...extraGas, ...extraRelay, ...extraOfficial];
+    const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraOfficial];
     const merged = extra.length
       ? mergeShowtimes(theater.showtimes, extra)
       : theater.showtimes;
-    const live = applySeatLayers(merged, [officialMap, relay.map, gasMap]);
+    const live = applySeatLayers(merged, [officialMap, kt.map, relay.map, gasMap]);
     const showtimes = applyCgvSeatHits(live, lastKnown, false, false);
     let source = theater.source;
     if (!theater.showtimes.length) {
       if (extraOfficial.length) source = "official";
+      else if (extraKt.length) source = "cgv-kt";
       else if (extraRelay.length) source = "cgv-relay";
       else if (extraGas.length) source = "gas-cache";
     }
@@ -143,6 +160,7 @@ export async function runScan(input: {
     ...theater,
     seatSource: detectSeatSource(theater.showtimes, {
       official: officialMap,
+      kt: kt.map,
       relay: relay.map,
       gas: gasMap,
     }),
@@ -341,7 +359,7 @@ function applySeatLayers(rows: Showtime[], layers: SeatHitMap[]): Showtime[] {
 
 function detectSeatSource(
   rows: Showtime[],
-  maps: { official: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap },
+  maps: { official: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap },
 ) {
   const seated = rows.filter((row) => row.restSeats != null);
   if (!seated.length) return "none";
@@ -350,9 +368,11 @@ function detectSeatSource(
   const score = (map: SeatHitMap) =>
     live.filter((row) => lookupSeatHit(row, map)).length;
   const official = score(maps.official);
+  const kt = score(maps.kt);
   const relay = score(maps.relay);
   const gas = score(maps.gas);
-  if (official >= relay && official >= gas && official > 0) return "official";
+  if (official >= kt && official >= relay && official >= gas && official > 0) return "official";
+  if (kt >= relay && kt >= gas && kt > 0) return "cgv-kt";
   if (relay >= gas && relay > 0) return "cgv-relay";
   if (gas > 0) return "gas-cache";
   const chain = seated[0]?.chain;

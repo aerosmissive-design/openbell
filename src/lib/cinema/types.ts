@@ -262,6 +262,7 @@ export function sourcePlace(source: string) {
   if (source === "gas-cache") return "구글 스크립트";
   if (source === "yongsan-channel") return "용아맥 채널";
   if (source === "cgv-relay") return "CGV 우회조회";
+  if (source === "cgv-kt") return "KT 우회조회";
   if (source === "last-known") return "마지막 확인";
   return "";
 }
