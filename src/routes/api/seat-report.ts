@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { readAppMeta, writeAppMeta } from "@/lib/cinema/app-meta.server";
 
 const ALLOWED = new Set(["cgv_yongsan", "cgv_yeongdeungpo"]);
-const MAX_ROWS = 800;
+const MAX_ROWS = 5000;
 function reportToken() { return process.env.NAS_REPORT_TOKEN?.trim() || process.env.NAS_WORKER_TOKEN?.trim() || process.env.CRON_SECRET?.trim() || ""; }
 function authorized(request: Request) {
   const token = reportToken(); if (!token) return false;
@@ -11,6 +11,7 @@ function authorized(request: Request) {
 }
 function json(data: unknown, status = 200) { return Response.json(data, { status, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "authorization, content-type" } }); }
 type SeatRow = { playDate?: string; startTime?: string; hallName?: string; movieTitle?: string; movieNo?: string; restSeats?: number; totalSeats?: number };
+type ReporterSource = "pc" | "nas" | "nas423" | "nas225";
 function rowKey(r: SeatRow) { return `${String(r.playDate || "").trim()}|${String(r.startTime || "").trim()}|${String(r.hallName || "").trim()}|${String(r.movieTitle || "").trim()}`; }
 function cleanRows(rows: SeatRow[]) {
   const out: SeatRow[] = []; const seen = new Set<string>();
@@ -24,11 +25,12 @@ function cleanRows(rows: SeatRow[]) {
   }
   return out;
 }
+function normalizeSource(value: unknown): ReporterSource { const source = String(value || "").trim().toLowerCase(); if (source === "nas423" || source === "nas225" || source === "nas" || source === "pc") return source; return "pc"; }
 async function handleGet(request: Request) {
   if (!reportToken()) return json({ ok: false, error: "NAS_REPORT_TOKEN 이 없습니다" }, 503);
   if (!authorized(request)) return json({ ok: false, error: "unauthorized" }, 401);
   const now = Date.now(); const theaters: Record<string, { at: number; ageMs: number; count: number; source: string }> = {};
-  for (const id of ALLOWED) { const raw = await readAppMeta(`nas_seats:${id}`); if (!raw) continue; try { const parsed = JSON.parse(raw) as { at?: number; rows?: unknown[]; source?: string }; const at = Number(parsed.at) || 0; theaters[id] = { at, ageMs: at ? now - at : 0, count: Array.isArray(parsed.rows) ? parsed.rows.length : 0, source: parsed.source === "nas" ? "nas" : "pc" }; } catch {} }
+  for (const id of ALLOWED) { const raw = await readAppMeta(`nas_seats:${id}`); if (!raw) continue; try { const parsed = JSON.parse(raw) as { at?: number; rows?: unknown[]; source?: string }; const at = Number(parsed.at) || 0; theaters[id] = { at, ageMs: at ? now - at : 0, count: Array.isArray(parsed.rows) ? parsed.rows.length : 0, source: normalizeSource(parsed.source) }; } catch {} }
   return json({ ok: true, theaters });
 }
 async function handlePost(request: Request) {
@@ -38,7 +40,7 @@ async function handlePost(request: Request) {
   const record = body as { theaterId?: string; mode?: string; source?: string; showtimes?: SeatRow[] };
   const theaterId = String(record?.theaterId || "").trim(); if (!ALLOWED.has(theaterId)) return json({ ok: false, error: "unknown theater" }, 400);
   const incoming = cleanRows(Array.isArray(record?.showtimes) ? record.showtimes : []); if (!incoming.length) return json({ ok: false, error: "empty payload" }, 400);
-  const source = record.source === "nas" ? "nas" : "pc";
+  const source = normalizeSource(record.source);
   const merge = record.mode === "imax" || record.mode === "merge"; let rows = incoming;
   if (merge) { const prevRaw = await readAppMeta(`nas_seats:${theaterId}`); const byKey = new Map<string, SeatRow>(); if (prevRaw) { try { const prev = JSON.parse(prevRaw) as { rows?: SeatRow[] }; for (const r of cleanRows(Array.isArray(prev.rows) ? prev.rows : [])) byKey.set(rowKey(r), r); } catch {} } for (const r of incoming) byKey.set(rowKey(r), r); rows = [...byKey.values()].slice(0, MAX_ROWS); }
   await writeAppMeta(`nas_seats:${theaterId}`, JSON.stringify({ at: Date.now(), rows, mode: merge ? "merge" : "full", source }));
