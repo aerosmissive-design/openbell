@@ -106,6 +106,8 @@ export type HoldPrefs = {
   zone: HoldZone;
   autoOpen: boolean;
   minutes: number;
+  /** 알림 시 나스 도우미에 자동으로 잡 넣기 (서버에 NAS_WORKER_TOKEN 필요) */
+  nasAuto: boolean;
 };
 
 export const DEFAULT_HOLD: HoldPrefs = {
@@ -114,6 +116,7 @@ export const DEFAULT_HOLD: HoldPrefs = {
   zone: "center",
   autoOpen: false,
   minutes: 10,
+  nasAuto: true,
 };
 
 export function normalizeHold(raw?: Partial<HoldPrefs> | null): HoldPrefs {
@@ -135,6 +138,7 @@ export function normalizeHold(raw?: Partial<HoldPrefs> | null): HoldPrefs {
       Number.isFinite(minutes) && minutes >= 5
         ? Math.min(20, Math.max(5, Math.round(minutes)))
         : DEFAULT_HOLD.minutes,
+    nasAuto: raw?.nasAuto ?? DEFAULT_HOLD.nasAuto,
   };
 }
 
@@ -298,7 +302,7 @@ export const TIMETABLE_HELP = [
   {
     step: "1",
     title: "극장 공홈",
-    body: "메가박스 공식 시간표입니다. CGV 공홈은 이 서버에서 막혀 있어 건너뚱니다.",
+    body: "메가박스 공식 시간표입니다. CGV 공홈은 이 서버에서 막혀 있어 건너뜁니다.",
   },
   {
     step: "2",
@@ -316,7 +320,7 @@ export const SEAT_HELP = [
   {
     step: "1",
     title: "극장 공홈",
-    body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 서버에서 막혀 건너뚱니다.",
+    body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 서버에서 막혀 건너뜁니다.",
   },
   {
     step: "2",
@@ -326,7 +330,7 @@ export const SEAT_HELP = [
   {
     step: "3",
     title: "장애 알림",
-    body: "우회조회가 15분 넘게 비면 설정에 경고를 띠우고, 메일이 켜져 있으면 알려 줍니다. 시간표는 네이버로 유지됩니다.",
+    body: "우회조회가 15분 넘게 비면 설정에 경고를 띄우고, 메일이 켜져 있으면 알려 줍니다. 시간표는 네이버로 유지됩니다.",
   },
   {
     step: "4",
