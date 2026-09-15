@@ -164,7 +164,10 @@ type GasShowRow = { id?: string; theaterId?: string; theater?: string; title?: s
 
 function applySeatLayers(rows: Showtime[], layers: SeatHitMap[]): Showtime[] {
   let out = rows;
-  for (const layer of layers) out = applyCgvSeatHits(out, layer, false);
+  // Apply from lowest priority to highest priority. Each higher-priority source
+  // overwrites a lower-priority hit for the same showtime. This is per-showtime,
+  // so one bad/empty route cannot block a valid seat count from the next route.
+  for (const layer of [...layers].reverse()) out = applyCgvSeatHits(out, layer, true);
   return out;
 }
 
