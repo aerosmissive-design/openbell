@@ -2,6 +2,7 @@ import type { Showtime, TheaterId } from "./types";
 import { putSeatHit, type SeatHitMap } from "./seats";
 import { readAppMeta } from "./app-meta.server";
 import { cgvHallFromCapacity } from "./theaters";
+import { normalizePlayDate } from "@/lib/utils";
 
 const NAS_FRESH_MS = 3 * 60 * 1000;
 const THEATER_NAME: Record<string, string> = {
@@ -19,6 +20,7 @@ type NasRow = {
   totalSeats?: number;
 };
 type NasPayload = { at: number; rows: NasRow[]; source?: string };
+type NasSource = "pc" | "nas" | "nas423" | "nas225";
 
 export type NasHealth = {
   theaterId: TheaterId;
@@ -39,6 +41,11 @@ function parsePayload(raw: string): NasPayload | null {
   }
 }
 
+function normalizeNasSource(source?: string): NasSource {
+  if (source === "nas423" || source === "nas225" || source === "nas") return source;
+  return "pc";
+}
+
 export async function nasReporterHealth(
   theaters: TheaterId[] = ["cgv_yongsan", "cgv_yeongdeungpo"],
 ): Promise<NasHealth[]> {
@@ -54,22 +61,23 @@ export async function nasReporterHealth(
 
 export async function readNasSeatmap(
   theaters: TheaterId[],
-): Promise<{ map: SeatHitMap; showtimes: Showtime[]; source: "pc" | "nas" }> {
+): Promise<{ map: SeatHitMap; showtimes: Showtime[]; source: NasSource }> {
   const map: SeatHitMap = {};
   const showtimes: Showtime[] = [];
   const now = Date.now();
-  let source: "pc" | "nas" = "pc";
+  let source: NasSource = "pc";
   await Promise.all(theaters.map(async (theaterId) => {
     const parsed = parsePayload(await readAppMeta(`nas_seats:${theaterId}`));
     if (!parsed || now - parsed.at > NAS_FRESH_MS) return;
-    if (parsed.source === "nas") source = "nas";
+    const parsedSource = normalizeNasSource(parsed.source);
+    if (parsedSource === "nas423" || parsedSource === "nas225" || parsedSource === "nas") source = parsedSource;
     for (const r of parsed.rows) {
       const restSeats = Number(r.restSeats);
       if (!Number.isFinite(restSeats)) continue;
       const totalSeats = Number(r.totalSeats);
       const rawHall = String(r.hallName ?? "").trim();
       const movieTitle = String(r.movieTitle ?? "").trim();
-      const playDate = String(r.playDate ?? "").trim();
+      const playDate = normalizePlayDate(String(r.playDate ?? "").trim());
       const startTime = String(r.startTime ?? "").trim();
       if (!movieTitle || !playDate || !startTime) continue;
       const mapped = cgvHallFromCapacity(theaterId, rawHall, Number.isFinite(totalSeats) ? totalSeats : null);
@@ -92,6 +100,7 @@ export async function readNasSeatmap(
         bookable: true,
         seatLive: true,
         seatCheckedAt: new Date(parsed.at).toISOString(),
+        seatSource: parsedSource === "nas423" ? "g-nas423" : parsedSource === "nas225" ? "g-nas225" : parsedSource === "nas" ? "g-nas" : "g-pc",
       };
       showtimes.push(row);
       putSeatHit(map, row);
