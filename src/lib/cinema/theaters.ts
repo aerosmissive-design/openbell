@@ -141,19 +141,18 @@ export function cgvFormats(hallName: string): FormatId[] {
   ) {
     out.push("atmos");
   }
-  // 용산 20관 = IMAX (관 이름에 IMAX 텍스트가 없을 때)
-  if (/\b20\s*관\b/.test(hallName) || compact === "20관" || compact.includes("20관")) {
-    if (!out.includes("imax")) out.push("imax");
-  }
-  // 용산 3관 = ULTRA 4DX
-  if (/\b3\s*관\b/.test(hallName) || compact === "3관" || compact.includes("3관")) {
-    if (!out.includes("ultra4dx") && !out.includes("4dx")) out.push("ultra4dx");
-  }
-  // 용산 4관 = SCREENX (+ Atmos)
-  if (/\b4\s*관\b/.test(hallName) || compact === "4관" || compact.includes("4관")) {
-    if (!out.includes("screenx")) out.push("screenx");
-  }
   return out.length ? out : ["other"];
+}
+
+/** 용산만: 관 번호로 포맷 힌트 (영등포 관 번호와 충돌 방지) */
+function yongsanHallByNumber(hallName: string): FormatId[] | null {
+  const m = hallName.match(/(\d+)\s*관/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (n === 20) return ["imax"];
+  if (n === 3) return ["ultra4dx"];
+  if (n === 4) return ["screenx", "atmos"];
+  return null;
 }
 
 /**
@@ -189,6 +188,11 @@ export function cgvHallFromCapacity(
   const named = hallName ? cgvFormats(hallName) : (["other"] as FormatId[]);
   if (named.some((f) => f !== "other")) {
     return { hall: hallName, formats: named };
+  }
+  // 용산: "20관"처럼 이름만 오고 IMAX 텍스트가 없을 때
+  if (theaterId === "cgv_yongsan" && hallName) {
+    const byNum = yongsanHallByNumber(hallName);
+    if (byNum) return { hall: hallName, formats: byNum };
   }
   const hit =
     totalSeats != null ? CGV_CAPACITY[theaterId]?.[totalSeats] : undefined;
