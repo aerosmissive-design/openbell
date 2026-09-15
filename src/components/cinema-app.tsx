@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
 import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
+import { enqueueNasFromAlert } from "@/lib/cinema/nas-enqueue";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, type SeatHitMap } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
@@ -302,7 +303,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.22
+                v3.9.23
               </span>
             </h1>
           </div>
@@ -439,6 +440,32 @@ function toAlert(show: Showtime, all: Showtime[]): AlertItem {
   };
 }
 
+function queueNasJobs(items: AlertItem[], config: WatchConfig) {
+  if (!config.hold?.nasAuto) return;
+  const hold = config.hold;
+  const payload = items
+    .filter((a) => a.bookingUrl)
+    .slice(0, 8)
+    .map((a) => ({
+      movieTitle: a.movieTitle,
+      theaterId: a.theaterId,
+      playDate: a.playDate,
+      startTime: a.startTime,
+      hallName: a.hallName,
+      bookingUrl: a.bookingUrl,
+      seats: hold.seats,
+      zone: hold.zone,
+    }));
+  if (!payload.length) return;
+  void enqueueNasFromAlert({ data: { items: payload } })
+    .then((res) => {
+      if (res && "enqueued" in res && res.enqueued > 0) {
+        toast.message(`나스 도우미에 ${res.enqueued}건 전달`);
+      }
+    })
+    .catch(() => null);
+}
+
 function announce(items: AlertItem[], config: WatchConfig) {
   const head = items[0];
   if (!head) return;
@@ -446,6 +473,7 @@ function announce(items: AlertItem[], config: WatchConfig) {
   if (typeof Notification !== "undefined" && Notification.permission === "granted") {
     new Notification(head.title, { body: head.body });
   }
+  queueNasJobs(items, config);
   const batches = notifyBatches(items, 8);
   const first = notifyCopy(batches[0] ?? items, { total: items.length });
   if (config.telegramToken && config.telegramChatId) {
@@ -470,7 +498,7 @@ function announce(items: AlertItem[], config: WatchConfig) {
         payload: { title: first.subject, alerts: items },
       },
     }).catch(() => {
-      toast.error("카카오 웹훁 전송 실패");
+      toast.error("카카오 웹훅 전송 실패");
     });
   }
   if (config.kakaoRestKey && config.kakaoRefreshToken) {
