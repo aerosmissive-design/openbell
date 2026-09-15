@@ -49,6 +49,7 @@ export function AlertsView() {
             {alert.restSeats != null
               ? ` · ${alert.restSeats}${alert.totalSeats != null ? "/" + alert.totalSeats : ""}`
               : ""}
+            {alert.seatSource ? ` · ${alert.seatSource === "nas-report" ? "집 직접조회" : alert.seatSource === "cgv-kt" ? "KT 우회조회" : alert.seatSource === "cgv-relay" ? "CGV 우회조회" : ""}` : ""}
           </p>
           <div className="mt-3 flex gap-2">
             <a

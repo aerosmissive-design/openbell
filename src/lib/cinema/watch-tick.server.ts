@@ -89,6 +89,7 @@ function toAlert(show: Showtime, all: Showtime[]): AlertItem {
     formats: show.formats,
     restSeats: show.restSeats,
     totalSeats: show.totalSeats,
+    seatSource: show.seatSource,
   };
 }
 

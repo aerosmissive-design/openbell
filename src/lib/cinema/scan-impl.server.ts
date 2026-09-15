@@ -147,7 +147,7 @@ export async function runScan(input: {
       : [];
     const extraGas = gasList.filter((row) => row.theaterId === theater.theaterId);
     const extraOfficial = [...extraMega, ...extraOfficialCgv];
-    const extra = [...extraGas, ...extraRelay, ...extraNas, ...extraKt, ...extraOfficial];
+    const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraNas, ...extraOfficial];
     const merged = extra.length
       ? mergeShowtimes(theater.showtimes, extra)
       : theater.showtimes;
@@ -156,10 +156,6 @@ export async function runScan(input: {
     let source = theater.source;
     if (!theater.showtimes.length) {
       if (extraOfficial.length) source = "official";
-      else if (extraNas.length) source = "nas-report";
-      else if (extraNas.length) source = "nas-report";
-      else if (extraNas.length) source = "nas-report";
-      else if (extraNas.length) source = "nas-report";
       else if (extraNas.length) source = "nas-report";
       else if (extraKt.length) source = "cgv-kt";
       else if (extraRelay.length) source = "cgv-relay";

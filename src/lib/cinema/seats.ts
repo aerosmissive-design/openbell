@@ -452,6 +452,7 @@ export function seatChangeAlert(change: SeatChange, all: Showtime[] = []): Alert
     formats: change.show.formats,
     restSeats: change.next,
     totalSeats: change.show.totalSeats,
+    seatSource: change.show.seatSource,
   };
 }
 
