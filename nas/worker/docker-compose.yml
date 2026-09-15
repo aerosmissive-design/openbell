@@ -1,18 +1,31 @@
-# 나스 도우미 v3
-# 수정: OPENBELL_URL, NAS_WORKER_TOKEN, (선택) TELEGRAM_*
+# 나스 도우미 + noVNC (폰/PC 브라우저로 결제 화면 보기)
+#
+# 수정할 것:
+#   OPENBELL_URL, NAS_WORKER_TOKEN, TELEGRAM_*, NOVNC_PUBLIC_URL
+#
+# 결제 알림이 오면 폰 브라우저로:
+#   http://나스IP:6080/vnc.html
+#   (또는 NOVNC_PUBLIC_URL)
 
 services:
   nas-worker:
     build: .
     container_name: openbell-nas-worker
     restart: unless-stopped
+    ports:
+      - "6080:6080"
     environment:
       OPENBELL_URL: "https://openbell-fawn.vercel.app"
       NAS_WORKER_TOKEN: "여기에_베셀과_같은_토큰"
       POLL_SECONDS: "15"
-      HEADLESS: "1"
+      # 가상 화면에 창을 띄움 (noVNC로 보려면 0)
+      HEADLESS: "0"
+      HOLD_MINUTES: "10"
       PLAYWRIGHT_STATE_DIR: "/data"
-      # 오픈벨 설정에 쓰는 텔레그램과 동일하게
+      DISPLAY: ":99"
+      # 텔레그램에 넣을 주소 (집 랜이면 나스 IP)
+      # 예: http://192.168.0.50:6080/vnc.html
+      NOVNC_PUBLIC_URL: "http://나스IP:6080/vnc.html"
       TELEGRAM_BOT_TOKEN: ""
       TELEGRAM_CHAT_ID: ""
     volumes:
