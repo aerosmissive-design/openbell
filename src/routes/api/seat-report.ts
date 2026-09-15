@@ -27,20 +27,21 @@ function cleanRows(rows: SeatRow[]) {
 async function handleGet(request: Request) {
   if (!reportToken()) return json({ ok: false, error: "NAS_REPORT_TOKEN 이 없습니다" }, 503);
   if (!authorized(request)) return json({ ok: false, error: "unauthorized" }, 401);
-  const now = Date.now(); const theaters: Record<string, { at: number; ageMs: number; count: number }> = {};
-  for (const id of ALLOWED) { const raw = await readAppMeta(`nas_seats:${id}`); if (!raw) continue; try { const parsed = JSON.parse(raw) as { at?: number; rows?: unknown[] }; const at = Number(parsed.at) || 0; theaters[id] = { at, ageMs: at ? now - at : 0, count: Array.isArray(parsed.rows) ? parsed.rows.length : 0 }; } catch {} }
+  const now = Date.now(); const theaters: Record<string, { at: number; ageMs: number; count: number; source: string }> = {};
+  for (const id of ALLOWED) { const raw = await readAppMeta(`nas_seats:${id}`); if (!raw) continue; try { const parsed = JSON.parse(raw) as { at?: number; rows?: unknown[]; source?: string }; const at = Number(parsed.at) || 0; theaters[id] = { at, ageMs: at ? now - at : 0, count: Array.isArray(parsed.rows) ? parsed.rows.length : 0, source: parsed.source === "nas" ? "nas" : "pc" }; } catch {} }
   return json({ ok: true, theaters });
 }
 async function handlePost(request: Request) {
   if (!reportToken()) return json({ ok: false, error: "NAS_REPORT_TOKEN 이 없습니다" }, 503);
   if (!authorized(request)) return json({ ok: false, error: "unauthorized" }, 401);
   let body: unknown; try { body = await request.json(); } catch { return json({ ok: false, error: "invalid json" }, 400); }
-  const record = body as { theaterId?: string; mode?: string; showtimes?: SeatRow[] };
+  const record = body as { theaterId?: string; mode?: string; source?: string; showtimes?: SeatRow[] };
   const theaterId = String(record?.theaterId || "").trim(); if (!ALLOWED.has(theaterId)) return json({ ok: false, error: "unknown theater" }, 400);
   const incoming = cleanRows(Array.isArray(record?.showtimes) ? record.showtimes : []); if (!incoming.length) return json({ ok: false, error: "empty payload" }, 400);
+  const source = record.source === "nas" ? "nas" : "pc";
   const merge = record.mode === "imax" || record.mode === "merge"; let rows = incoming;
   if (merge) { const prevRaw = await readAppMeta(`nas_seats:${theaterId}`); const byKey = new Map<string, SeatRow>(); if (prevRaw) { try { const prev = JSON.parse(prevRaw) as { rows?: SeatRow[] }; for (const r of cleanRows(Array.isArray(prev.rows) ? prev.rows : [])) byKey.set(rowKey(r), r); } catch {} } for (const r of incoming) byKey.set(rowKey(r), r); rows = [...byKey.values()].slice(0, MAX_ROWS); }
-  await writeAppMeta(`nas_seats:${theaterId}`, JSON.stringify({ at: Date.now(), rows, mode: merge ? "merge" : "full" }));
-  return json({ ok: true, count: incoming.length, stored: rows.length, merge });
+  await writeAppMeta(`nas_seats:${theaterId}`, JSON.stringify({ at: Date.now(), rows, mode: merge ? "merge" : "full", source }));
+  return json({ ok: true, count: incoming.length, stored: rows.length, merge, source });
 }
 export const Route = createFileRoute("/api/seat-report")({ server: { handlers: { OPTIONS: () => json({ ok: true }), GET: ({ request }) => handleGet(request), POST: ({ request }) => handlePost(request) } } });
