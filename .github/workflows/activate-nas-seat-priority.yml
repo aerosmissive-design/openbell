@@ -1,4 +1,4 @@
-name: Activate NAS seat source
+name: Activate NAS seat source (priority + alerts)
 
 on:
   push:
@@ -21,15 +21,10 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import re
-
-          # CGV seat priority must be: official > NAS/PC reporter > KT > relay > GAS.
           p = Path('src/lib/cinema/scan-impl.server.ts')
           s = p.read_text()
           if 'import { readNasSeatmap } from "./nas.server";' not in s:
-              s = s.replace(
-                  'import { fetchCgvKtSeatmap } from "./kt.server";\n',
-                  'import { fetchCgvKtSeatmap } from "./kt.server";\nimport { readNasSeatmap } from "./nas.server";\n',
-              )
+              s = s.replace('import { fetchCgvKtSeatmap } from "./kt.server";\n', 'import { fetchCgvKtSeatmap } from "./kt.server";\nimport { readNasSeatmap } from "./nas.server";\n')
           marker = '  const ktSeats = [...wanted].some(isCgvId)'
           if 'const nasSeats =' not in s:
               block = '''  // 집 PC/NAS가 집 인터넷으로 CGV 공홈 잔여석을 읽어 올린 값. 공홈 다음 2순위.
@@ -41,54 +36,20 @@ jobs:
             : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
           '''
               s = s.replace(marker, block + marker)
-          s = s.replace(
-              'const [catalog, cgvComing, seats, officialCgv, relay, kt, mega, gasList, ...theaters] =',
-              'const [catalog, cgvComing, seats, officialCgv, relay, nas, kt, mega, gasList, ...theaters] =',
-          )
+          s = s.replace('const [catalog, cgvComing, seats, officialCgv, relay, kt, mega, gasList, ...theaters] =', 'const [catalog, cgvComing, seats, officialCgv, relay, nas, kt, mega, gasList, ...theaters] =')
           s = s.replace('      relaySeats,\n      ktSeats,', '      relaySeats,\n      nasSeats,\n      ktSeats,')
           if 'const extraNas =' not in s:
-              s = s.replace(
-                  '    const extraKt = isCgvId(theater.theaterId)',
-                  '    const extraNas = isCgvId(theater.theaterId)\n      ? nas.showtimes.filter((row) => row.theaterId === theater.theaterId)\n      : [];\n    const extraKt = isCgvId(theater.theaterId)',
-              )
-          s = s.replace(
-              'const extra = [...extraGas, ...extraRelay, ...extraNas, ...extraKt, ...extraOfficial];',
-              'const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraNas, ...extraOfficial];',
-          )
-          # Older snapshots may not yet contain NAS in the merge list.
-          s = s.replace(
-              'const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraOfficial];',
-              'const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraNas, ...extraOfficial];',
-          )
-          s = s.replace(
-              'applySeatLayers(merged, [officialMap, kt.map, relay.map, gasMap])',
-              'applySeatLayers(merged, [officialMap, nas.map, kt.map, relay.map, gasMap])',
-          )
-          # Collapse accidental duplicate NAS source branches from earlier patch runs.
-          s = re.sub(
-              r'(else if \(extraNas\.length\) source = "nas-report";\n\s*){2,}',
-              'else if (extraNas.length) source = "nas-report";\n      ',
-              s,
-          )
-          # Ensure the seat-source detector knows NAS and ranks it second.
-          s = s.replace(
-              'maps: { official: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }',
-              'maps: { official: SeatHitMap; nas: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }',
-          )
+              s = s.replace('    const extraKt = isCgvId(theater.theaterId)', '    const extraNas = isCgvId(theater.theaterId)\n      ? nas.showtimes.filter((row) => row.theaterId === theater.theaterId)\n      : [];\n    const extraKt = isCgvId(theater.theaterId)')
+          s = s.replace('const extra = [...extraGas, ...extraRelay, ...extraNas, ...extraKt, ...extraOfficial];', 'const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraNas, ...extraOfficial];')
+          s = s.replace('const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraOfficial];', 'const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraNas, ...extraOfficial];')
+          s = s.replace('applySeatLayers(merged, [officialMap, kt.map, relay.map, gasMap])', 'applySeatLayers(merged, [officialMap, nas.map, kt.map, relay.map, gasMap])')
+          s = re.sub(r'(else if \(extraNas\.length\) source = "nas-report";\n\s*){2,}', 'else if (extraNas.length) source = "nas-report";\n      ', s)
+          s = s.replace('maps: { official: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }', 'maps: { official: SeatHitMap; nas: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }')
           if 'const nas = score(maps.nas);' not in s:
-              s = s.replace(
-                  'const official = score(maps.official);\n  const kt = score(maps.kt);',
-                  'const official = score(maps.official);\n  const nas = score(maps.nas);\n  const kt = score(maps.kt);',
-              )
-          s = s.replace(
-              'if (official >= kt && official >= relay && official >= gas && official > 0) return "official";',
-              'if (official >= nas && official >= kt && official >= relay && official >= gas && official > 0) return "official";\n  if (nas >= kt && nas >= relay && nas >= gas && nas > 0) return "nas-report";',
-          )
+              s = s.replace('const official = score(maps.official);\n  const kt = score(maps.kt);', 'const official = score(maps.official);\n  const nas = score(maps.nas);\n  const kt = score(maps.kt);')
+          s = s.replace('if (official >= kt && official >= relay && official >= gas && official > 0) return "official";', 'if (official >= nas && official >= kt && official >= relay && official >= gas && official > 0) return "official";\n  if (nas >= kt && nas >= relay && nas >= gas && nas > 0) return "nas-report";')
           p.write_text(s)
 
-          # Make the existing notification path explicitly preserve the seat-source label.
-          # This does not change when alerts fire: reporter-derived seat changes already flow
-          # through runWatchTick -> diffStarSeats -> seatChangeAlert -> notifyChannels.
           t = Path('src/lib/cinema/types.ts')
           ts = t.read_text()
           if '  seatSource?: string;\n' not in ts:
@@ -97,18 +58,12 @@ jobs:
 
           w = Path('src/lib/cinema/watch-tick.server.ts')
           ws = w.read_text()
-          ws = ws.replace(
-              '    totalSeats: show.totalSeats,\n  };\n}\n\nfunction canNotify',
-              '    totalSeats: show.totalSeats,\n    seatSource: show.seatSource,\n  };\n}\n\nfunction canNotify',
-          )
+          ws = ws.replace('    totalSeats: show.totalSeats,\n  };\n}\n\nfunction canNotify', '    totalSeats: show.totalSeats,\n    seatSource: show.seatSource,\n  };\n}\n\nfunction canNotify')
           w.write_text(ws)
 
           a = Path('src/lib/cinema/seats.ts')
           ss = a.read_text()
-          ss = ss.replace(
-              '    totalSeats: change.show.totalSeats,\n  };\n}\n\nexport function notifyBatches',
-              '    totalSeats: change.show.totalSeats,\n    seatSource: change.show.seatSource,\n  };\n}\n\nexport function notifyBatches',
-          )
+          ss = ss.replace('    totalSeats: change.show.totalSeats,\n  };\n}\n\nexport function notifyBatches', '    totalSeats: change.show.totalSeats,\n    seatSource: change.show.seatSource,\n  };\n}\n\nexport function notifyBatches')
           a.write_text(ss)
 
           av = Path('src/components/alerts-view.tsx')
