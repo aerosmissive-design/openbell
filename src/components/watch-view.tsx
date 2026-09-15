@@ -345,18 +345,27 @@ function MovieCard({
   const watchTitles = useAppStore((s) => s.config.watchTitles);
   const toggleRank = useAppStore((s) => s.toggleRank);
   const toggleWatchTitle = useAppStore((s) => s.toggleWatchTitle);
-  const selected =
-    mode === "chart"
-      ? ranks.includes(movie.rank)
-      : watchTitles.some(
-          (t) => normalizeTitle(t) === normalizeTitle(movie.title),
-        );
+  // rank는 스캔마다 다시 매겨지는 "지금 몇 위인지"일 뿐 영화 고유 ID가 아니라서,
+  // 순위 숫자만 보고 픽을 표시하면 영화가 차트 안에서 자리를 옮기거나 차트 밖으로
+  // 빠질 때 픽이 다른 영화로 옮겨붙거나 조용히 풀릴 수 있다. 제목 기준을 항상
+  // 같이 봐서 그런 흔들림에도 픽 표시가 안정적으로 유지되게 한다.
+  const legacyRankPick = mode === "chart" && ranks.includes(movie.rank);
+  const titlePick = watchTitles.some(
+    (t) => normalizeTitle(t) === normalizeTitle(movie.title),
+  );
+  const selected = legacyRankPick || titlePick;
   return (
     <button
       type="button"
-      onClick={() =>
-        mode === "chart" ? toggleRank(movie.rank) : toggleWatchTitle(movie.title)
-      }
+      onClick={() => {
+        // 예전 방식(순위 칸)으로 찍힌 픽이면 그 자리를 정리하고,
+        // 새 픽은 항상 제목 기준으로 남겨서 순위가 바뀌어도 계속 따라간다.
+        if (legacyRankPick) {
+          toggleRank(movie.rank);
+          return;
+        }
+        toggleWatchTitle(movie.title);
+      }}
       className={cn(
         "rise-in flex flex-col rounded-lg bg-surface text-left shadow-border transition-[box-shadow,outline-color] duration-150",
         selected && "outline outline-2 outline-offset-2 outline-notify",
