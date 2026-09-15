@@ -1,54 +1,48 @@
-# 나스 도우미 v2 (Playwright)
+# 나스 도우미 v3 — 할 일 최소
 
-베셀 작업을 받아 브라우저로 예매를 시도하고, **결제 직전에서 멈춥니다.**
+코드는 이미 들어가 있습니다. **아래만** 하면 됩니다.
 
 ---
 
-## 준비되면 할 일
+## 1) 베셀 (한 번)
 
-### 베셀
-1. `NAS_WORKER_TOKEN` 환경변수 추가
-2. Redeploy ( `/api/nas-jobs` 포함된 최신 배포 )
+| 환경변수 | 값 |
+|----------|-----|
+| `NAS_WORKER_TOKEN` | 긴 비밀번호 |
 
-### 나스 (DS423+ 권장, RAM 여유)
-1. `nas/worker` 폴더 업로드
-2. `docker-compose.yml` 토큰·URL 수정
-3. Container Manager로 빌드·실행 (첫 빌드 김)
-4. 로그: `[나스도우미] v2 시작`
+저장 후 **Redeploy**
 
-### 테스트
+→ 알림 시 자동으로 나스 잡 등록 (`nasAuto` 기본 ON)
+
+---
+
+## 2) 나스
+
+`docker-compose.yml` 수정:
+
+- `OPENBELL_URL`
+- `NAS_WORKER_TOKEN` (위와 동일)
+- `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` (오픈벨 텔레그램과 같게 → 결제 안내)
+
+Container Manager로 실행. 로그: `[나스도우미] v3 시작`
+
+---
+
+## 3) 로그인 쿠키 (한 번)
+
 ```bash
-curl -X POST "$URL/api/nas-jobs" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"movieTitle":"테스트","theaterId":"cgv_yongsan","playDate":"2026-09-20","startTime":"19:30","bookingUrl":"https://실제_예매_URL","seats":2,"zone":"center","preferredSeats":["G8","G9"]}'
+cd nas/worker && npm i
+HEADLESS=0 PLAYWRIGHT_STATE_DIR=./data node login-setup.mjs cgv
+# 로그인 후 Enter
+HEADLESS=0 PLAYWRIGHT_STATE_DIR=./data node login-setup.mjs megabox
 ```
 
----
-
-## 동작 요약
-
-| 상황 | 결과 status |
-|------|-------------|
-| 결제 화면 근처까지 감 | `done` (결제 클릭 안 함) |
-| 캡차·로그인 필요 | `need_user` |
-| 좌석 UI 못 찾음 | `need_user` |
-| 오류 | `failed` |
-
-결제하기/결제완료 버튼은 페이지 스크립트로 **클릭 차단**합니다.
+`data/storage-*.json` 을 컨테이너 `/data` 에 넣기.
 
 ---
 
-## 한계
+## 흐름
 
-- 사이트 UI 변경 시 `book.mjs` 셀렉터 수정 필요
-- 로그인 쿠키 없으면 대부분 로그인 화면에서 멈춤 (연동은 이후)
-- 예매 URL이 좌석 화면에 가까울수록 유리
+알림 → 큐 → 나스 좌석 시도 → **결제 직전 STOP** → 텔레그램 “결제하세요”
 
----
-
-## 파일
-
-- `index.mjs` — 폴링
-- `book.mjs` — Playwright + STOP
-- `Dockerfile` / `docker-compose.yml`
+결제 버튼은 누르지 않습니다.
