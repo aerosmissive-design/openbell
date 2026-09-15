@@ -267,6 +267,7 @@ export function sourcePlace(source: string) {
   if (source === "yongsan-channel") return "용아맥 채널";
   if (source === "cgv-relay") return "CGV 우회조회";
   if (source === "cgv-kt") return "KT 우회조회";
+  if (source === "nas-report") return "집 직접조회";
   if (source === "last-known") return "마지막 확인";
   return "";
 }
@@ -324,18 +325,18 @@ export const SEAT_HELP = [
   },
   {
     step: "2",
-    title: "CGV 우회조회",
-    body: "용산·영등포 잔여석은 우회조회로 붙입니다. 구글스크립트는 없어도 됩니다.",
+    title: "집 직접조회",
+    body: "PC 또는 NAS가 집 인터넷으로 CGV 공홈 잔여석을 읽어 오픈벨에 올립니다. 공홈 다음 2순위입니다. IMAX는 더 자주 확인합니다.",
   },
   {
     step: "3",
-    title: "장애 알림",
-    body: "우회조회가 15분 넘게 비면 설정에 경고를 띄우고, 메일이 켜져 있으면 알려 줍니다. 시간표는 네이버로 유지됩니다.",
+    title: "CGV 우회조회",
+    body: "집 리포터가 없거나 끊기면 우회조회·KT 순으로 붙입니다. 구글스크립트는 없어도 됩니다.",
   },
   {
     step: "4",
     title: "마지막 확인",
-    body: "공홈·우회·구글스크립트가 모두 실패하면, 마지막으로 성공한 숫자를 ‘N분 전 확인’으로 보여 줍니다. 이번 조회에서 받은 숫자는 ‘실시간’입니다.",
+    body: "공홈·집 리포터·우회가 모두 실패하면, 마지막으로 성공한 숫자를 ‘N분 전 확인’으로 보여 줍니다. 이번 조회에서 받은 숫자는 ‘실시간’입니다.",
   },
 ];
 
