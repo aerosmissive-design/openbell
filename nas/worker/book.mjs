@@ -1,11 +1,13 @@
 /**
  * 예매 도우미 본문 (Playwright)
- *
- * 목표: 예매 URL → (가능하면) 좌석 선택 → 결제 페이지 직전에서 멈춤
- * 금지: 결제 확정 버튼 클릭, 캡차 우회
+ * - 결제 확정 클릭 금지
+ * - 캡차 우회 금지
+ * - 체인별 storageState 로 로그인 쿠키 유지
  */
 
 import { chromium } from "playwright";
+import fs from "node:fs";
+import path from "node:path";
 
 const PAY_BLOCK_RE =
   /결제하기|결제완료|결제\s*하기|pay\s*now|confirm\s*payment|카드결제|간편결제\s*완료/i;
@@ -14,13 +16,18 @@ const CAPTCHA_RE =
 const LOGIN_RE = /로그인|sign\s*in|log\s*in|cj\s*one|아이디.*비밀번호/i;
 const SEAT_HINT_RE = /좌석|seat|선점|선택\s*완료|인원/i;
 
+const STATE_DIR = process.env.PLAYWRIGHT_STATE_DIR || "/data";
+
 function chainOf(theaterId = "") {
   if (String(theaterId).startsWith("megabox")) return "megabox";
   return "cgv";
 }
 
+function statePath(chain) {
+  return path.join(STATE_DIR, `storage-${chain}.json`);
+}
+
 function zoneRowHint(zone) {
-  // 대략적 행 선호 (사이트마다 알파벳 다름 — 실패해도 다음 빈 자리)
   if (zone === "front") return /^[A-D]$/i;
   if (zone === "rear") return /^[K-Z]$/i;
   return /^[E-J]$/i;
@@ -45,7 +52,6 @@ async function pageSignals(page) {
   };
 }
 
-/** 결제 확정으로 보이는 클릭은 전부 차단 */
 async function blockPayClicks(page) {
   await page.addInitScript(() => {
     const bad =
@@ -72,8 +78,6 @@ async function tryClickPreferredSeats(page, job) {
     ? job.preferredSeats.map((s) => String(s).toUpperCase())
     : [];
   const zoneRe = zoneRowHint(job.zone);
-
-  // 흔한 좌석 버튼 후보 (사이트 개편 시 여기만 손보면 됨)
   const seatSelectors = [
     "[data-seat]:not([disabled])",
     "[data-seatno]:not([disabled])",
@@ -85,7 +89,6 @@ async function tryClickPreferredSeats(page, job) {
     "[class*='seat'][class*='avail']",
     "button[class*='Seat']:not([disabled])",
   ];
-
   const clicked = [];
   for (const sel of seatSelectors) {
     const loc = page.locator(sel);
@@ -104,10 +107,7 @@ async function tryClickPreferredSeats(page, job) {
         .toUpperCase()
         .replace(/\s+/g, "");
       if (PAY_BLOCK_RE.test(label)) continue;
-      if (preferred.length && !preferred.some((p) => label.includes(p))) {
-        // 선호 목록이 있으면 그것만
-        continue;
-      }
+      if (preferred.length && !preferred.some((p) => label.includes(p))) continue;
       if (!preferred.length && label && zoneRe) {
         const row = label.charAt(0);
         if (/[A-Z]/.test(row) && !zoneRe.test(row)) continue;
@@ -122,8 +122,6 @@ async function tryClickPreferredSeats(page, job) {
     }
     if (clicked.length >= want) break;
   }
-
-  // 선호 못 맞추면 아무 빈 자리나
   if (clicked.length < want) {
     for (const sel of seatSelectors) {
       const loc = page.locator(sel);
@@ -147,16 +145,7 @@ async function tryClickPreferredSeats(page, job) {
 }
 
 async function tryProceedTowardPayment(page) {
-  // 좌석 선택 후 "다음" / "결제하기 전 단계" 정도만 — 결제 확정 문구는 제외
-  const nextLabels = [
-    "다음",
-    "선택완료",
-    "선택 완료",
-    "확인",
-    "예매",
-    "계속",
-    "Next",
-  ];
+  const nextLabels = ["다음", "선택완료", "선택 완료", "확인", "예매", "계속", "Next"];
   for (const label of nextLabels) {
     if (PAY_BLOCK_RE.test(label)) continue;
     const btn = page.getByRole("button", { name: new RegExp(label, "i") });
@@ -175,9 +164,16 @@ async function tryProceedTowardPayment(page) {
   return false;
 }
 
-/**
- * @returns {{ status: 'done'|'need_user'|'failed', message: string, url?: string }}
- */
+async function saveState(context, chain) {
+  try {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    await context.storageState({ path: statePath(chain) });
+    console.log("[book] storage saved", statePath(chain));
+  } catch (err) {
+    console.warn("[book] storage save failed", err?.message || err);
+  }
+}
+
 export async function runBookingJob(job, opts = {}) {
   const headless = opts.headless !== false;
   const timeoutMs = Math.min(Math.max(Number(opts.timeoutMs) || 90_000, 20_000), 180_000);
@@ -191,12 +187,20 @@ export async function runBookingJob(job, opts = {}) {
     headless,
     args: ["--disable-blink-features=AutomationControlled"],
   });
-  const context = await browser.newContext({
+
+  const storage = statePath(chain);
+  const contextOpts = {
     locale: "ko-KR",
     viewport: { width: 1280, height: 900 },
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  });
+  };
+  if (fs.existsSync(storage)) {
+    contextOpts.storageState = storage;
+    console.log("[book] using storage", storage);
+  }
+
+  const context = await browser.newContext(contextOpts);
   const page = await context.newPage();
   await blockPayClicks(page);
 
@@ -218,7 +222,8 @@ export async function runBookingJob(job, opts = {}) {
     if (sig.hasLogin) {
       return {
         status: "need_user",
-        message: "로그인 필요 — 브라우저에서 로그인 후 다시 시도하거나 쿠키 연동 필요",
+        message:
+          "로그인 필요 — nas/worker 에서 login-setup 한 번 실행해 쿠키를 저장하세요",
         url: page.url(),
       };
     }
@@ -231,6 +236,10 @@ export async function runBookingJob(job, opts = {}) {
     }
 
     sig = await pageSignals(page);
+    if (!sig.hasLogin && !sig.hasCaptcha) {
+      await saveState(context, chain);
+    }
+
     if (sig.hasCaptcha) {
       return {
         status: "need_user",
@@ -240,7 +249,6 @@ export async function runBookingJob(job, opts = {}) {
     }
 
     if (sig.hasPayWall || /결제/i.test(sig.url)) {
-      // 결제 페이지까지 왔으면 성공으로 보고하고 멈춤 (클릭 안 함)
       return {
         status: "done",
         message: `결제 직전 도달(자동 결제 없음). 좌석시도=${clicked.join(",") || "없음"} chain=${chain}`,
@@ -251,14 +259,14 @@ export async function runBookingJob(job, opts = {}) {
     if (clicked.length > 0) {
       return {
         status: "need_user",
-        message: `좌석 ${clicked.length}개 클릭 추정, 결제 화면 미확인 — 직접 확인. url=${page.url()}`,
+        message: `좌석 ${clicked.length}개 클릭 추정, 결제 화면 미확인 — 직접 확인`,
         url: page.url(),
       };
     }
 
     return {
       status: "need_user",
-      message: `좌석 UI를 못 찾음(${chain}). 로그인·회차 선택 후 URL을 다시 넣어 보세요. url=${page.url()}`,
+      message: `좌석 UI를 못 찾음(${chain}). 로그인 쿠키 또는 예매 URL 확인`,
       url: page.url(),
     };
   } catch (err) {
