@@ -1,0 +1,50 @@
+name: Activate NAS seat source
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch scan priority
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/cinema/scan-impl.server.ts')
+          s = p.read_text()
+          if 'import { readNasSeatmap } from "./nas.server";' not in s:
+              s = s.replace('import { fetchCgvKtSeatmap } from "./kt.server";\n', 'import { fetchCgvKtSeatmap } from "./kt.server";\nimport { readNasSeatmap } from "./nas.server";\n')
+          marker = '  const ktSeats = [...wanted].some(isCgvId)'
+          if 'const nasSeats =' not in s:
+              block = '''  // 집 PC/NAS가 집 인터넷으로 CGV 공홈 잔여석을 읽어 올린 값. 공홈 다음 2순위.\n  const nasSeats = [...wanted].some(isCgvId)\n    ? readNasSeatmap([...wanted].filter(isCgvId)).catch(() => ({\n        map: {} as SeatHitMap,\n        showtimes: [] as Showtime[],\n      }))\n    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });\n'''
+              s = s.replace(marker, block + marker)
+          s = s.replace('const [catalog, cgvComing, seats, officialCgv, relay, kt, mega, gasList, ...theaters] =', 'const [catalog, cgvComing, seats, officialCgv, relay, nas, kt, mega, gasList, ...theaters] =')
+          s = s.replace('      relaySeats,\n      ktSeats,', '      relaySeats,\n      nasSeats,\n      ktSeats,')
+          if 'const extraNas =' not in s:
+              s = s.replace('    const extraKt = isCgvId(theater.theaterId)', '    const extraNas = isCgvId(theater.theaterId)\n      ? nas.showtimes.filter((row) => row.theaterId === theater.theaterId)\n      : [];\n    const extraKt = isCgvId(theater.theaterId)')
+          s = s.replace('const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraOfficial];', 'const extra = [...extraGas, ...extraRelay, ...extraNas, ...extraKt, ...extraOfficial];')
+          s = s.replace('applySeatLayers(merged, [officialMap, kt.map, relay.map, gasMap])', 'applySeatLayers(merged, [officialMap, nas.map, kt.map, relay.map, gasMap])')
+          s = s.replace('else if (extraKt.length) source = "cgv-kt";', 'else if (extraNas.length) source = "nas-report";\n      else if (extraKt.length) source = "cgv-kt";')
+          s = s.replace('official: officialMap,\n      kt: kt.map,', 'official: officialMap,\n      nas: nas.map,\n      kt: kt.map,')
+          s = s.replace('maps: { official: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }', 'maps: { official: SeatHitMap; nas: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }')
+          if 'const nas = score(maps.nas)' not in s:
+              s = s.replace('const official = score(maps.official);\n  const kt = score(maps.kt);', 'const official = score(maps.official);\n  const nas = score(maps.nas);\n  const kt = score(maps.kt);')
+              s = s.replace('if (official >= kt && official >= relay && official >= gas && official > 0) return "official";', 'if (official >= nas && official >= kt && official >= relay && official >= gas && official > 0) return "official";\n  if (nas >= kt && nas >= relay && nas >= gas && nas > 0) return "nas-report";')
+          p.write_text(s)
+          PY
+      - name: Commit patched source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/cinema/scan-impl.server.ts
+          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix(seats): activate NAS as second source" && git push; fi
