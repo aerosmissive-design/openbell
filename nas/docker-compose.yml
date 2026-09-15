@@ -1,0 +1,30 @@
+# 오픈벨 나스용 — 1단계 (웹만)
+#
+# 사용 방법 (Container Manager):
+# 1) 이 저장소를 나스에 받아 두기 (또는 nas 폴더만)
+# 2) Container Manager → 프로젝트 → 만들기
+# 3) 이 docker-compose.yml 선택
+# 4) 실행 후 브라우저에서 http://나스IP:3080
+#
+# 아직 "이미지 빌드"가 한 번 필요합니다.
+# 저장소 루트에 Dockerfile 이 생기면 아래 build 경로로 자동 빌드됩니다.
+
+services:
+  openbell:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: openbell-local
+    ports:
+      - "3080:8080"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=8080
+    # 데이터 유지하고 싶으면 주석 해제
+    # volumes:
+    #   - openbell-data:/app/data
+
+# volumes:
+#   openbell-data:
