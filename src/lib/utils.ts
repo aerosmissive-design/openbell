@@ -27,6 +27,17 @@ export function normalizeTitle(value: string): string {
     .toLowerCase();
 }
 
+/** 내부 상영일 키는 항상 YYYYMMDD 하나로 통일합니다. */
+export function normalizePlayDate(value: string): string {
+  const raw = String(value || "").trim();
+  if (/^\d{8}$/.test(raw)) return raw;
+  const iso = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (iso) {
+    return `${iso[1]}${String(Number(iso[2])).padStart(2, "0")}${String(Number(iso[3])).padStart(2, "0")}`;
+  }
+  return raw;
+}
+
 export function kstToday(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
@@ -50,8 +61,9 @@ export function kstDateKeys(days: number): string[] {
   return keys;
 }
 
-export function formatPlayDate(yyyymmdd: string): string {
-  if (yyyymmdd.length !== 8) return yyyymmdd;
+export function formatPlayDate(value: string): string {
+  const yyyymmdd = normalizePlayDate(value);
+  if (yyyymmdd.length !== 8) return value;
   const month = Number(yyyymmdd.slice(4, 6));
   const day = Number(yyyymmdd.slice(6, 8));
   const today = kstDateKeys(1)[0];
