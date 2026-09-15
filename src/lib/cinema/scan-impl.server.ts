@@ -9,6 +9,7 @@ import {
 } from "./cgv.server";
 import { fetchMegaboxCatalog, fetchMegaboxSeatmap, fetchNaverMegabox } from "./megabox.server";
 import { fetchCgvKtSeatmap } from "./kt.server";
+import { readNasSeatmap } from "./nas.server";
 import { applyCgvSeatHits, lookupSeatHit, mergeShowtimes, putSeatHit, type SeatHitMap } from "./seats";
 import { loadSeatLastKnown, saveSeatLastKnown } from "./seat-cache.server";
 import type {
@@ -68,6 +69,13 @@ export async function runScan(input: {
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   // KT 쇼무비 경로: 공홈/우회조회 다음 3번째 CGV 잔여석 안전망. 극장당 상영작 전체를
   // 다시 조회하는 구조라 요청량을 아끼려고 오늘·내일 이틀치만 본다.
+  // 집 PC/NAS가 집 인터넷으로 CGV 공홈 잔여석을 읽어 올린 값. 공홈 다음 2순위.
+  const nasSeats = [...wanted].some(isCgvId)
+    ? readNasSeatmap([...wanted].filter(isCgvId)).catch(() => ({
+        map: {} as SeatHitMap,
+        showtimes: [] as Showtime[],
+      }))
+    : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const ktSeats = [...wanted].some(isCgvId)
     ? fetchCgvKtSeatmap({
         theaters: [...wanted].filter(isCgvId),
@@ -103,13 +111,14 @@ export async function runScan(input: {
     }
   }
 
-  const [catalog, cgvComing, seats, officialCgv, relay, kt, mega, gasList, ...theaters] =
+  const [catalog, cgvComing, seats, officialCgv, relay, nas, kt, mega, gasList, ...theaters] =
     await Promise.all([
       rankingPromise,
       cgvComingPromise,
       gasSeats,
       officialCgvSeats,
       relaySeats,
+      nasSeats,
       ktSeats,
       megaSeats,
       gasShows,
@@ -130,20 +139,24 @@ export async function runScan(input: {
     const extraRelay = isCgvId(theater.theaterId)
       ? relay.showtimes.filter((row) => row.theaterId === theater.theaterId)
       : [];
+    const extraNas = isCgvId(theater.theaterId)
+      ? nas.showtimes.filter((row) => row.theaterId === theater.theaterId)
+      : [];
     const extraKt = isCgvId(theater.theaterId)
       ? kt.showtimes.filter((row) => row.theaterId === theater.theaterId)
       : [];
     const extraGas = gasList.filter((row) => row.theaterId === theater.theaterId);
     const extraOfficial = [...extraMega, ...extraOfficialCgv];
-    const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraOfficial];
+    const extra = [...extraGas, ...extraRelay, ...extraNas, ...extraKt, ...extraOfficial];
     const merged = extra.length
       ? mergeShowtimes(theater.showtimes, extra)
       : theater.showtimes;
-    const live = applySeatLayers(merged, [officialMap, kt.map, relay.map, gasMap]);
+    const live = applySeatLayers(merged, [officialMap, nas.map, kt.map, relay.map, gasMap]);
     const showtimes = applyCgvSeatHits(live, lastKnown, false, false);
     let source = theater.source;
     if (!theater.showtimes.length) {
       if (extraOfficial.length) source = "official";
+      else if (extraNas.length) source = "nas-report";
       else if (extraKt.length) source = "cgv-kt";
       else if (extraRelay.length) source = "cgv-relay";
       else if (extraGas.length) source = "gas-cache";
@@ -160,6 +173,7 @@ export async function runScan(input: {
     ...theater,
     seatSource: detectSeatSource(theater.showtimes, {
       official: officialMap,
+      nas: nas.map,
       kt: kt.map,
       relay: relay.map,
       gas: gasMap,
@@ -359,7 +373,7 @@ function applySeatLayers(rows: Showtime[], layers: SeatHitMap[]): Showtime[] {
 
 function detectSeatSource(
   rows: Showtime[],
-  maps: { official: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap },
+  maps: { official: SeatHitMap; nas: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap },
 ) {
   const seated = rows.filter((row) => row.restSeats != null);
   if (!seated.length) return "none";
@@ -368,10 +382,12 @@ function detectSeatSource(
   const score = (map: SeatHitMap) =>
     live.filter((row) => lookupSeatHit(row, map)).length;
   const official = score(maps.official);
+  const nas = score(maps.nas);
   const kt = score(maps.kt);
   const relay = score(maps.relay);
   const gas = score(maps.gas);
-  if (official >= kt && official >= relay && official >= gas && official > 0) return "official";
+  if (official >= nas && official >= kt && official >= relay && official >= gas && official > 0) return "official";
+  if (nas >= kt && nas >= relay && nas >= gas && nas > 0) return "nas-report";
   if (kt >= relay && kt >= gas && kt > 0) return "cgv-kt";
   if (relay >= gas && relay > 0) return "cgv-relay";
   if (gas > 0) return "gas-cache";
