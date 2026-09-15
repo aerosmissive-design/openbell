@@ -160,6 +160,7 @@ export async function runScan(input: {
       else if (extraNas.length) source = "nas-report";
       else if (extraNas.length) source = "nas-report";
       else if (extraNas.length) source = "nas-report";
+      else if (extraNas.length) source = "nas-report";
       else if (extraKt.length) source = "cgv-kt";
       else if (extraRelay.length) source = "cgv-relay";
       else if (extraGas.length) source = "gas-cache";
