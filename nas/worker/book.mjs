@@ -1,8 +1,8 @@
 /**
  * 예매 도우미 본문 (Playwright)
  *
- * 좌석: 황금점(맵 중앙)에 가까운 연속 N석 우선
- * 실패 시 다음 후보로 재시도 (결제 확정 클릭 없음)
+ * 좌석: 황금점 가까운 연속 N석, 실패 시 재시도
+ * 성공 시: 결제 확정 클릭 없이 브라우저를 N분 유지 → 사람이 직접 결제
  */
 
 import { chromium } from "playwright";
@@ -44,7 +44,6 @@ function rowIndex(letter) {
   return c.charCodeAt(0) - 65;
 }
 
-/** "G12", "g-12", "12열G" 등에서 행·열 추출 */
 function parseSeatLabel(raw) {
   const s = String(raw || "")
     .toUpperCase()
@@ -110,10 +109,6 @@ async function readSeatLabel(el) {
   return parts.filter(Boolean).join(" ");
 }
 
-/**
- * 페이지에서 예매 가능 좌석 수집 → 황금점 기준 연속 N석 후보 목록
- * 황금점 = (가용 좌석의 행 중앙, 열 중앙)
- */
 async function collectGoldenCandidates(page, want) {
   const seats = [];
   const seen = new Set();
@@ -139,7 +134,6 @@ async function collectGoldenCandidates(page, want) {
     if (seats.length >= 8) break;
   }
 
-  // 셀렉터로 거의 못 모으면 느슨하게 한 번 더
   if (seats.length < want) {
     for (const sel of SEAT_SELECTORS) {
       const loc = page.locator(sel);
@@ -183,31 +177,25 @@ async function collectGoldenCandidates(page, want) {
     `[book] 황금점 행=${String.fromCharCode(65 + goldenR)} 열=${goldenC} 가용=${pool.length} N=${want}`,
   );
 
-  // 같은 행에서 연속 N석 블록 만들기
   const byRow = new Map();
   for (const s of pool) {
     const k = s.ri != null ? s.ri : 99;
     if (!byRow.has(k)) byRow.set(k, []);
     byRow.get(k).push(s);
   }
-  for (const list of byRow.values()) {
-    list.sort((a, b) => a.col - b.col);
-  }
+  for (const list of byRow.values()) list.sort((a, b) => a.col - b.col);
 
   const blocks = [];
   for (const [ri, list] of byRow) {
     if (list[0]?.loose) {
-      // 느슨 모드: 앞에서부터 N개
       for (let i = 0; i + want <= list.length; i++) {
-        const chunk = list.slice(i, i + want);
         blocks.push({
-          seats: chunk,
+          seats: list.slice(i, i + want),
           score: Math.abs(ri - goldenR) * 100 + i,
         });
       }
       continue;
     }
-    // 연속 번호만
     for (let i = 0; i < list.length; i++) {
       const chunk = [list[i]];
       for (let j = i + 1; j < list.length && chunk.length < want; j++) {
@@ -216,8 +204,7 @@ async function collectGoldenCandidates(page, want) {
         else break;
       }
       if (chunk.length < want) continue;
-      const mid =
-        (chunk[0].col + chunk[chunk.length - 1].col) / 2;
+      const mid = (chunk[0].col + chunk[chunk.length - 1].col) / 2;
       const score =
         Math.abs(ri - goldenR) * 1000 +
         Math.abs(mid - goldenC) * 10 +
@@ -228,7 +215,6 @@ async function collectGoldenCandidates(page, want) {
 
   blocks.sort((a, b) => a.score - b.score);
 
-  // 연속 블록이 없으면 황금점에서 거리순 개별 N석
   if (!blocks.length) {
     const ranked = pool
       .map((s) => ({
@@ -246,7 +232,6 @@ async function collectGoldenCandidates(page, want) {
     }
   }
 
-  // 중복 블록 제거
   const uniq = [];
   const sigs = new Set();
   for (const b of blocks) {
@@ -268,15 +253,13 @@ async function clickSeatBlock(page, block) {
       clicked.push(s.label);
       await page.waitForTimeout(350);
     } catch {
-      // 인덱스가 밀렸을 수 있음 — 라벨로 재탐색
       let ok = false;
       for (const sel of SEAT_SELECTORS) {
         const all = page.locator(sel);
         const n = await all.count().catch(() => 0);
         for (let i = 0; i < n; i++) {
           const cand = all.nth(i);
-          const raw = await readSeatLabel(cand);
-          const p = parseSeatLabel(raw);
+          const p = parseSeatLabel(await readSeatLabel(cand));
           if (p && p.label === s.label) {
             try {
               await cand.click({ timeout: 2000 });
@@ -298,7 +281,6 @@ async function clickSeatBlock(page, block) {
 }
 
 async function clearSelection(page) {
-  // 선택 해제 시도 (실패해도 무시)
   const labels = ["좌석선택 초기화", "초기화", "다시선택", "선택해제", "취소"];
   for (const name of labels) {
     const btn = page.getByRole("button", { name: new RegExp(name, "i") });
@@ -312,7 +294,6 @@ async function clearSelection(page) {
       }
     }
   }
-  // 선택된 좌석 다시 클릭해 토글 해제 시도
   for (const sel of [
     ".seat.selected",
     ".seat_selected",
@@ -360,9 +341,6 @@ async function saveState(context, chain) {
   }
 }
 
-/**
- * 황금열 후보를 순서대로 시도. 실패하면 선택 해제 후 다음 블록.
- */
 async function selectSeatsWithRetry(page, job) {
   const want = Math.max(1, Math.min(8, Number(job.seats) || 2));
   const preferred = Array.isArray(job.preferredSeats)
@@ -371,12 +349,10 @@ async function selectSeatsWithRetry(page, job) {
 
   let candidates = await collectGoldenCandidates(page, want);
 
-  // preferredSeats 가 있으면 그 조합을 맨 앞에
   if (preferred.length >= want) {
-    const wantSet = preferred.slice(0, want);
     candidates = [
       {
-        seats: wantSet.map((label, i) => ({
+        seats: preferred.slice(0, want).map((label, i) => ({
           label,
           row: label.charAt(0),
           col: Number(label.slice(1)) || i,
@@ -391,19 +367,16 @@ async function selectSeatsWithRetry(page, job) {
     ];
   }
 
-  if (!candidates.length) {
-    return { ok: false, clicked: [], tries: 0 };
-  }
+  if (!candidates.length) return { ok: false, clicked: [], tries: 0 };
 
   const maxTries = Math.min(candidates.length, 8);
   for (let t = 0; t < maxTries; t++) {
     const block = candidates[t];
-    const names = block.seats.map((s) => s.label).join(",");
-    console.log(`[book] 시도 ${t + 1}/${maxTries}: ${names}`);
-
+    console.log(
+      `[book] 시도 ${t + 1}/${maxTries}: ${block.seats.map((s) => s.label).join(",")}`,
+    );
     if (t > 0) await clearSelection(page);
 
-    // preferred 전용 블록은 라벨로만 클릭
     if (block.seats[0]?.preferred) {
       const clicked = [];
       for (const label of preferred.slice(0, want)) {
@@ -441,29 +414,20 @@ async function selectSeatsWithRetry(page, job) {
     }
 
     const { ok, clicked } = await clickSeatBlock(page, block);
-    if (!ok) {
-      console.log("[book] 클릭 실패, 다음 후보");
-      continue;
-    }
+    if (!ok) continue;
 
     const progressed = await tryProceedTowardPayment(page);
     await page.waitForTimeout(800);
     const sig = await pageSignals(page);
-
-    // 매진/오류 문구
-    const failText = /좌석.*선택.*실패|이미\s*선택된|매진|선점.*실패|다시\s*선택/i.test(
-      sig.text,
-    );
-    if (failText) {
-      console.log("[book] 선점 실패 문구 → 재시도");
-      continue;
-    }
+    const failText =
+      /좌석.*선택.*실패|이미\s*선택된|매진|선점.*실패|다시\s*선택/i.test(
+        sig.text,
+      );
+    if (failText) continue;
 
     if (sig.hasPayWall || progressed || /결제/i.test(sig.url)) {
       return { ok: true, clicked, tries: t + 1, payish: true };
     }
-
-    // 좌석은 잡혔는데 다음 단계 불명확 → 일단 성공으로 보고
     if (clicked.length >= want) {
       return { ok: true, clicked, tries: t + 1, payish: false };
     }
@@ -472,11 +436,27 @@ async function selectSeatsWithRetry(page, job) {
   return { ok: false, clicked: [], tries: maxTries };
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * @param {object} job
+ * @param {object} [opts]
+ * @param {boolean} [opts.headless]
+ * @param {number} [opts.timeoutMs]
+ * @param {number} [opts.holdMinutes] 결제 대기 분 (브라우저 유지)
+ * @param {(info: object) => void|Promise<void>} [opts.onHold] 대기 시작 시 콜백(텔레그램 등)
+ */
 export async function runBookingJob(job, opts = {}) {
   const headless = opts.headless !== false;
   const timeoutMs = Math.min(
     Math.max(Number(opts.timeoutMs) || 90_000, 20_000),
     180_000,
+  );
+  const holdMinutes = Math.min(
+    20,
+    Math.max(1, Number(opts.holdMinutes) || Number(process.env.HOLD_MINUTES) || 10),
   );
   const chain = chainOf(job.theaterId);
 
@@ -544,30 +524,59 @@ export async function runBookingJob(job, opts = {}) {
     if (sig.hasCaptcha) {
       return {
         status: "need_user",
-        message: `좌석 시도 후 캡차 — 직접 결제 (${result.clicked.join(",")})`,
+        message: `좌석 시도 후 캡차 (${result.clicked.join(",")})`,
         url: page.url(),
       };
     }
 
-    if (result.ok && (result.payish || sig.hasPayWall || /결제/i.test(sig.url))) {
+    const reached =
+      result.ok &&
+      (result.payish ||
+        sig.hasPayWall ||
+        /결제/i.test(sig.url) ||
+        result.clicked.length > 0);
+
+    if (reached) {
+      const holdInfo = {
+        seats: result.clicked,
+        minutes: holdMinutes,
+        url: page.url(),
+        headless,
+        message: headless
+          ? `브라우저 ${holdMinutes}분 유지 중(헤드리스). 같은 계정으로 앱/웹에서 결제해 보세요. 선점은 사이트에 따라 풀릴 수 있습니다.`
+          : `브라우저 창이 ${holdMinutes}분 열려 있습니다. 그 창에서 직접 결제하세요. (결제하기는 자동으로 안 누름)`,
+      };
+
+      if (typeof opts.onHold === "function") {
+        await opts.onHold(holdInfo);
+      }
+
+      console.log(
+        `[book] 결제 대기 ${holdMinutes}분 시작 (headless=${headless}) 창을 닫지 마세요`,
+      );
+      await sleep(holdMinutes * 60 * 1000);
+      console.log("[book] 대기 종료, 브라우저 닫음");
+
       return {
         status: "done",
-        message: `결제 직전(자동결제 없음). 좌석=${result.clicked.join(",")} 시도=${result.tries}회`,
+        message: `결제 대기 ${holdMinutes}분 종료. 좌석=${result.clicked.join(",")} 시도=${result.tries}회`,
         url: page.url(),
+        held: true,
+        holdMinutes,
       };
     }
 
     if (result.ok) {
       return {
         status: "need_user",
-        message: `좌석=${result.clicked.join(",")} 선택됨. 결제 화면 확인 필요`,
+        message: `좌석=${result.clicked.join(",")} — 결제 화면 미확인`,
         url: page.url(),
       };
     }
 
     return {
       status: "need_user",
-      message: `황금열 후보 ${result.tries}회 모두 실패 — 직접 선택`,
+      message: `황금열 후보 ${result.tries}회 실패 — 직접 선택`,
       url: page.url(),
     };
   } catch (err) {
