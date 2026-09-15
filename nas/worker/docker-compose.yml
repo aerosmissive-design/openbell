@@ -1,0 +1,21 @@
+# 나스 도우미 — Container Manager 에서 이 파일로 프로젝트 생성
+#
+# 1) 아래 environment 값을 본인 것으로 수정
+# 2) 실행
+# 3) 로그에 "." 가 찍히면 폴링 중 (일 없음)
+
+services:
+  nas-worker:
+    image: node:22-alpine
+    container_name: openbell-nas-worker
+    working_dir: /app
+    volumes:
+      - ./index.mjs:/app/index.mjs:ro
+    command: ["node", "index.mjs"]
+    restart: unless-stopped
+    environment:
+      # 베셀 오픈벨 주소 (끝에 / 없이)
+      OPENBELL_URL: "https://openbell-fawn.vercel.app"
+      # 베셀 환경변수 NAS_WORKER_TOKEN 과 똑같은 값
+      NAS_WORKER_TOKEN: "여기에_토큰_넣기"
+      POLL_SECONDS: "15"
