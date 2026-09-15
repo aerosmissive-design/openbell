@@ -1,4 +1,4 @@
-import { kstDateKeys } from "@/lib/utils";
+import { kstDateKeys, normalizePlayDate } from "@/lib/utils";
 import {
   fetchCgvNaver,
   fetchCgvOfficialSeatmap,
@@ -81,12 +81,17 @@ export async function runScan(input: {
     const extraGas = gasList.filter((row) => row.theaterId === theater.theaterId);
     const extraOfficial = [...extraMega, ...extraOfficialCgv];
     const extra = [...extraGas, ...extraRelay, ...extraKt, ...extraNas, ...extraOfficial];
-    const merged = extra.length ? mergeShowtimes(theater.showtimes, extra) : theater.showtimes;
+    const base = normalizeShowtimes(theater.showtimes);
+    const normalizedExtra = normalizeShowtimes(extra);
+    const merged = normalizedExtra.length ? mergeShowtimes(base, normalizedExtra) : base;
     let live = applySeatLayers(merged, [officialMap, nas.map, kt.map, relay.map, gasMap]);
     if (isCgvId(theater.theaterId) && extraNas.length) {
       live = applyReporterFallback(live, extraNas);
     }
-    const showtimes = applyCgvSeatHits(live, lastKnown, false, false);
+    const showtimes = applyCgvSeatHits(live, lastKnown, false, false).map((row) => ({
+      ...row,
+      playDate: normalizePlayDate(row.playDate),
+    }));
     let source = theater.source;
     if (!theater.showtimes.length) {
       if (extraOfficial.length) source = "official";
@@ -113,6 +118,10 @@ export async function runScan(input: {
   };
 }
 
+function normalizeShowtimes(rows: Showtime[]): Showtime[] {
+  return rows.map((row) => ({ ...row, playDate: normalizePlayDate(row.playDate) }));
+}
+
 async function scanTheater(theaterId: TheaterId, playDates: string[], sources: ScanSources, gasShows: Promise<Showtime[]>): Promise<TheaterScan> {
   const naverPromise = sources.naver ? fetchNaver(theaterId).catch(() => new Map<string, Showtime[]>()) : Promise.resolve(new Map<string, Showtime[]>());
   const officialByDate = new Map<string, Showtime[]>();
@@ -130,7 +139,7 @@ async function scanTheater(theaterId: TheaterId, playDates: string[], sources: S
   }
   const source = usedOfficial ? "official" : usedNaver ? "naver-place" : usedTele ? "yongsan-channel" : usedGas ? "gas-cache" : "none";
   if (!showtimes.length) return { theaterId, ok: false, error: failMessage(theaterId, sources), showtimes: [], source, seatSource: "none" };
-  return { theaterId, ok: true, error: null, showtimes, source, seatSource: "none" };
+  return { theaterId, ok: true, error: null, showtimes: normalizeShowtimes(showtimes), source, seatSource: "none" };
 }
 
 async function fetchNaver(theaterId: TheaterId): Promise<Map<string, Showtime[]>> {
@@ -164,7 +173,7 @@ function applyReporterFallback(rows: Showtime[], reporter: Showtime[]): Showtime
     if (row.restSeats != null) return row;
     const hit = reporter.find((candidate) =>
       candidate.theaterId === row.theaterId &&
-      candidate.playDate === row.playDate &&
+      normalizePlayDate(candidate.playDate) === normalizePlayDate(row.playDate) &&
       normTime(candidate.startTime) === normTime(row.startTime) &&
       (titlesMatch(candidate.movieTitle, row.movieTitle) ||
         Boolean(candidate.movieNo && row.movieNo && candidate.movieNo === row.movieNo)),
@@ -176,6 +185,7 @@ function applyReporterFallback(rows: Showtime[], reporter: Showtime[]): Showtime
       totalSeats: hit.totalSeats ?? row.totalSeats,
       seatLive: true,
       seatCheckedAt: hit.seatCheckedAt ?? row.seatCheckedAt,
+      seatSource: hit.seatSource ?? row.seatSource,
     };
   });
 }
@@ -187,7 +197,7 @@ function normTime(time: string) {
   return `${padded.slice(0, 2)}:${padded.slice(-2)}`;
 }
 
-function detectSeatSource(rows: Showtime[], maps: { official: SeatHitMap; nas: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }, reporterSource: "pc" | "nas") {
+function detectSeatSource(rows: Showtime[], maps: { official: SeatHitMap; nas: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }, reporterSource: "pc" | "nas" | "nas423" | "nas225") {
   const seated = rows.filter((row) => row.restSeats != null);
   if (!seated.length) return "none";
   const live = seated.filter((row) => row.seatLive !== false);
@@ -195,7 +205,14 @@ function detectSeatSource(rows: Showtime[], maps: { official: SeatHitMap; nas: S
   const score = (map: SeatHitMap) => live.filter((row) => lookupSeatHit(row, map)).length;
   const official = score(maps.official), nas = score(maps.nas), kt = score(maps.kt), relay = score(maps.relay), gas = score(maps.gas);
   if (official >= nas && official >= kt && official >= relay && official >= gas && official > 0) return "official";
-  if (nas >= kt && nas >= relay && nas >= gas && nas > 0) return reporterSource === "nas" ? "g-nas" : "g-pc";
+  if (nas >= kt && nas >= relay && nas >= gas && nas > 0) {
+    const rowSource = live.find((row) => row.seatSource === "g-nas423" || row.seatSource === "g-nas225" || row.seatSource === "g-nas" || row.seatSource === "g-pc")?.seatSource;
+    if (rowSource) return rowSource;
+    if (reporterSource === "nas423") return "g-nas423";
+    if (reporterSource === "nas225") return "g-nas225";
+    if (reporterSource === "nas") return "g-nas";
+    return "g-pc";
+  }
   if (kt >= relay && kt >= gas && kt > 0) return "cgv-kt";
   if (relay >= gas && relay > 0) return "cgv-relay";
   if (gas > 0) return "gas-cache";
@@ -206,7 +223,7 @@ function detectSeatSource(rows: Showtime[], maps: { official: SeatHitMap; nas: S
 
 function byDateForTheater(shows: Showtime[], theaterId: TheaterId): Map<string, Showtime[]> {
   const map = new Map<string, Showtime[]>();
-  for (const show of shows) { if (show.theaterId !== theaterId) continue; const list = map.get(show.playDate) ?? []; list.push(show); map.set(show.playDate, list); }
+  for (const show of shows) { if (show.theaterId !== theaterId) continue; const normalized = normalizePlayDate(show.playDate); const list = map.get(normalized) ?? []; list.push({ ...show, playDate: normalized }); map.set(normalized, list); }
   return map;
 }
 
@@ -250,7 +267,7 @@ async function loadGasJson(url: string, params: Record<string, string>): Promise
 async function loadGasShows(url: string): Promise<Showtime[]> { return loadGasJson(url, { op: "shows" }); }
 
 function gasRowToShowtime(row: GasShowRow): Showtime | null {
-  const theaterId = row.theaterId as TheaterId | undefined; const playDate = String(row.date || ""); const startTime = String(row.time || ""); const title = String(row.title || "").trim();
+  const theaterId = row.theaterId as TheaterId | undefined; const playDate = normalizePlayDate(String(row.date || "")); const startTime = String(row.time || ""); const title = String(row.title || "").trim();
   if (!theaterId || !playDate || !startTime || !title || !["megabox_coex", "megabox_namyangju", "cgv_yongsan", "cgv_yeongdeungpo"].includes(theaterId)) return null;
   const chain = theaterId.startsWith("cgv_") ? "cgv" : "megabox";
   return { id: row.id || `${chain}:${theaterId}:${playDate}:${startTime}:${row.hall || ""}:${title}`, theaterId, theaterName: String(row.theater || "").replace(/^메가박스\s*|^CGV\s*/, "") || theaterId, chain, movieTitle: title, movieNo: "", playDate, startTime, endTime: null, hallName: String(row.hall || ""), formats: Array.isArray(row.formats) ? row.formats : [], restSeats: typeof row.restSeats === "number" ? row.restSeats : null, totalSeats: typeof row.totalSeats === "number" ? row.totalSeats : null, bookingUrl: String(row.url || ""), bookable: true };
