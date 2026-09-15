@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 /**
- * 오픈벨 도우미 v4
- * - 폴링 + Playwright + 쿠키 + 결제 직전 N분 창 유지 + 텔레그램
- * - 리눅스(나스 Docker) / Windows PC 동일 코드 (Chromium)
+ * 오픈벨 도우미 v5 — 나스 24h + noVNC 결제 화면
  */
 
 import { runBookingJob } from "./book.mjs";
@@ -16,6 +14,7 @@ const HOLD_MINUTES = Math.min(
   20,
   Math.max(1, Number(process.env.HOLD_MINUTES) || 10),
 );
+const NOVNC_URL = (process.env.NOVNC_PUBLIC_URL || "").trim();
 const TG_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const TG_CHAT = (process.env.TELEGRAM_CHAT_ID || "").trim();
 
@@ -28,7 +27,7 @@ const headers = {
   authorization: `Bearer ${NAS_WORKER_TOKEN}`,
   accept: "application/json",
   "content-type": "application/json",
-  "user-agent": "openbell-nas-worker/4",
+  "user-agent": "openbell-nas-worker/5",
 };
 
 async function claimJob() {
@@ -95,7 +94,6 @@ async function notifyTelegram(job, status, message, finalUrl) {
 async function handleJob(job) {
   console.log("----------");
   console.log("[잡]", job.id, job.movieTitle, job.playDate, job.startTime);
-  console.log("  URL:", job.bookingUrl);
 
   if (DRY_RUN) {
     await report(job, "need_user", "DRY_RUN=1");
@@ -107,28 +105,28 @@ async function handleJob(job) {
     headless: HEADLESS,
     holdMinutes: HOLD_MINUTES,
     onHold: async (info) => {
-      const where = info.headless
-        ? `나스/헤드리스: 화면이 안 보일 수 있습니다.\n같은 극장 계정으로 폰·PC 앱에서 결제해 보세요.\n(선점이 ${info.minutes}분 정도 유지되길 기대하지만 사이트마다 다름)`
-        : `PC 창이 열려 있습니다 → 그 창에서 결제하세요.\n「결제하기」는 자동으로 누르지 않습니다.`;
+      const novnc =
+        NOVNC_URL ||
+        "http://나스IP:6080/vnc.html (docker-compose 의 NOVNC_PUBLIC_URL 설정)";
       await tg(
         [
-          "🚨 [오픈벨] 지금 결제하세요!",
+          "🚨 [오픈벨] 나스가 결제 직전까지 갔습니다",
           "",
           `🎬 ${job.movieTitle}`,
           `💺 좌석: ${(info.seats || []).join(", ") || "-"}`,
-          `⏱️ 브라우저 유지: ${info.minutes}분`,
+          `⏱️ ${info.minutes}분 안에 결제하세요`,
           "",
-          where,
-          info.url ? `🔗 ${info.url}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
+          "👇 아래 링크로 나스 화면을 열고 결제하세요",
+          "(Connect / 연결 누르면 브라우저 화면이 보입니다)",
+          novnc,
+          "",
+          "「결제하기」는 자동으로 누르지 않습니다. 직접 누르세요.",
+        ].join("\n"),
       );
-      // 큐에도 진행 중 표시
       await report(
         job,
         "done",
-        `결제대기 ${info.minutes}분 시작 seats=${(info.seats || []).join(",")}`,
+        `결제대기 ${info.minutes}분 seats=${(info.seats || []).join(",")} novnc`,
       ).catch(() => null);
     },
   });
@@ -158,12 +156,11 @@ async function tick() {
   }
 }
 
-console.log("[오픈벨 도우미] v4 시작");
+console.log("[오픈벨 도우미] v5 나스+noVNC");
 console.log("  서버:", OPENBELL_URL);
-console.log("  폴링:", POLL_MS / 1000, "초");
 console.log("  headless:", HEADLESS, "hold분:", HOLD_MINUTES);
+console.log("  noVNC:", NOVNC_URL || "(NOVNC_PUBLIC_URL 미설정)");
 console.log("  텔레그램:", TG_TOKEN && TG_CHAT ? "on" : "off");
-console.log("  결제 확정 클릭: 차단 | 리눅스·윈도우 동일(Chromium)");
 
 await tick();
 setInterval(tick, POLL_MS);
