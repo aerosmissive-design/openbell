@@ -141,9 +141,26 @@ export function cgvFormats(hallName: string): FormatId[] {
   ) {
     out.push("atmos");
   }
+  // 용산 20관 = IMAX (관 이름에 IMAX 텍스트가 없을 때)
+  if (/\b20\s*관\b/.test(hallName) || compact === "20관" || compact.includes("20관")) {
+    if (!out.includes("imax")) out.push("imax");
+  }
+  // 용산 3관 = ULTRA 4DX
+  if (/\b3\s*관\b/.test(hallName) || compact === "3관" || compact.includes("3관")) {
+    if (!out.includes("ultra4dx") && !out.includes("4dx")) out.push("ultra4dx");
+  }
+  // 용산 4관 = SCREENX (+ Atmos)
+  if (/\b4\s*관\b/.test(hallName) || compact === "4관" || compact.includes("4관")) {
+    if (!out.includes("screenx")) out.push("screenx");
+  }
   return out.length ? out : ["other"];
 }
 
+/**
+ * relay 등에서 screenName에 IMAX/SCREENX 텍스트가 없고 좌석수만 올 때 사용.
+ * 용산: IMAX 624 / ULTRA4DX 144 / SCREENX(리클라이너) 192~200
+ * 영등포: IMAX 387 / 4DX 144 / ATMOS 195 / SCREENX 240
+ */
 const CGV_CAPACITY: Partial<
   Record<TheaterId, Record<number, { hall: string; formats: FormatId[] }>>
 > = {
@@ -154,8 +171,13 @@ const CGV_CAPACITY: Partial<
     240: { hall: "SCREENX관 (리클라이너) with PRIVATE BOX", formats: ["screenx"] },
   },
   cgv_yongsan: {
-    144: { hall: "4DX관", formats: ["4dx"] },
-    624: { hall: "SCREENX관 (리클라이너)", formats: ["screenx"] },
+    // 3관 ULTRA 4DX
+    144: { hall: "ULTRA 4DX관", formats: ["ultra4dx"] },
+    // 4관 SCREENX with Dolby Atmos (192 일반 + 8 프라이빗박스 = 200)
+    192: { hall: "SCREENX관 (리클라이너)", formats: ["screenx", "atmos"] },
+    200: { hall: "SCREENX관 (리클라이너)", formats: ["screenx", "atmos"] },
+    // 20관 IMAX LASER GT — 이전에는 624가 SCREENX로 잘못 매핑되어 있었음
+    624: { hall: "IMAX관", formats: ["imax"] },
   },
 };
 
