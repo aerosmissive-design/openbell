@@ -1,0 +1,40 @@
+name: repair booking links
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  repair:
+    if: ${{ github.event.head_commit.message != 'chore: repair booking links' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair URL precedence
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/cinema/seats.ts')
+          s = p.read_text()
+          old = 'bookingUrl: row.bookingUrl || prev.bookingUrl'
+          s = s.replace(old, 'bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl)')
+          marker = 'export function applyCgvSeatHits'
+          helper = '''function betterBookingUrl(a: string, b: string): string {\n  const score = (url: string) => {\n    const u = String(url || '').trim();\n    if (!u) return 0;\n    if (/megabox\\.co\\.kr\\/booking\\/seat\\?[^#]*playSchdlNo=|PcntSeatChoi\\/selectPcntSeatChoi\\.do\\?[^#]*playSchdlNo=/i.test(u)) return 100;\n    const exact = /cgv\\.co\\.kr\\/cnm\\/movieBook\\/(?:movie|cinema)\\?[^#]*(?:scnSseq|scnsNo)=/i.test(u);\n    if (exact && /movNo=/i.test(u)) return 95;\n    if (/cgv\\.co\\.kr\\/cnm\\/movieBook\\/movie\\?[^#]*movNo=/i.test(u)) return 75;\n    if (/cgv\\.co\\.kr\\/cnm\\/movieBook\\/cinema\\?/i.test(u)) return 20;\n    if (/megabox\\.co\\.kr\\/booking\\?/i.test(u)) return 20;\n    return 10;\n  };\n  return score(a) >= score(b) ? String(a || '').trim() : String(b || '').trim();\n}\n\n'''
+          if 'function betterBookingUrl' not in s:
+              s = s.replace(marker, helper + marker, 1)
+          p.write_text(s)
+
+          p = Path('src/lib/cinema/megabox.server.ts')
+          s = p.read_text()
+          old = 'return `https://m.megabox.co.kr/on/oh/ohz/PcntSeatChoi/selectPcntSeatChoi.do?${q.toString()}`;'
+          new = 'return `https://m.megabox.co.kr/booking/seat?playSchdlNo=${encodeURIComponent(playSchdlNo)}`;'
+          s = s.replace(old, new)
+          p.write_text(s)
+          PY
+      - name: Commit repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/cinema/seats.ts src/lib/cinema/megabox.server.ts
+          git diff --cached --quiet || git commit -m 'chore: repair booking links'
+          git push
