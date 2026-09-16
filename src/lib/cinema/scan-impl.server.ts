@@ -17,20 +17,29 @@ import { normalizeScanSources } from "./types";
 import { mergeMovieCatalog, moviesFromShowtimes, titlesMatch } from "./match";
 
 type MegaboxId = "megabox_coex" | "megabox_namyangju";
+export type ScanMode = "fast" | "full";
 
 const SCAN_DEADLINES = {
+  fastCatalog: 1500,
+  fastCgvComing: 0,
+  fastNas: 2800,
+  fastTheater: 2500,
+  fastYongsanTele: 1800,
+  lastKnown: 900,
   catalog: 3000,
   cgvComing: 3000,
   gas: 3000,
   officialCgv: 3500,
   relay: 4000,
-  nas: 1800,
+  nas: 2500,
   kt: 3500,
   mega: 4000,
   theater: 3000,
+  yongsanTele: 2500,
 } as const;
 
 function deadline<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  if (ms <= 0) return Promise.resolve(fallback);
   return Promise.race([
     promise.catch(() => fallback),
     new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
@@ -42,7 +51,10 @@ export async function runScan(input: {
   theaters: TheaterId[];
   gasWebUrl?: string;
   sources?: Partial<ScanSources> | null;
+  mode?: ScanMode;
 }): Promise<ScanResult> {
+  const mode: ScanMode = input.mode ?? "full";
+  const fast = mode === "fast";
   const days = Math.min(Math.max(input.daysAhead || 7, 1), 30);
   const playDates = kstDateKeys(days);
   const wanted = new Set(input.theaters);
@@ -51,42 +63,48 @@ export async function runScan(input: {
   const emptyCgv = { map: {} as SeatHitMap, showtimes: [] as Showtime[] };
   const emptyNas = { map: {} as SeatHitMap, showtimes: [] as Showtime[], source: "pc" as const };
 
-  const rankingPromise = deadline(fetchMegaboxCatalog(), SCAN_DEADLINES.catalog, emptyCatalog);
-  const cgvComingPromise = deadline(
-    fetchCgvUpcomingCatalog(),
-    SCAN_DEADLINES.cgvComing,
-    { movies: [] as RankingMovie[], source: "none" as const },
-  );
-  const gasSeats = input.gasWebUrl
+  const rankingPromise = deadline(fetchMegaboxCatalog(), fast ? SCAN_DEADLINES.fastCatalog : SCAN_DEADLINES.catalog, emptyCatalog);
+  const cgvComingPromise = fast
+    ? Promise.resolve({ movies: [] as RankingMovie[], source: "none" as const })
+    : deadline(
+        fetchCgvUpcomingCatalog(),
+        SCAN_DEADLINES.cgvComing,
+        { movies: [] as RankingMovie[], source: "none" as const },
+      );
+
+  const hasCgv = [...wanted].some(isCgvId);
+  const hasMega = [...wanted].some((id) => id === "megabox_coex" || id === "megabox_namyangju");
+
+  const gasSeats = !fast && input.gasWebUrl
     ? deadline(
         loadGasSeatmap(input.gasWebUrl),
         SCAN_DEADLINES.gas,
         { status: "timeout" as const, map: {} as GasSeatMap },
       )
-    : Promise.resolve({ status: "empty" as const, map: {} as GasSeatMap });
-  const officialCgvSeats = [...wanted].some(isCgvId)
+    : Promise.resolve({ status: fast ? ("empty" as const) : ("empty" as const), map: {} as GasSeatMap });
+  const officialCgvSeats = !fast && hasCgv
     ? deadline(fetchCgvOfficialSeatmap({ days: Math.min(days, 7) }), SCAN_DEADLINES.officialCgv, emptyCgv)
     : Promise.resolve(emptyCgv);
-  const relaySeats = [...wanted].some(isCgvId)
+  const relaySeats = !fast && hasCgv
     ? deadline(fetchCgvRelaySeatmap({ days }), SCAN_DEADLINES.relay, emptyCgv)
     : Promise.resolve(emptyCgv);
-  const nasSeats = [...wanted].some(isCgvId)
-    ? deadline(readNasSeatmap([...wanted].filter(isCgvId)), SCAN_DEADLINES.nas, emptyNas)
+  const nasSeats = hasCgv
+    ? deadline(readNasSeatmap([...wanted].filter(isCgvId)), fast ? SCAN_DEADLINES.fastNas : SCAN_DEADLINES.nas, emptyNas)
     : Promise.resolve(emptyNas);
-  const ktSeats = [...wanted].some(isCgvId)
+  const ktSeats = !fast && hasCgv
     ? deadline(fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates }), SCAN_DEADLINES.kt, emptyCgv)
     : Promise.resolve(emptyCgv);
-  const megaSeats = [...wanted].some((id) => id === "megabox_coex" || id === "megabox_namyangju")
+  const megaSeats = !fast && hasMega
     ? deadline(fetchMegaboxSeatmap({ days }), SCAN_DEADLINES.mega, emptyCgv)
     : Promise.resolve(emptyCgv);
-  const gasShows = sources.gas && input.gasWebUrl
+  const gasShows = !fast && sources.gas && input.gasWebUrl
     ? deadline(loadGasTimetable(input.gasWebUrl, days), SCAN_DEADLINES.gas, [] as Showtime[])
     : Promise.resolve([] as Showtime[]);
 
   const jobs: Promise<TheaterScan>[] = [];
-  if (wanted.has("megabox_coex")) jobs.push(scanTheater("megabox_coex", playDates, sources, gasShows));
-  if (wanted.has("megabox_namyangju")) jobs.push(scanTheater("megabox_namyangju", playDates, sources, gasShows));
-  for (const id of wanted) if (isCgvId(id)) jobs.push(scanTheater(id, playDates, sources, gasShows));
+  if (wanted.has("megabox_coex")) jobs.push(scanTheater("megabox_coex", playDates, sources, gasShows, mode));
+  if (wanted.has("megabox_namyangju")) jobs.push(scanTheater("megabox_namyangju", playDates, sources, gasShows, mode));
+  for (const id of wanted) if (isCgvId(id)) jobs.push(scanTheater(id, playDates, sources, gasShows, mode));
 
   const [catalog, cgvComing, seats, officialCgv, relay, nas, kt, mega, gasList, ...theaters] = await Promise.all([
     rankingPromise, cgvComingPromise, gasSeats, officialCgvSeats, relaySeats, nasSeats, ktSeats, megaSeats, gasShows, ...jobs,
@@ -94,7 +112,7 @@ export async function runScan(input: {
   const gasMap: SeatHitMap = { ...seats.map };
   for (const row of gasList) putSeatHit(gasMap, row);
   const officialMap: SeatHitMap = { ...officialCgv.map, ...mega.map };
-  const lastKnown = await loadSeatLastKnown();
+  const lastKnown = await deadline(loadSeatLastKnown(), fast ? SCAN_DEADLINES.lastKnown : SCAN_DEADLINES.lastKnown, {} as SeatHitMap);
   const withSeats = theaters.map((theater) => {
     const extraMega = theater.theaterId === "megabox_coex" || theater.theaterId === "megabox_namyangju" ? mega.showtimes.filter((row) => row.theaterId === theater.theaterId) : [];
     const extraOfficialCgv = isCgvId(theater.theaterId) ? officialCgv.showtimes.filter((row) => row.theaterId === theater.theaterId) : [];
@@ -150,27 +168,39 @@ function normalizeShowtimes(rows: Showtime[]): Showtime[] {
   return rows.map((row) => ({ ...row, playDate: normalizePlayDate(row.playDate) }));
 }
 
-async function scanTheater(theaterId: TheaterId, playDates: string[], sources: ScanSources, gasShows: Promise<Showtime[]>): Promise<TheaterScan> {
+async function scanTheater(
+  theaterId: TheaterId,
+  playDates: string[],
+  sources: ScanSources,
+  gasShows: Promise<Showtime[]>,
+  mode: ScanMode,
+): Promise<TheaterScan> {
+  const fast = mode === "fast";
   const naverPromise = sources.naver
-    ? deadline(fetchNaver(theaterId), SCAN_DEADLINES.theater, new Map<string, Showtime[]>())
+    ? deadline(fetchNaver(theaterId), fast ? SCAN_DEADLINES.fastTheater : SCAN_DEADLINES.theater, new Map<string, Showtime[]>())
     : Promise.resolve(new Map<string, Showtime[]>());
   const officialByDate = new Map<string, Showtime[]>();
-  const naverByDate = await naverPromise;
+  const telePromise = theaterId === "cgv_yongsan"
+    ? deadline(
+        fetchYongsanTelegram(),
+        fast ? SCAN_DEADLINES.fastYongsanTele : SCAN_DEADLINES.yongsanTele,
+        new Map<string, Showtime[]>(),
+      )
+    : Promise.resolve(new Map<string, Showtime[]>());
+  const [naverByDate, teleByDate] = await Promise.all([naverPromise, telePromise]);
   const stillMissing = playDates.filter((d) => !(officialByDate.get(d)?.length || naverByDate.get(d)?.length));
   let gasByDate = new Map<string, Showtime[]>();
-  let teleByDate = new Map<string, Showtime[]>();
-  if (sources.gas) {
+  if (!fast && sources.gas) {
     try { gasByDate = byDateForTheater(await gasShows, theaterId); } catch { gasByDate = new Map(); }
-  }
-  if (stillMissing.length && theaterId === "cgv_yongsan") {
-    try { teleByDate = await deadline(fetchYongsanTelegram(), 2500, new Map<string, Showtime[]>()); } catch { teleByDate = new Map(); }
   }
   const showtimes: Showtime[] = [];
   let usedOfficial = false, usedNaver = false, usedGas = false, usedTele = false;
   for (const date of playDates) {
     const primary = mergeShowtimes(officialByDate.get(date) ?? [], naverByDate.get(date) ?? []);
     if (primary.length) { showtimes.push(...primary); if (officialByDate.get(date)?.length) usedOfficial = true; if (naverByDate.get(date)?.length) usedNaver = true; continue; }
-    const tele = teleByDate.get(date); if (tele?.length) { showtimes.push(...tele); usedTele = true; continue; }
+    if (stillMissing.includes(date)) {
+      const tele = teleByDate.get(date); if (tele?.length) { showtimes.push(...tele); usedTele = true; continue; }
+    }
     const gas = gasByDate.get(date); if (gas?.length) { showtimes.push(...gas); usedGas = true; }
   }
   const source = usedOfficial ? "official" : usedNaver ? "naver-place" : usedTele ? "yongsan-channel" : usedGas ? "gas-cache" : "none";
