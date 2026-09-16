@@ -1,0 +1,157 @@
+name: OpenBell 3.9.26 Megabox seat parity patch
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch Megabox seat parity, UI source colors, and version
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          changed = []
+
+          def replace(path, old, new, label):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f'PATCH TARGET NOT FOUND: {label} in {path}')
+              p.write_text(s.replace(old, new, 1))
+              changed.append(path)
+
+          # Megabox uses the same configured 1..30 day horizon as CGV.
+          replace(
+              'src/lib/cinema/megabox.server.ts',
+              'const days = Math.min(Math.max(input?.days ?? 7, 1), 14);',
+              'const days = Math.min(Math.max(input?.days ?? 7, 1), 30);',
+              'Megabox 30-day cap',
+          )
+          replace(
+              'src/lib/cinema/scan-impl.server.ts',
+              '? fetchMegaboxSeatmap({ days: Math.min(days, 5) }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))',
+              '? fetchMegaboxSeatmap({ days }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))',
+              'Megabox scan horizon',
+          )
+
+          old_scan = '''    let live = applySeatLayers(merged, [officialMap, nas.map, kt.map, relay.map, gasMap]);
+    if (isCgvId(theater.theaterId) && extraNas.length) {
+      live = applyReporterFallback(live, extraNas);
+    }
+    const nasSeatSource = nas.source === "nas423" ? "g-nas423" : nas.source === "nas225" ? "g-nas225" : nas.source === "nas" ? "g-nas" : "g-pc";
+    const showtimes = applyCgvSeatHits(live, lastKnown, false, false).map((row) => {
+      const liveSource =
+        lookupSeatHit(row, officialMap) ? "official" :
+        lookupSeatHit(row, nas.map) ? nasSeatSource :
+        lookupSeatHit(row, kt.map) ? "cgv-kt" :
+        lookupSeatHit(row, relay.map) ? "cgv-relay" :
+        lookupSeatHit(row, gasMap) ? "gas-cache" :
+        row.restSeats != null ? "last-known" : undefined;
+      return ({
+      ...row,
+      playDate: normalizePlayDate(row.playDate),
+      seatSource: liveSource,
+    });
+    });'''
+          new_scan = '''    const nasSeatSource = nas.source === "nas423" ? "g-nas423" : nas.source === "nas225" ? "g-nas225" : nas.source === "nas" ? "g-nas" : "g-pc";
+    const live = applySeatLayersWithSource(merged, [
+      { map: officialMap, source: "official" },
+      { map: nas.map, source: nasSeatSource },
+      { map: kt.map, source: "cgv-kt" },
+      { map: relay.map, source: "cgv-relay" },
+      { map: gasMap, source: "gas-cache" },
+    ]);
+    const showtimes = applyCgvSeatHits(live, lastKnown, false, false).map((row) => ({
+      ...row,
+      playDate: normalizePlayDate(row.playDate),
+      seatSource: row.seatSource ?? (row.restSeats != null ? "last-known" : undefined),
+    }));'''
+          replace('src/lib/cinema/scan-impl.server.ts', old_scan, new_scan, 'per-show seat fallback block')
+
+          old_helper = '''function applySeatLayers(rows: Showtime[], layers: SeatHitMap[]): Showtime[] {
+  let out = rows;
+  for (const layer of [...layers].reverse()) out = applyCgvSeatHits(out, layer, true);
+  return out;
+}'''
+          new_helper = '''function applySeatLayersWithSource(
+  rows: Showtime[],
+  layers: { map: SeatHitMap; source: string }[],
+): Showtime[] {
+  return rows.map((row) => {
+    for (const layer of layers) {
+      const hit = lookupSeatHit(row, layer.map);
+      if (!hit) continue;
+      return {
+        ...row,
+        restSeats: hit.rest,
+        totalSeats: hit.total ?? row.totalSeats,
+        seatLive: true,
+        seatCheckedAt: hit.at ? new Date(hit.at).toISOString() : row.seatCheckedAt ?? new Date().toISOString(),
+        seatSource: layer.source,
+      };
+    }
+    return row;
+  });
+}'''
+          replace('src/lib/cinema/scan-impl.server.ts', old_helper, new_helper, 'per-show source resolver')
+
+          # Make the freshness/source row visually distinct from the seat-count color.
+          old_ui = '''                {show.restSeats != null && (seatFreshnessLabel(show) || (show.seatSource && seatSourceLabel(show.seatSource) !== "없음")) ? (
+                  <div className={cn(
+                    "mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[10px]",
+                    show.seatLive === false ? "text-muted" : "text-open",
+                  )}>'''
+          new_ui = '''                {show.restSeats != null && (seatFreshnessLabel(show) || (show.seatSource && seatSourceLabel(show.seatSource) !== "없음")) ? (
+                  <div className="mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[10px] text-muted">'''
+          replace('src/components/watch-view.tsx', old_ui, new_ui, 'freshness/source color')
+
+          # Keep the persistent version-header workflow in sync, and patch the current header now.
+          replace(
+              '.github/workflows/fix-version-header.yml',
+              'Update header version to 3.9.25',
+              'Update header version to 3.9.26',
+              'version workflow title',
+          )
+          replace(
+              '.github/workflows/fix-version-header.yml',
+              "old = 'v3.9.24'",
+              "old = 'v3.9.25'",
+              'version workflow old value',
+          )
+          replace(
+              '.github/workflows/fix-version-header.yml',
+              "new = 'v3.9.25'",
+              "new = 'v3.9.26'",
+              'version workflow new value',
+          )
+          replace(
+              '.github/workflows/fix-version-header.yml',
+              'fix: update displayed version to 3.9.25',
+              'fix: update displayed version to 3.9.26',
+              'version workflow commit message',
+          )
+          replace('src/components/cinema-app.tsx', 'v3.9.25', 'v3.9.26', 'current header')
+
+          # Remove this one-shot workflow from the resulting commit so it cannot keep patching future releases.
+          Path('.github/workflows/patch-3.9.26.yml').unlink()
+
+          changed = sorted(set(changed))
+          print('Patched:', ', '.join(changed))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: 3.9.26 megabox seat parity and source styling"
+          git push
