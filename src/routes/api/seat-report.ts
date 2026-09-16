@@ -10,7 +10,7 @@ function authorized(request: Request) {
   try { return new URL(request.url).searchParams.get("token") === token; } catch { return false; }
 }
 function json(data: unknown, status = 200) { return Response.json(data, { status, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "authorization, content-type" } }); }
-type SeatRow = { playDate?: string; startTime?: string; hallName?: string; movieTitle?: string; movieNo?: string; restSeats?: number; totalSeats?: number };
+type SeatRow = { playDate?: string; startTime?: string; hallName?: string; movieTitle?: string; movieNo?: string; bookingUrl?: string; scnsNo?: string; scnSseq?: string; restSeats?: number; totalSeats?: number };
 type ReporterSource = "pc" | "nas" | "nas423" | "nas225";
 function rowKey(r: SeatRow) { return `${String(r.playDate || "").trim()}|${String(r.startTime || "").trim()}|${String(r.hallName || "").trim()}|${String(r.movieTitle || "").trim()}`; }
 function cleanRows(rows: SeatRow[]) {
@@ -20,7 +20,7 @@ function cleanRows(rows: SeatRow[]) {
     const playDate = String(r.playDate || "").trim(), startTime = String(r.startTime || "").trim(), hallName = String(r.hallName || "").trim(), movieTitle = String(r.movieTitle || "").trim();
     if (!playDate || !startTime || !hallName || !movieTitle) continue;
     const key = rowKey({ playDate, startTime, hallName, movieTitle }); if (seen.has(key)) continue; seen.add(key);
-    const totalSeats = Number(r.totalSeats); out.push({ playDate, startTime, hallName, movieTitle, movieNo: r.movieNo ? String(r.movieNo) : "", restSeats, totalSeats: Number.isFinite(totalSeats) ? totalSeats : restSeats });
+    const totalSeats = Number(r.totalSeats); out.push({ playDate, startTime, hallName, movieTitle, movieNo: r.movieNo ? String(r.movieNo) : "", bookingUrl: r.bookingUrl ? String(r.bookingUrl).trim() : "", scnsNo: r.scnsNo ? String(r.scnsNo).trim() : "", scnSseq: r.scnSseq ? String(r.scnSseq).trim() : "", restSeats, totalSeats: Number.isFinite(totalSeats) ? totalSeats : restSeats });
     if (out.length >= MAX_ROWS) break;
   }
   return out;
