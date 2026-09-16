@@ -75,7 +75,7 @@ jobs:
 
       - name: Typecheck
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm run typecheck
 
       - name: Commit fixes
