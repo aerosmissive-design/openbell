@@ -844,37 +844,36 @@ function ShowDateList({
               {show.hallName}
             </p>
             <div className="mt-1 flex items-center gap-3">
-              <p className="min-w-0 flex-1 truncate text-sm text-fg">
-                <span className="tabular-nums font-medium">{show.startTime}</span>
-                {isAlert ? (
-                  <span className="ml-1.5 rounded-sm bg-notify px-1 py-px text-[10px] font-medium text-notify-fg">
-                    알림
-                  </span>
-                ) : null}
-                {show.restSeats != null ? (
-                  <span className="ml-1.5 tabular-nums text-[11px] text-open">
-                    {show.totalSeats != null
-                      ? `${show.restSeats}/${show.totalSeats}`
-                      : `잔여 ${show.restSeats}`}
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-1.5 text-sm text-fg">
+                  <span className="shrink-0 tabular-nums font-medium">{show.startTime}</span>
+                  {isAlert ? (
+                    <span className="shrink-0 rounded-sm bg-notify px-1 py-px text-[10px] font-medium text-notify-fg">
+                      알림
+                    </span>
+                  ) : null}
+                  {show.restSeats != null ? (
+                    <span className="shrink-0 tabular-nums text-[11px] text-open">
+                      {show.totalSeats != null
+                        ? `${show.restSeats}/${show.totalSeats}`
+                        : `잔여 ${show.restSeats}`}
+                    </span>
+                  ) : null}
+                </div>
+                {show.restSeats != null && (seatFreshnessLabel(show) || (show.seatSource && seatSourceLabel(show.seatSource) !== "없음")) ? (
+                  <div className={cn(
+                    "mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[10px]",
+                    show.seatLive === false ? "text-muted" : "text-open",
+                  )}>
                     {seatFreshnessLabel(show) ? (
-                      <span
-                        className={
-                          show.seatLive === false
-                            ? "ml-1 text-[10px] text-muted"
-                            : "ml-1 text-[10px] text-open"
-                        }
-                      >
-                        {seatFreshnessLabel(show)}
-                      </span>
+                      <span>{seatFreshnessLabel(show)}</span>
                     ) : null}
                     {show.seatSource && seatSourceLabel(show.seatSource) !== "없음" ? (
-                      <span className="ml-1 text-[10px] text-muted">
-                        · {seatSourceLabel(show.seatSource)}
-                      </span>
+                      <span className="text-muted">· {seatSourceLabel(show.seatSource)}</span>
                     ) : null}
-                  </span>
+                  </div>
                 ) : null}
-              </p>
+              </div>
               <BookingLink show={show} />
               <StarBtn show={show} onQueue={onQueue} />
             </div>
