@@ -8,14 +8,11 @@ import { cgvFormats } from "./theaters";
 
 const KT_BASE = "https://showmovie.mobile.kt.com/WebService/wsMovieInfo5.asmx";
 
-// GetMovieTitle에 넘기는 "theatercd"는 SITE_NO(agnTheaterNo, 예: 0059)와는 다른
-// KT 자체 코드다. 지금은 오픈벨이 보는 CGV 2개 극장만 하드코딩한다.
 const KT_THEATER_CD: Partial<Record<TheaterId, string>> = {
   cgv_yongsan: "201",
   cgv_yeongdeungpo: "35",
 };
 
-// GetMovieTitle 응답의 TheaterAgnCd가 곧 GetPlayTime의 agnTheaterNo다.
 const KT_AGN_THEATER_NO: Partial<Record<TheaterId, string>> = {
   cgv_yongsan: "0013",
   cgv_yeongdeungpo: "0059",
@@ -31,9 +28,7 @@ type KtMovie = { name: string; agnMovieNo: string; agnMovieGrpNo: string };
 
 async function fetchKtMovieTitle(theaterCd: string): Promise<KtMovie[]> {
   const url = `${KT_BASE}/GetMovieTitle?agencyNo=CGV&theatercd=${encodeURIComponent(theaterCd)}`;
-  const res = await fetch(url, {
-    headers: { accept: "application/xml, text/xml, */*" },
-  });
+  const res = await fetch(url, { headers: { accept: "application/xml, text/xml, */*" } });
   if (!res.ok) return [];
   const xml = await res.text();
   const movies: KtMovie[] = [];
@@ -41,34 +36,16 @@ async function fetchKtMovieTitle(theaterCd: string): Promise<KtMovie[]> {
     const name = tag(block, "MovieName");
     const agnMovieNo = tag(block, "AgnMovieNo");
     const agnMovieGrpNo = tag(block, "AgnMovieGrpNo");
-    if (name && agnMovieNo && agnMovieGrpNo) {
-      movies.push({ name, agnMovieNo, agnMovieGrpNo });
-    }
+    if (name && agnMovieNo && agnMovieGrpNo) movies.push({ name, agnMovieNo, agnMovieGrpNo });
   }
   return movies;
 }
 
-type KtPlay = {
-  startTime: string;
-  endTime: string | null;
-  screenNm: string;
-  seatQty: number;
-  seatTot: number;
-};
+type KtPlay = { startTime: string; endTime: string | null; screenNm: string; seatQty: number; seatTot: number };
 
-async function fetchKtPlayTime(
-  agnTheaterNo: string,
-  agnMovieGrpNo: string,
-  agnMovieNo: string,
-  dateYmd: string,
-): Promise<KtPlay[]> {
-  const url =
-    `${KT_BASE}/GetPlayTime?agencyNo=CGV&agnTheaterNo=${encodeURIComponent(agnTheaterNo)}` +
-    `&agnMovieGrpNo=${encodeURIComponent(agnMovieGrpNo)}&agnMovieNo=${encodeURIComponent(agnMovieNo)}` +
-    `&strPlayDateYmd=${encodeURIComponent(dateYmd)}&callType=web`;
-  const res = await fetch(url, {
-    headers: { accept: "application/xml, text/xml, */*" },
-  });
+async function fetchKtPlayTime(agnTheaterNo: string, agnMovieGrpNo: string, agnMovieNo: string, dateYmd: string): Promise<KtPlay[]> {
+  const url = `${KT_BASE}/GetPlayTime?agencyNo=CGV&agnTheaterNo=${encodeURIComponent(agnTheaterNo)}&agnMovieGrpNo=${encodeURIComponent(agnMovieGrpNo)}&agnMovieNo=${encodeURIComponent(agnMovieNo)}&strPlayDateYmd=${encodeURIComponent(dateYmd)}&callType=web`;
+  const res = await fetch(url, { headers: { accept: "application/xml, text/xml, */*" } });
   if (!res.ok) return [];
   const xml = await res.text();
   const out: KtPlay[] = [];
@@ -77,91 +54,58 @@ async function fetchKtPlayTime(
     const seatQty = Number(tag(block, "SeatQty") ?? "");
     const seatTot = Number(tag(block, "SeatTot") ?? "");
     const screenNm = tag(block, "ScreenNm") ?? "";
-    if (startTime && Number.isFinite(seatQty) && Number.isFinite(seatTot)) {
-      out.push({
-        startTime,
-        endTime: tag(block, "EndTime"),
-        screenNm,
-        seatQty,
-        seatTot,
-      });
-    }
+    if (startTime && Number.isFinite(seatQty) && Number.isFinite(seatTot)) out.push({ startTime, endTime: tag(block, "EndTime"), screenNm, seatQty, seatTot });
   }
   return out;
 }
 
-function ymd(dateKey: string): string {
-  // dateKey는 "YYYY-MM-DD" 형태를 가정, KT는 "YYYYMMDD"를 원함
-  return dateKey.replace(/-/g, "");
-}
+function ymd(dateKey: string): string { return dateKey.replace(/-/g, ""); }
 
 /**
  * KT 쇼무비를 통해 CGV 용산/영등포 잔여석을 조회한다.
- * 공홈·우회조회가 둘 다 막혔을 때를 위한 3번째 안전망이라
- * 요청량을 아끼기 위해 dates는 짧게(기본 오늘 하루~이틀) 쓰는 걸 권장한다.
+ * 호출측에서 오픈벨 설정의 감시 기간(5/7/10/15/20일 등)을 그대로 dates로 전달한다.
+ * KT 자체에서 제공하지 않는 특별관은 이 소스로 숫자가 생기지 않으며, 같은 관의 회차만 매칭한다.
  */
-export async function fetchCgvKtSeatmap(input: {
-  theaters: TheaterId[];
-  dates: string[]; // "YYYY-MM-DD"
-}): Promise<{ map: SeatHitMap; showtimes: Showtime[] }> {
+export async function fetchCgvKtSeatmap(input: { theaters: TheaterId[]; dates: string[] }): Promise<{ map: SeatHitMap; showtimes: Showtime[] }> {
   const map: SeatHitMap = {};
   const showtimes: Showtime[] = [];
   const theaterIds = input.theaters.filter((id) => KT_THEATER_CD[id]);
   if (!theaterIds.length || !input.dates.length) return { map, showtimes };
 
-  await Promise.all(
-    theaterIds.map(async (theaterId) => {
-      const theaterCd = KT_THEATER_CD[theaterId]!;
-      const agnTheaterNo = KT_AGN_THEATER_NO[theaterId]!;
-      let movies: KtMovie[] = [];
-      try {
-        movies = await fetchKtMovieTitle(theaterCd);
-      } catch {
-        return;
+  await Promise.all(theaterIds.map(async (theaterId) => {
+    const theaterCd = KT_THEATER_CD[theaterId]!;
+    const agnTheaterNo = KT_AGN_THEATER_NO[theaterId]!;
+    let movies: KtMovie[] = [];
+    try { movies = await fetchKtMovieTitle(theaterCd); } catch { return; }
+    const pairs = movies.flatMap((movie) => input.dates.map((dateKey) => ({ movie, dateKey })));
+    await Promise.all(pairs.map(async ({ movie, dateKey }) => {
+      let plays: KtPlay[] = [];
+      try { plays = await fetchKtPlayTime(agnTheaterNo, movie.agnMovieGrpNo, movie.agnMovieNo, ymd(dateKey)); } catch { return; }
+      for (const play of plays) {
+        const row: Showtime = {
+          id: `kt-${theaterId}-${dateKey}-${play.startTime}-${movie.agnMovieGrpNo}`,
+          theaterId,
+          theaterName: theaterId === "cgv_yongsan" ? "CGV 용산아이파크몰" : "CGV 영등포타임스퀘어",
+          chain: "cgv",
+          movieTitle: movie.name,
+          movieNo: movie.agnMovieGrpNo,
+          playDate: dateKey,
+          startTime: play.startTime,
+          endTime: play.endTime,
+          hallName: play.screenNm,
+          formats: cgvFormats(play.screenNm),
+          restSeats: play.seatQty,
+          totalSeats: play.seatTot,
+          bookingUrl: "",
+          bookable: true,
+          seatLive: true,
+          seatCheckedAt: new Date().toISOString(),
+        };
+        showtimes.push(row);
+        putSeatHit(map, row);
       }
-      const pairs = movies.flatMap((movie) =>
-        input.dates.map((dateKey) => ({ movie, dateKey })),
-      );
-      await Promise.all(
-        pairs.map(async ({ movie, dateKey }) => {
-          let plays: KtPlay[] = [];
-          try {
-            plays = await fetchKtPlayTime(
-              agnTheaterNo,
-              movie.agnMovieGrpNo,
-              movie.agnMovieNo,
-              ymd(dateKey),
-            );
-          } catch {
-            return;
-          }
-          for (const play of plays) {
-            const row: Showtime = {
-              id: `kt-${theaterId}-${dateKey}-${play.startTime}-${movie.agnMovieGrpNo}`,
-              theaterId,
-              theaterName: theaterId === "cgv_yongsan" ? "CGV 용산아이파크몰" : "CGV 영등포타임스퀘어",
-              chain: "cgv",
-              movieTitle: movie.name,
-              movieNo: movie.agnMovieGrpNo,
-              playDate: dateKey,
-              startTime: play.startTime,
-              endTime: play.endTime,
-              hallName: play.screenNm,
-              formats: cgvFormats(play.screenNm),
-              restSeats: play.seatQty,
-              totalSeats: play.seatTot,
-              bookingUrl: "",
-              bookable: true,
-              seatLive: true,
-              seatCheckedAt: new Date().toISOString(),
-            };
-            showtimes.push(row);
-            putSeatHit(map, row);
-          }
-        }),
-      );
-    }),
-  );
+    }));
+  }));
 
   return { map, showtimes };
 }
