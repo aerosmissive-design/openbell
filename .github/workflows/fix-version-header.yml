@@ -1,0 +1,35 @@
+name: Fix OpenBell version header
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update header version to 3.9.25
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/cinema-app.tsx')
+          s = p.read_text()
+          old = 'v3.9.24'
+          new = 'v3.9.25'
+          if old not in s:
+              print('No v3.9.24 header found; nothing to patch')
+          else:
+              p.write_text(s.replace(old, new, 1))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/cinema-app.tsx
+          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix: update displayed version to 3.9.25" && git push; fi
