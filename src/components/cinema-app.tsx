@@ -40,8 +40,8 @@ export function CinemaApp() {
   seenRef.current = seenIds;
 
   const enabledTheaters = useMemo(
-    () => THEATERS.map((t) => t.id),
-    [],
+    () => THEATERS.filter((t) => config.theaters?.[t.id] !== false).map((t) => t.id),
+    [config.theaters],
   );
   const scanInterval = Math.max(config.intervalMin, 1) * 60 * 1000;
 

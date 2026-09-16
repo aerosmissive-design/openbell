@@ -115,22 +115,10 @@ function SettingsTheaterRow({
       )}
     >
       <div className="flex items-stretch gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            setTheaterFormats(theater.id, allOn ? [] : ids);
-            onChange?.();
-          }}
-          className={cn(
-            "min-h-11 min-w-0 flex-1 rounded-lg px-3 py-2 text-left",
-            allOn ? "bg-pick ring-1 ring-border-strong" : "",
-          )}
-        >
-          <p className="truncate text-sm font-bold text-fg">{theater.name}</p>
-          <p className="mt-0.5 truncate text-xs text-muted">
-            {summary || "특별관 없음"}
-          </p>
-        </button>
+        <label className={cn("flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left", allOn ? "bg-pick ring-1 ring-border-strong" : "bg-surface-2 ring-1 ring-border")}>
+          <input type="checkbox" checked={allOn} onChange={(e) => { setTheaterFormats(theater.id, e.target.checked ? ids : []); onChange?.(); }} className="size-5 shrink-0 accent-notify" />
+          <span className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-fg">{theater.name}</p><p className="mt-0.5 truncate text-xs text-muted">{summary || "특별관 없음"}</p></span>
+        </label>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
