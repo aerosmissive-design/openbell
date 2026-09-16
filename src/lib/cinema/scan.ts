@@ -12,6 +12,7 @@ const ScanInput = z.object({
     ]),
   ),
   gasWebUrl: z.string().optional(),
+  mode: z.enum(["fast", "full"]).default("full"),
   sources: z
     .object({
       official: z.boolean(),
@@ -55,8 +56,10 @@ export const scanCinema = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { runScan } = await import("./scan-impl.server");
     const scan = await runScan(data);
-    const { noteCgvRelayHealth } = await import("./relay-watch.server");
-    await noteCgvRelayHealth(scan.theaters).catch(() => null);
+    if (data.mode !== "fast") {
+      const { noteCgvRelayHealth } = await import("./relay-watch.server");
+      await noteCgvRelayHealth(scan.theaters).catch(() => null);
+    }
     return scan;
   });
 
@@ -505,4 +508,3 @@ export const provisionGasScript = createServerFn({ method: "POST" })
     const { provisionGasProject } = await import("./gas-provision.server");
     return provisionGasProject(data);
   });
-
