@@ -14,15 +14,15 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path('src/lib/cinema/seats.ts')
           s = p.read_text(encoding='utf-8')
-          s = s.replace('export export export function alertBookingUrl', 'export function alertBookingUrl')
-          s = s.replace('export export function alertBookingUrl', 'export function alertBookingUrl')
+          s = re.sub(r'(?:export\s+)+function\s+alertBookingUrl', 'export function alertBookingUrl', s)
           p.write_text(s, encoding='utf-8')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/lib/cinema/seats.ts
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "fix: remove duplicate seat export"
+          git commit -m "fix: normalize duplicate seat export"
           git push
