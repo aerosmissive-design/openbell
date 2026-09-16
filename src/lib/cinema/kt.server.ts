@@ -61,6 +61,14 @@ async function fetchKtPlayTime(agnTheaterNo: string, agnMovieGrpNo: string, agnM
 
 function ymd(dateKey: string): string { return dateKey.replace(/-/g, ""); }
 
+function ktCgvBookingUrl(theaterId: TheaterId, playDate: string, movieNo: string): string {
+  const siteNo = KT_AGN_THEATER_NO[theaterId] || "";
+  const siteNm = theaterId === "cgv_yongsan" ? "용산아이파크몰" : "영등포타임스퀘어";
+  if (!siteNo || !movieNo) return "";
+  const params = new URLSearchParams({ movNo: movieNo, scnYmd: playDate, siteNo, siteNm });
+  return `https://cgv.co.kr/cnm/movieBook/movie?${params.toString()}`;
+}
+
 /**
  * KT 쇼무비를 통해 CGV 용산/영등포 잔여석을 조회한다.
  * 호출측에서 오픈벨 설정의 감시 기간(5/7/10/15/30일 등)을 그대로 dates로 전달한다.
@@ -96,7 +104,9 @@ export async function fetchCgvKtSeatmap(input: { theaters: TheaterId[]; dates: s
           formats: cgvFormats(play.screenNm),
           restSeats: play.seatQty,
           totalSeats: play.seatTot,
-          bookingUrl: "",
+          // KT는 CGV movNo(agnMovieGrpNo)는 제공하지만 scnsNo/scnSseq는 제공하지 않는다.
+          // 따라서 극장+날짜 fallback을 버리고 영화+날짜 수준의 링크까지 보존한다.
+          bookingUrl: ktCgvBookingUrl(theaterId, dateKey, movie.agnMovieGrpNo),
           bookable: true,
           seatLive: true,
           seatCheckedAt: new Date().toISOString(),
