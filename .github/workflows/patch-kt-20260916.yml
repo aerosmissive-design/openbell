@@ -1,9 +1,6 @@
 name: patch-kt-20260916
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - '.github/workflows/patch-kt-20260916.yml'
 permissions:
   contents: write
 jobs:
