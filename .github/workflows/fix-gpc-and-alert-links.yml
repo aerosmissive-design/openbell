@@ -12,10 +12,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Patch G_PC matching and alert booking links
-        shell: python
+        shell: bash
         run: |
+          python3 - <<'PY'
           from pathlib import Path
-          import re
 
           seats = Path('src/lib/cinema/seats.ts')
           s = seats.read_text(encoding='utf-8')
@@ -53,8 +53,7 @@ jobs:
             }
             return [...new Set(keys.filter(Boolean))];
           }'''
-          if old not in s:
-              raise SystemExit('seatLookupKeys target not found')
+          if old not in s: raise SystemExit('seatLookupKeys target not found')
           seats.write_text(s.replace(old, new), encoding='utf-8')
 
           wt = Path('src/lib/cinema/watch-tick.server.ts')
@@ -96,8 +95,7 @@ jobs:
               title: `${show.movieTitle} 예매 오픈`,
               body: showAlertBody(show, all),
               bookingUrl,'''
-          if old_to not in w:
-              raise SystemExit('toAlert target not found')
+          if old_to not in w: raise SystemExit('toAlert target not found')
           w = w.replace(old_to, new_to)
           old_items = '''    const items = [
       ...fresh.map((show) => toAlert(show, allShows)),
@@ -110,22 +108,15 @@ jobs:
         return seatChangeAlert({ ...change, show: { ...change.show, bookingUrl } }, allShows);
       }),
     ];'''
-          if old_items not in w:
-              raise SystemExit('alert items target not found')
+          if old_items not in w: raise SystemExit('alert items target not found')
           w = w.replace(old_items, new_items)
           wt.write_text(w, encoding='utf-8')
-
-          # Bump app version marker so the deployment clearly identifies this patch.
           Path('VERSION').write_text('3.9.25\n', encoding='utf-8')
-
+          PY
       - name: Commit and remove patch workflow
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/lib/cinema/seats.ts src/lib/cinema/watch-tick.server.ts VERSION
-          git commit -m "fix: restore strict G_PC matching and booking links" || exit 0
-          git push
-          rm -f .github/workflows/fix-gpc-and-alert-links.yml
-          git add .github/workflows/fix-gpc-and-alert-links.yml
-          git commit -m "chore: remove one-time patch workflow"
+          git commit -m "fix: restore strict G_PC matching and booking links"
           git push
