@@ -54,7 +54,7 @@ export async function runScan(input: {
     ? fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const megaSeats = [...wanted].some((id) => id === "megabox_coex" || id === "megabox_namyangju")
-    ? fetchMegaboxSeatmap({ days: Math.min(days, 5) }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
+    ? fetchMegaboxSeatmap({ days }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const gasShows = sources.gas && input.gasWebUrl
     ? loadGasTimetable(input.gasWebUrl, days).catch(() => [] as Showtime[])

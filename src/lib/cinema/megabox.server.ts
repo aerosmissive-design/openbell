@@ -157,7 +157,7 @@ export async function fetchMegaboxSeatmap(input?: {
   days?: number;
   fresh?: boolean;
 }): Promise<{ map: SeatHitMap; showtimes: Showtime[] }> {
-  const days = Math.min(Math.max(input?.days ?? 7, 1), 14);
+  const days = Math.min(Math.max(input?.days ?? 7, 1), 30);
   const dates = kstDateKeys(days);
   const theaters: MegaboxId[] = input?.theaterId
     ? [input.theaterId]

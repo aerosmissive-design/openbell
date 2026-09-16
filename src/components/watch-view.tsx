@@ -863,7 +863,7 @@ function ShowDateList({
                 {show.restSeats != null && (seatFreshnessLabel(show) || (show.seatSource && seatSourceLabel(show.seatSource) !== "없음")) ? (
                   <div className={cn(
                     "mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[10px]",
-                    show.seatLive === false ? "text-muted" : "text-open",
+                    "text-muted",
                   )}>
                     {seatFreshnessLabel(show) ? (
                       <span>{seatFreshnessLabel(show)}</span>

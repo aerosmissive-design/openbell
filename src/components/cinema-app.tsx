@@ -80,7 +80,7 @@ export function CinemaApp() {
     queryFn: () =>
       pullTheaterSeats({
         url: config.gasWebUrl.trim() || undefined,
-        daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 14),
+        daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 30),
         fresh: true,
       }),
     refetchInterval: scanInterval,
@@ -303,7 +303,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.25
+                v3.9.26
               </span>
             </h1>
           </div>
