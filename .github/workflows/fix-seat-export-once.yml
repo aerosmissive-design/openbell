@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Repair export modifier
+      - name: Repair booking links
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -18,11 +18,20 @@ jobs:
           p = Path('src/lib/cinema/seats.ts')
           s = p.read_text(encoding='utf-8')
           s = re.sub(r'(?:export\s+)+function\s+alertBookingUrl', 'export function alertBookingUrl', s)
+          s = s.replace('bookingUrl: row.bookingUrl || prev.bookingUrl', 'bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl)')
+          if 'function betterBookingUrl' not in s:
+              marker = 'export function applyCgvSeatHits'
+              helper = '''function betterBookingUrl(a: string, b: string): string {\n  const score = (url: string) => {\n    const u = String(url || '').trim();\n    if (!u) return 0;\n    if (/megabox\\.co\\.kr\\/booking\\/seat\\?[^#]*playSchdlNo=|PcntSeatChoi\\/selectPcntSeatChoi\\.do\\?[^#]*playSchdlNo=/i.test(u)) return 100;\n    if (/cgv\\.co\\.kr\\/cnm\\/movieBook\\/(?:movie|cinema)\\?[^#]*(?:scnSseq|scnsNo)=/i.test(u) and /movNo=/i.test(u)) return 95;\n    if (/cgv\\.co\\.kr\\/cnm\\/movieBook\\/movie\\?[^#]*movNo=/i.test(u)) return 75;\n    if (/cgv\\.co\\/cnm\\/movieBook\\/cinema\\?/i.test(u)) return 20;\n    if (/megabox\\.co\\.kr\\/booking\\?/i.test(u)) return 20;\n    return 10;\n  };\n  return score(a) >= score(b) ? String(a || '').trim() : String(b || '').trim();\n}\n\n'''
+              s = s.replace(marker, helper + marker, 1)
+          p.write_text(s, encoding='utf-8')
+          p = Path('src/lib/cinema/megabox.server.ts')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('return `https://m.megabox.co.kr/on/oh/ohz/PcntSeatChoi/selectPcntSeatChoi.do?${q.toString()}`;', 'return `https://m.megabox.co.kr/booking/seat?playSchdlNo=${encodeURIComponent(playSchdlNo)}`;')
           p.write_text(s, encoding='utf-8')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/cinema/seats.ts
+          git add src/lib/cinema/seats.ts src/lib/cinema/megabox.server.ts
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "fix: normalize booking url export"
+          git commit -m "fix: restore exact booking links"
           git push
