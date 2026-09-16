@@ -9,6 +9,10 @@ const THEATER_NAME: Record<string, string> = {
   cgv_yongsan: "CGV 용산아이파크몰",
   cgv_yeongdeungpo: "CGV 영등포타임스퀘어",
 };
+const SITE_NO: Record<string, string> = {
+  cgv_yongsan: "0013",
+  cgv_yeongdeungpo: "0059",
+};
 
 type NasRow = {
   playDate?: string;
@@ -16,6 +20,9 @@ type NasRow = {
   hallName?: string;
   movieTitle?: string;
   movieNo?: string;
+  bookingUrl?: string;
+  scnsNo?: string;
+  scnSseq?: string;
   restSeats?: number;
   totalSeats?: number;
 };
@@ -44,6 +51,25 @@ function parsePayload(raw: string): NasPayload | null {
 function normalizeNasSource(source?: string): NasSource {
   if (source === "nas423" || source === "nas225" || source === "nas") return source;
   return "pc";
+}
+
+function cgvNasBookingUrl(theaterId: TheaterId, playDate: string, movieNo: string, bookingUrl?: string, scnsNo?: string, scnSseq?: string): string {
+  const direct = String(bookingUrl ?? "").trim();
+  if (direct) return direct;
+  const siteNo = SITE_NO[theaterId] ?? "";
+  const siteNm = THEATER_NAME[theaterId]?.replace(/^CGV\s*/i, "") ?? "";
+  if (!siteNo || !movieNo) return "";
+  const params: Record<string, string> = {
+    movNo: movieNo,
+    scnYmd: playDate,
+    siteNo,
+    siteNm,
+  };
+  if (scnsNo && scnSseq) {
+    params.scnsNo = scnsNo;
+    params.scnSseq = scnSseq;
+  }
+  return `https://cgv.co.kr/cnm/movieBook/movie?${new URLSearchParams(params).toString()}`;
 }
 
 export async function nasReporterHealth(
@@ -82,6 +108,7 @@ export async function readNasSeatmap(
       if (!movieTitle || !playDate || !startTime) continue;
       const mapped = cgvHallFromCapacity(theaterId, rawHall, Number.isFinite(totalSeats) ? totalSeats : null);
       const hallName = mapped.hall || rawHall || "일반";
+      const bookingUrl = cgvNasBookingUrl(theaterId, playDate, r.movieNo ? String(r.movieNo) : "", r.bookingUrl, r.scnsNo ? String(r.scnsNo) : "", r.scnSseq ? String(r.scnSseq) : "");
       const row: Showtime = {
         id: `nas-${theaterId}-${playDate}-${startTime}-${hallName}-${movieTitle}`,
         theaterId,
@@ -96,7 +123,7 @@ export async function readNasSeatmap(
         formats: mapped.formats,
         restSeats,
         totalSeats: Number.isFinite(totalSeats) ? totalSeats : restSeats,
-        bookingUrl: "",
+        bookingUrl,
         bookable: true,
         seatLive: true,
         seatCheckedAt: new Date(parsed.at).toISOString(),
