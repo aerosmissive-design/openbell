@@ -31,7 +31,7 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
     scan?.catalog ?? [],
   );
   const titles = watchedTitleSet(scan?.ranking ?? [], config);
-  const enabledTheaters = THEATERS.filter((theater) => config.theaters?.[theater.id] !== false);
+  const enabledTheaters = THEATERS;
   const alertedShows = new Set(alerts.map(alertShowKey));
   const catalog = (
     movieTab === "showing" ? (scan?.showing ?? []) : (scan?.ranking ?? [])
@@ -156,7 +156,7 @@ export function WatchView({ scan, loading, error, onRefresh, refreshing }: ScanP
           알림 탭에 뜬 상영이 아직 없습니다.
         </p>
       ) : (
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="flex flex-col gap-3">
       {theaterRows.map(({ theater, result, shows }) => (
           <TheaterBlock
             key={theater.id}
@@ -558,7 +558,7 @@ function TheaterBlock({
     <section
       id={`theater-${theaterId}`}
       className={cn(
-        "rise-in flex min-w-0 flex-col overflow-hidden rounded-xl p-2 shadow-border transition-colors",
+        "rise-in flex flex-col overflow-hidden rounded-xl p-3 shadow-border transition-colors",
         allOn
           ? "bg-pick ring-1 ring-border-strong"
           : someOn
@@ -576,7 +576,7 @@ function TheaterBlock({
           )}
         >
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-bold leading-tight text-fg">
+            <h2 className="truncate text-xl font-bold leading-tight text-fg">
               {theater.name}
             </h2>
             <div className="mt-1.5">
