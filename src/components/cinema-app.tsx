@@ -330,7 +330,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.26
+                v3.9.27
               </span>
             </h1>
           </div>
@@ -418,7 +418,7 @@ function mergeScanResults(fast: ScanResult | null, full: ScanResult | null): Sca
   const theaters = full.theaters.map((theater) => {
     const fallback = fastByTheater.get(theater.theaterId);
     if (!fallback) return theater;
-    const showtimes = mergeShowtimes(fallback.showtimes, theater.showtimes);
+    const showtimes = mergeShowtimes(theater.showtimes, fallback.showtimes);
     return {
       ...fallback,
       ...theater,
