@@ -91,8 +91,9 @@ jobs:
           git push origin main
 
       - name: Remove one-shot workflow
-        if: success() && !startsWith(github.event.head_commit.message, 'chore: apply openbell ui fixes')
         run: |
-          git rm .github/workflows/apply-openbell-ui-fixes.yml
-          git commit -m "chore: remove one-shot ui fix workflow"
-          git push origin main
+          if git log -1 --pretty=%s | grep -q '^chore: apply openbell ui fixes$'; then
+            git rm .github/workflows/apply-openbell-ui-fixes.yml
+            git commit -m "chore: remove one-shot ui fix workflow"
+            git push origin main
+          fi
