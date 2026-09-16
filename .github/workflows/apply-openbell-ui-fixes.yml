@@ -16,60 +16,26 @@ jobs:
           ref: main
           fetch-depth: 2
 
-      - name: Patch UI
+      - name: Patch v3.9.27
         run: |
-          if git log -1 --pretty=%s | grep -q '^chore: apply openbell ui fixes$'; then
-            echo "Patch commit already applied; nothing to do."
+          if git log -1 --pretty=%s | grep -q '^오픈벨 v3.9.27 — FAST·FULL 좌석 결과 우선순위 수정$'; then
+            echo "v3.9.27 patch commit already applied; nothing to do."
             exit 0
           fi
           python3 - <<'PY'
           from pathlib import Path
-
           p = Path('src/components/cinema-app.tsx')
           s = p.read_text()
-          old = '''  const enabledTheaters = useMemo(\n    () => THEATERS.map((t) => t.id),\n    [],\n  );'''
-          new = '''  const enabledTheaters = useMemo(\n    () => THEATERS.filter((t) => config.theaters[t.id] !== false).map((t) => t.id),\n    [config.theaters],\n  );'''
+          old = '                v3.9.26'
+          new = '                v3.9.27'
+          if old in s:
+              s = s.replace(old, new, 1)
+          old = '    const showtimes = mergeShowtimes(fallback.showtimes, theater.showtimes);'
+          new = '    const showtimes = mergeShowtimes(theater.showtimes, fallback.showtimes);'
           if old in s:
               s = s.replace(old, new, 1)
           elif new not in s:
-              raise SystemExit('cinema-app enabledTheaters block not found')
-          p.write_text(s)
-
-          p = Path('src/components/watch-view.tsx')
-          s = p.read_text()
-          old = '  const enabledTheaters = THEATERS;'
-          new = '  const enabledTheaters = THEATERS.filter((theater) => config.theaters[theater.id] !== false);'
-          if old in s:
-              s = s.replace(old, new, 1)
-          elif new not in s:
-              raise SystemExit('watch-view enabledTheaters block not found')
-
-          old = '''      <div className="flex flex-col gap-3">\n      {theaterRows.map(({ theater, result, shows }) => ('''
-          new = '''      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">\n      {theaterRows.map(({ theater, result, shows }) => ('''
-          if old in s:
-              s = s.replace(old, new, 1)
-          elif new not in s:
-              raise SystemExit('watch-view theater container not found')
-
-          replacements = [
-            ('"rise-in flex flex-col overflow-hidden rounded-xl p-3 shadow-border transition-colors",', '"rise-in flex min-w-0 flex-col overflow-hidden rounded-xl p-2.5 shadow-border transition-colors",'),
-            ('<h2 className="truncate text-xl font-bold leading-tight text-fg">', '<h2 className="truncate text-sm font-bold leading-tight text-fg">'),
-            ('          <FormatChips theaterId={theater.id} />', '          <div className="scale-[0.9] origin-top-left">\n            <FormatChips theaterId={theater.id} />\n          </div>'),
-            ('<div className="mt-3 border-t border-border pt-3">', '<div className="mt-2 border-t border-border pt-2 text-[11px]">'),
-            ('<div className="mt-2 flex flex-col gap-2">', '<div className="mt-1 flex flex-col gap-1">'),
-            ('<h3 className="text-sm font-medium text-fg">{movie.title}</h3>', '<h3 className="truncate text-[11px] font-semibold text-fg">{movie.title}</h3>'),
-            ('<span className="text-[11px] tabular-nums text-muted">', '<span className="text-[9px] tabular-nums text-muted">'),
-          ]
-          for old, new in replacements:
-              s = s.replace(old, new, 1)
-          p.write_text(s)
-
-          p = Path('nas/docker-compose.yml')
-          s = p.read_text()
-          old = '''# 사용 방법 (Container Manager):\n# 1) 이 저장소를 나스에 받아 두기 (또는 nas 폴더만)\n# 2) Container Manager → 프로젝트 → 만들기\n# 3) 이 docker-compose.yml 선택\n# 4) 실행 후 브라우저에서 http://나스IP:3080'''
-          new = '''# 사용 방법 (Container Manager):\n# 1) 이 저장소를 나스에 받아 두기 (또는 nas 폴더만)\n# 2) Container Manager → 프로젝트 → 만들기\n# 3) 이 docker-compose.yml 선택\n# 4) 실행 후 PC/폰에서 http://나스IP:3080 접속\n# 5) 같은 LAN에서는 이 웹 GUI에서 극장/감시 설정을 원격으로 변경할 수 있음\n#    외부망에서는 VPN/HTTPS를 사용하고 3080을 인터넷에 직접 공개하지 않는 것을 권장'''
-          if old in s:
-              s = s.replace(old, new, 1)
+              raise SystemExit('FAST/FULL merge line not found')
           p.write_text(s)
           PY
 
@@ -80,20 +46,20 @@ jobs:
 
       - name: Commit fixes
         run: |
-          if git log -1 --pretty=%s | grep -q '^chore: apply openbell ui fixes$'; then
+          if git log -1 --pretty=%s | grep -q '^오픈벨 v3.9.27 — FAST·FULL 좌석 결과 우선순위 수정$'; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/components/cinema-app.tsx src/components/watch-view.tsx nas/docker-compose.yml
+          git add src/components/cinema-app.tsx
           git diff --cached --quiet && exit 0
-          git commit -m "chore: apply openbell ui fixes"
+          git commit -m "오픈벨 v3.9.27 — FAST·FULL 좌석 결과 우선순위 수정"
           git push origin main
 
       - name: Remove one-shot workflow
         run: |
-          if git log -1 --pretty=%s | grep -q '^chore: apply openbell ui fixes$'; then
+          if git log -1 --pretty=%s | grep -q '^오픈벨 v3.9.27 — FAST·FULL 좌석 결과 우선순위 수정$'; then
             git rm .github/workflows/apply-openbell-ui-fixes.yml
-            git commit -m "chore: remove one-shot ui fix workflow"
+            git commit -m "오픈벨 v3.9.27 — 일회성 수정 워크플로 정리"
             git push origin main
           fi
