@@ -1,0 +1,178 @@
+name: OpenBell practical improvement
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip-openbell-improvement]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply practical fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f'missing pattern in {path}: {old[:120]}')
+              p.write_text(s.replace(old, new, 1))
+
+          # Preserve precise CGV booking identifiers all the way through seat-report storage.
+          replace('src/routes/api/seat-report.ts',
+            'type SeatRow = { playDate?: string; startTime?: string; hallName?: string; movieTitle?: string; movieNo?: string; restSeats?: number; totalSeats?: number };',
+            'type SeatRow = { playDate?: string; startTime?: string; hallName?: string; movieTitle?: string; movieNo?: string; bookingUrl?: string; scnsNo?: string; scnSseq?: string; restSeats?: number; totalSeats?: number };')
+          replace('src/routes/api/seat-report.ts',
+            'const totalSeats = Number(r.totalSeats); out.push({ playDate, startTime, hallName, movieTitle, movieNo: r.movieNo ? String(r.movieNo) : "", restSeats, totalSeats: Number.isFinite(totalSeats) ? totalSeats : restSeats });',
+            'const totalSeats = Number(r.totalSeats); out.push({ playDate, startTime, hallName, movieTitle, movieNo: r.movieNo ? String(r.movieNo) : "", bookingUrl: r.bookingUrl ? String(r.bookingUrl).trim() : "", scnsNo: r.scnsNo ? String(r.scnsNo).trim() : "", scnSseq: r.scnSseq ? String(r.scnSseq).trim() : "", restSeats, totalSeats: Number.isFinite(totalSeats) ? totalSeats : restSeats });')
+
+          # Respect the user's theater switches in both fast/full scans and the board rows.
+          replace('src/components/cinema-app.tsx',
+            'const enabledTheaters = useMemo(\n    () => THEATERS.map((t) => t.id),\n    [],\n  );',
+            'const enabledTheaters = useMemo(\n    () => THEATERS.filter((t) => config.theaters?.[t.id] !== false).map((t) => t.id),\n    [config.theaters],\n  );')
+          replace('src/components/watch-view.tsx',
+            'const enabledTheaters = THEATERS;',
+            'const enabledTheaters = THEATERS.filter((theater) => config.theaters?.[theater.id] !== false);')
+          replace('src/components/watch-view.tsx',
+            '<div className="flex flex-col gap-3">\n      {theaterRows.map(({ theater, result, shows }) => (',
+            '<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">\n      {theaterRows.map(({ theater, result, shows }) => (')
+
+          # Keep the existing version string synchronized for the web UI/docs.
+          for p in [Path('README.md'), Path('src/components/cinema-app.tsx')]:
+              s = p.read_text()
+              s = s.replace('v3.9.22', 'v3.9.27').replace('v3.9.26', 'v3.9.27')
+              p.write_text(s)
+
+          # Update user-facing production URL references where they exist.
+          for p in Path('.').rglob('*'):
+              if not p.is_file() or '.git' in p.parts or 'node_modules' in p.parts:
+                  continue
+              try:
+                  s = p.read_text()
+              except (UnicodeDecodeError, OSError):
+                  continue
+              if 'openbell-fawn.vercel.app' in s:
+                  p.write_text(s.replace('https://openbell-fawn.vercel.app', 'https://openbell-holdhyun.vercel.app'))
+          PY
+
+          cat > src/components/board-view.tsx <<'EOF'
+          import { useEffect, useMemo, useState } from "react";
+          import { RefreshCw } from "lucide-react";
+          import { useSession } from "better-auth/react";
+          import { authEnabled } from "@/lib/auth/client";
+          import { applyCgvSeatHits, mergeShowtimes, seatFreshnessLabel } from "@/lib/cinema/seats";
+          import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
+          import { THEATERS } from "@/lib/cinema/theaters";
+          import type { Showtime, TheaterId } from "@/lib/cinema/types";
+          import { useAppStore } from "@/lib/store";
+          import { formatClock } from "@/lib/utils";
+
+          const BOARD_THEATERS: TheaterId[] = ["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"];
+
+          export function BoardView() {
+            const { data: session, isPending: sessionPending } = useSession();
+            const config = useAppStore((s) => s.config);
+            const [shows, setShows] = useState<Record<string, Showtime[]>>({});
+            const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+            const [loading, setLoading] = useState(true);
+            const enabled = useMemo(() => BOARD_THEATERS.filter((id) => config.theaters?.[id] !== false), [config.theaters]);
+
+            async function refresh() {
+              setLoading(true);
+              try {
+                const [scan, seats] = await Promise.all([
+                  scanCinema({ data: { theaters: enabled, daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 20), gasWebUrl: config.gasWebUrl || undefined, mode: "full", sources: { official: true, naver: true, gas: Boolean(config.gasWebUrl) } } }),
+                  pullTheaterSeats({ url: config.gasWebUrl.trim() || undefined, daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 20), fresh: true }),
+                ]);
+                const next: Record<string, Showtime[]> = {};
+                for (const theater of scan.theaters) {
+                  const overlay = seats.showtimes.filter((s) => s.theaterId === theater.theaterId);
+                  const merged = mergeShowtimes(theater.showtimes, overlay);
+                  const map = seats.map;
+                  next[theater.theaterId] = applyCgvSeatHits(merged, map, false, false)
+                    .filter((s) => s.playDate === scan.playDates[0] || s.playDate >= scan.playDates[0])
+                    .slice(0, 18);
+                }
+                setShows(next);
+                setUpdatedAt(new Date().toISOString());
+              } finally {
+                setLoading(false);
+              }
+            }
+
+            useEffect(() => {
+              if (!authEnabled || session?.user) void refresh();
+            }, [enabled.join(","), config.daysAhead, config.gasWebUrl, session?.user?.id]);
+
+            useEffect(() => {
+              if (!authEnabled || session?.user) {
+                const id = window.setInterval(() => void refresh(), 60_000);
+                return () => window.clearInterval(id);
+              }
+            }, [enabled.join(","), config.daysAhead, config.gasWebUrl, session?.user?.id]);
+
+            if (authEnabled && sessionPending) return <div className="min-h-dvh bg-bg p-8 text-muted">로그인 확인 중…</div>;
+            if (authEnabled && !session?.user) return <div className="min-h-dvh bg-bg p-8 text-fg"><h1 className="text-2xl font-bold">오픈벨 전광판</h1><p className="mt-3 text-muted">로그인 후 전광판을 볼 수 있습니다. 홈으로 돌아가 로그인해 주세요.</p><a className="mt-5 inline-block rounded-md bg-pick px-4 py-3 text-sm" href="/">홈으로</a></div>;
+
+            return (
+              <main className="min-h-dvh bg-bg px-4 py-5 text-fg md:px-6 lg:px-8">
+                <header className="mx-auto mb-5 flex max-w-[1800px] items-end justify-between gap-4">
+                  <div><p className="text-xs tracking-[0.18em] text-muted">OPENBELL BOARD</p><h1 className="mt-1 text-3xl font-bold md:text-4xl">예매 전광판</h1></div>
+                  <div className="flex items-center gap-3 text-xs text-muted"><span>{updatedAt ? `${formatClock(updatedAt)} 갱신` : "대기 중"}</span><button type="button" onClick={() => void refresh()} className="flex items-center gap-1 rounded-md bg-surface px-3 py-2 text-fg shadow-border"><RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />새로고침</button></div>
+                </header>
+                <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {BOARD_THEATERS.filter((id) => enabled.includes(id)).map((id) => {
+                    const theater = THEATERS.find((t) => t.id === id)!;
+                    const rows = shows[id] ?? [];
+                    return <section key={id} className="min-w-0 rounded-2xl bg-surface p-4 shadow-border md:p-5"><div className="mb-4 flex items-baseline justify-between gap-2"><h2 className="truncate text-xl font-bold md:text-2xl">{theater.shortName}</h2><span className="shrink-0 text-xs text-muted">{rows.length}회</span></div>{rows.length ? <div className="space-y-2">{rows.map((show) => <BoardRow key={show.id} show={show} />)}</div> : <p className="py-10 text-center text-sm text-muted">상영 정보 대기 중</p>}</section>;
+                  })}
+                </div>
+              </main>
+            );
+          }
+
+          function BoardRow({ show }: { show: Showtime }) {
+            const imax = show.formats.includes("imax") || /IMAX/i.test(show.hallName);
+            return <a href={show.bookingUrl || "#"} target="_blank" rel="noreferrer" className="block rounded-xl bg-bg/60 p-3 ring-1 ring-border transition hover:bg-pick md:p-4"><div className="flex items-center justify-between gap-2"><span className="text-lg font-bold tabular-nums md:text-xl">{formatClock(show.startTime)}</span><span className={imax ? "rounded-full bg-open px-2 py-1 text-[11px] font-bold text-white" : "rounded-full bg-surface-2 px-2 py-1 text-[11px] text-muted"}>{imax ? "IMAX" : show.hallName}</span></div><p className="mt-1 line-clamp-2 text-sm font-medium md:text-base">{show.movieTitle}</p><div className="mt-2 flex items-center justify-between text-xs"><span className="font-semibold">잔여 <b className="text-base tabular-nums">{show.restSeats ?? "-"}</b>석</span><span className="text-muted">{seatFreshnessLabel(show) ?? "좌석 확인 대기"}</span></div></a>;
+          }
+          EOF
+
+          cat > src/routes/board.tsx <<'EOF'
+          import { createFileRoute } from "@tanstack/react-router";
+          import { BoardView } from "@/components/board-view";
+
+          export const Route = createFileRoute("/board")({ component: BoardView });
+          EOF
+
+          # Keep the board discoverable without changing the existing main UI.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('README.md')
+          s=p.read_text()
+          if '/board' not in s:
+              s=s.replace('저장소: https://github.com/aerosmissive-design/openbell', '전광판: https://openbell-holdhyun.vercel.app/board\n저장소: https://github.com/aerosmissive-design/openbell')
+          p.write_text(s)
+          PY
+
+      - name: Typecheck
+        run: npm install --no-audit --no-fund && npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Commit patched source
+        run: |
+          git config user.name "openbell-bot"
+          git config user.email "openbell-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: practical board and booking-link preservation [skip-openbell-improvement]"
+          git push
