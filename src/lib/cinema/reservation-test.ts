@@ -28,6 +28,12 @@ function pick(shows: any[], today: string, nowTime: string) {
   return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 
+function verifiedTestBookingUrl(show: any) {
+  // Do not reuse a stale/incorrect URL embedded in a scanned show for this test.
+  // alertBookingUrl generates the current theater/date fallback when the scan has no exact booking context.
+  return alertBookingUrl({ ...show, bookingUrl: "" });
+}
+
 async function kakaoSend(restKey: string, refreshToken: string, text: string, bookingUrl: string) {
   const tokenRes = await fetch("https://kauth.kakao.com/oauth/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded;charset=utf-8" }, body: new URLSearchParams({ grant_type: "refresh_token", client_id: restKey, refresh_token: refreshToken }), signal: AbortSignal.timeout(10000) });
   const token = await tokenRes.json() as { access_token?: string; error_description?: string };
@@ -54,7 +60,9 @@ export const sendReservationTest = createServerFn({ method: "POST" })
       const pack = scan.theaters.find((t) => t.theaterId === theaterId);
       const show = pick(pack?.showtimes ?? [], now.date, now.time);
       if (!show) continue;
-      selected.push({ ...show, theaterId, bookingUrl: alertBookingUrl(show) });
+      const bookingUrl = verifiedTestBookingUrl(show);
+      if (!bookingUrl) continue;
+      selected.push({ ...show, theaterId, bookingUrl });
     }
     if (selected.length !== THEATERS.length) throw new Error("4개 극장의 실제 상영 회차를 모두 찾지 못했습니다. 잠시 뒤 다시 눌러 주세요.");
     const items = selected.map((show, i) => ({ id: `alert:test-reservation:${show.id}:${Date.now()}:${i}`, createdAt: new Date().toISOString(), kind: "open" as const, title: `${show.movieTitle} 예매 오픈`, body: showAlertBody(show), bookingUrl: show.bookingUrl, theaterId: show.theaterId, movieTitle: show.movieTitle, playDate: show.playDate, startTime: show.startTime, hallName: show.hallName, formats: show.formats, restSeats: show.restSeats, totalSeats: show.totalSeats, seatSource: show.seatSource }));
