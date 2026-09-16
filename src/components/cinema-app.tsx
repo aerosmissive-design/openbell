@@ -39,10 +39,7 @@ export function CinemaApp() {
   const seenRef = useRef(seenIds);
   seenRef.current = seenIds;
 
-  const enabledTheaters = useMemo(
-    () => THEATERS.filter((t) => config.theaters?.[t.id] !== false).map((t) => t.id),
-    [config.theaters],
-  );
+  const enabledTheaters = THEATERS.map((t) => t.id);
   const scanInterval = Math.max(config.intervalMin, 1) * 60 * 1000;
 
   const catalogQuery = useQuery({
@@ -330,7 +327,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.27
+                v3.9.28
               </span>
             </h1>
           </div>
@@ -586,8 +583,7 @@ function announce(items: AlertItem[], config: WatchConfig) {
         data: {
           restKey: config.kakaoRestKey,
           refreshToken: config.kakaoRefreshToken,
-          text: `${item.title}\
-${item.body}`.slice(0, 200),
+          text: `${item.title}\n${item.body}`.slice(0, 200),
           bookingUrl: bookingJumpUrl(item.bookingUrl),
         },
       }).catch((err: unknown) => {
@@ -605,7 +601,7 @@ ${item.body}`.slice(0, 200),
         text: mailCopy.text,
         url: head.bookingUrl,
         items: mailItems.map((a) => ({
-          title: a.title,
+          title: a.movieTitle,
           body: a.body,
           bookingUrl: a.bookingUrl,
         })),
