@@ -16,20 +16,52 @@ jobs:
         with:
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Update header version to 3.9.25
+      - name: Apply OpenBell 3.9.26 patch
         run: |
           python - <<'PY'
           from pathlib import Path
-          p = Path('src/components/cinema-app.tsx')
-          s = p.read_text()
-          old = 'v3.9.24'
-          new = 'v3.9.25'
-          if old not in s:
-              print('No v3.9.24 header found; nothing to patch')
-          else:
-              p.write_text(s.replace(old, new, 1))
+
+          replacements = {
+              'src/components/cinema-app.tsx': [
+                  ('v3.9.24', 'v3.9.26'),
+                  ('v3.9.25', 'v3.9.26'),
+                  ('daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 14)', 'daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 30)'),
+              ],
+              'src/components/watch-view.tsx': [
+                  ('show.seatLive === false ? "text-muted" : "text-open",', '"text-muted",'),
+                  ('show.seatLive === false ? "text-muted" : "text-open",', '"text-muted",'),
+              ],
+              'src/lib/cinema/megabox.server.ts': [
+                  ('const days = Math.min(Math.max(input?.days ?? 7, 1), 14);', 'const days = Math.min(Math.max(input?.days ?? 7, 1), 30);'),
+              ],
+              'src/lib/cinema/scan-impl.server.ts': [
+                  ('fetchMegaboxSeatmap({ days: Math.min(days, 5) })', 'fetchMegaboxSeatmap({ days })'),
+              ],
+          }
+
+          for name, pairs in replacements.items():
+              p = Path(name)
+              s = p.read_text(encoding='utf-8')
+              original = s
+              for old, new in pairs:
+                  if old in s:
+                      s = s.replace(old, new)
+              if s != original:
+                  p.write_text(s, encoding='utf-8')
+                  print('patched', name)
+              else:
+                  print('unchanged', name)
+
+          # Force the timestamp/source line to remain visually distinct from the seat count.
+          p = Path('src/components/watch-view.tsx')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace(
+              'className={cn(\n                    "mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[10px]",\n                    show.seatLive === false ? "text-muted" : "text-open",\n                  )}',
+              'className="mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[10px] text-muted"',
+          )
+          p.write_text(s, encoding='utf-8')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/components/cinema-app.tsx
-          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix: update displayed version to 3.9.25" && git push; fi
+          git add src/components/cinema-app.tsx src/components/watch-view.tsx src/lib/cinema/megabox.server.ts src/lib/cinema/scan-impl.server.ts
+          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix: OpenBell 3.9.26 Megabox seat parity" && git push; fi
