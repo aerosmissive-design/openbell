@@ -17,6 +17,7 @@ import { pullGasMeta } from "@/lib/cinema/cloud";
 import { probeGasHealth } from "@/lib/cinema/gas-health";
 import { describeGasPush, flushSettings } from "./cloud-sync";
 import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";
+import { sendReservationTest } from "@/lib/cinema/reservation-test.server";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { ScanResult, WatchConfig } from "@/lib/cinema/types";
 import { SEAT_HELP, TIMETABLE_HELP, CHART_HELP, mailEnabled, seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
@@ -83,6 +84,42 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
 
   function markScriptCurrent() {
     setConfig({ gasSourceStamp: GAS_SOURCE_STAMP });
+  }
+
+  async function sendReservationChannelTest(channel: "mail" | "telegram" | "kakao") {
+    if (channel === "mail" && !mailEnabled(config)) {
+      toast.error("먼저 메일 알림을 켜고 연결하세요.");
+      return;
+    }
+    if (channel === "telegram" && (!config.telegramToken.trim() || !config.telegramChatId.trim())) {
+      toast.error("먼저 텔레그램을 연결하세요.");
+      return;
+    }
+    if (channel === "kakao" && (!config.kakaoRestKey.trim() || !config.kakaoRefreshToken.trim())) {
+      toast.error("먼저 카카오를 연결하세요.");
+      return;
+    }
+    setSendingTest(true);
+    try {
+      const result = await sendReservationTest({
+        data: {
+          channel,
+          email: loginEmail || config.email,
+          gmailAppPassword: config.gmailAppPassword,
+          gasWebUrl: config.gasWebUrl || undefined,
+          telegramToken: config.telegramToken,
+          telegramChatId: config.telegramChatId,
+          kakaoRestKey: config.kakaoRestKey,
+          kakaoRefreshToken: config.kakaoRefreshToken,
+        },
+      });
+      const names = result.theaters.map((row) => `${row.movieTitle} ${row.playDate.slice(4, 6)}.${row.playDate.slice(6, 8)} ${row.startTime}`).join(" · ");
+      toast.success(`${result.count}개 극장의 실제 상영 회차로 예매 알림을 보냈습니다. ${names}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "예매 알림 테스트 실패");
+    } finally {
+      setSendingTest(false);
+    }
   }
 
   async function sendTestMail() {
@@ -627,10 +664,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               className="mt-3 w-full"
               disabled={sendingTest || !mailEnabled(config)}
               onClick={() => {
-                void sendTestMail();
+                void sendReservationChannelTest("mail");
               }}
             >
-              {sendingTest ? "보내는 중…" : "테스트 메일 보내기"}
+              {sendingTest ? "예매 알림 보내는 중…" : "예매 알림 테스트"}
             </Button>
             <p className="mt-2 text-xs leading-relaxed text-faint">
               스크립트가 있으면 그걸로 보냅니다. 없으면 16자리 앱 비밀번호가
@@ -767,22 +804,9 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           variant="outline"
           className="mt-3 w-full"
           disabled={!config.kakaoRefreshToken}
-          onClick={async () => {
-            try {
-              await sendKakaoMemo({
-                data: {
-                  restKey: config.kakaoRestKey,
-                  refreshToken: config.kakaoRefreshToken,
-                  text: "오픈벨 카톡 연결 테스트입니다. 예매가 열리면 여기로 옵니다.",
-                },
-              });
-              toast.success("나와의 채팅을 확인해 보세요.");
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : "카톡 테스트 실패");
-            }
-          }}
+          onClick={() => { void sendReservationChannelTest("kakao"); }}
         >
-          카톡 테스트 보내기
+          예매 알림 테스트
         </Button>
       </ChannelCard>
 
@@ -842,24 +866,9 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           </Button>
           <Button
             variant="outline"
-            onClick={async () => {
-              try {
-                await sendTelegram({
-                  data: {
-                    token: config.telegramToken,
-                    chatId: config.telegramChatId,
-                    text: "오픈벨 연결 테스트입니다.",
-                  },
-                });
-                toast.success(
-                  "텔레그램 테스트 전송. 감시 탭에서 포스터를 누르면, 새 상영이 열릴 때 여기로 옵니다.",
-                );
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : "전송 실패");
-              }
-            }}
+            onClick={() => { void sendReservationChannelTest("telegram"); }}
           >
-            텔레그램 테스트
+            예매 알림 테스트
           </Button>
         </div>
         {config.telegramToken && config.telegramChatId ? (
