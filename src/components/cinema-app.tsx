@@ -303,7 +303,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.23
+                v3.9.24
               </span>
             </h1>
           </div>
@@ -422,13 +422,14 @@ function NavBtn({
 }
 
 function toAlert(show: Showtime, all: Showtime[]): AlertItem {
+  const bookingUrl = resolveBookingUrl(show, all);
   return {
     id: `alert:${show.id}:${Date.now()}`,
     createdAt: new Date().toISOString(),
     kind: "open",
     title: `${show.movieTitle} 예매 오픈`,
     body: showAlertBody(show, all),
-    bookingUrl: show.bookingUrl,
+    bookingUrl,
     theaterId: show.theaterId,
     movieTitle: show.movieTitle,
     playDate: show.playDate,
@@ -438,6 +439,23 @@ function toAlert(show: Showtime, all: Showtime[]): AlertItem {
     restSeats: show.restSeats,
     totalSeats: show.totalSeats,
   };
+}
+
+function resolveBookingUrl(show: Showtime, all: Showtime[]): string {
+  if (show.bookingUrl) return show.bookingUrl;
+  const normTime = (v: string) => String(v || '').replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const normTitle = (v: string) => normalizeTitle(v);
+  const same = all.find((row) =>
+    row !== show &&
+    row.theaterId === show.theaterId &&
+    row.playDate === show.playDate &&
+    normTime(row.startTime) === normTime(show.startTime) &&
+    normTitle(row.movieTitle) === normTitle(show.movieTitle) &&
+    Boolean(row.bookingUrl),
+  );
+  if (same?.bookingUrl) return same.bookingUrl;
+  if (show.chain === 'cgv') return 'https://www.cgv.co.kr/cnm/movieBook/cinema';
+  return show.chain === 'megabox' ? 'https://www.megabox.co.kr/booking' : '';
 }
 
 function queueNasJobs(items: AlertItem[], config: WatchConfig) {

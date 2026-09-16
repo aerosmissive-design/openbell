@@ -72,6 +72,35 @@ export function mergeShowtimes(
       seatCheckedAt: row.seatCheckedAt ?? prev.seatCheckedAt,
     });
   }
+  const loose = new Map<string, string[]>();
+  for (const [key] of map) {
+    const parts = key.split('|');
+    const looseKey = parts.slice(0, 4).join('|');
+    const list = loose.get(looseKey) ?? [];
+    list.push(key);
+    loose.set(looseKey, list);
+  }
+  for (const row of primary) {
+    const key = keyOf(row);
+    if (map.has(key)) continue;
+    const looseKey = [row.theaterId, row.playDate, normTime(row.startTime), normalizeTitle(row.movieTitle)].join('|');
+    const candidates = (loose.get(looseKey) ?? []).filter((k) => !map.get(k)?.bookingUrl);
+    if (candidates.length !== 1) continue;
+    const prevKey = candidates[0];
+    const prev = map.get(prevKey);
+    if (!prev) continue;
+    map.delete(prevKey);
+    map.set(key, {
+      ...prev,
+      ...row,
+      restSeats: row.restSeats ?? prev.restSeats,
+      totalSeats: row.totalSeats ?? prev.totalSeats,
+      bookingUrl: row.bookingUrl || prev.bookingUrl,
+      movieNo: row.movieNo || prev.movieNo,
+      seatLive: row.restSeats != null ? (row.seatLive ?? true) : prev.seatLive,
+      seatCheckedAt: row.seatCheckedAt ?? prev.seatCheckedAt,
+    });
+  }
   return [...map.values()];
 }
 
@@ -207,8 +236,14 @@ export function seatFreshnessLabel(
   if (typeof show.restSeats !== "number" || !Number.isFinite(show.restSeats)) {
     return null;
   }
-  if (show.seatLive !== false) return "실시간";
-  if (!show.seatCheckedAt) return "마지막 확인";
+  if (!show.seatCheckedAt) return "확인시각 없음";
+  const checked = new Date(show.seatCheckedAt);
+  if (!Number.isFinite(checked.getTime())) return "확인시각 없음";
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(checked);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${Number(get("month"))}.${Number(get("day"))}일 ${get("hour")}:${get("minute")} 기준`;
   const ms = Date.now() - new Date(show.seatCheckedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "마지막 확인";
   const min = Math.max(1, Math.round(ms / 60_000));
