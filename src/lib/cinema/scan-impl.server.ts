@@ -88,10 +88,21 @@ export async function runScan(input: {
     if (isCgvId(theater.theaterId) && extraNas.length) {
       live = applyReporterFallback(live, extraNas);
     }
-    const showtimes = applyCgvSeatHits(live, lastKnown, false, false).map((row) => ({
+    const nasSeatSource = nas.source === "nas423" ? "g-nas423" : nas.source === "nas225" ? "g-nas225" : nas.source === "nas" ? "g-nas" : "g-pc";
+    const showtimes = applyCgvSeatHits(live, lastKnown, false, false).map((row) => {
+      const liveSource =
+        lookupSeatHit(row, officialMap) ? "official" :
+        lookupSeatHit(row, nas.map) ? nasSeatSource :
+        lookupSeatHit(row, kt.map) ? "cgv-kt" :
+        lookupSeatHit(row, relay.map) ? "cgv-relay" :
+        lookupSeatHit(row, gasMap) ? "gas-cache" :
+        row.restSeats != null ? "last-known" : undefined;
+      return ({
       ...row,
       playDate: normalizePlayDate(row.playDate),
-    }));
+      seatSource: liveSource,
+    });
+    });
     let source = theater.source;
     if (!theater.showtimes.length) {
       if (extraOfficial.length) source = "official";

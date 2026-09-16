@@ -7,7 +7,7 @@ import { applyCgvSeatHits, formatShowPlace, mergeShowtimes, seatFreshnessLabel, 
 import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { MovieTab, RankingMovie, ScanProps, Showtime, TheaterId } from "@/lib/cinema/types";
-import { CHART_SIZE } from "@/lib/cinema/types";
+import { CHART_SIZE, seatSourceLabel } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn, formatPlayDate, kstDateKeys, normalizeTitle } from "@/lib/utils";
 import { SourceStatus } from "./source-status";
@@ -865,6 +865,11 @@ function ShowDateList({
                         }
                       >
                         {seatFreshnessLabel(show)}
+                      </span>
+                    ) : null}
+                    {show.seatSource && seatSourceLabel(show.seatSource) !== "없음" ? (
+                      <span className="ml-1 text-[10px] text-muted">
+                        · {seatSourceLabel(show.seatSource)}
                       </span>
                     ) : null}
                   </span>

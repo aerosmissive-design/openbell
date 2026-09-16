@@ -511,7 +511,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           비어 있습니다.
         </p>
         <div className="mt-3 grid grid-cols-5 gap-1.5">
-          {[5, 7, 10, 15, 20].map((n) => (
+          {[5, 7, 10, 15, 30].map((n) => (
             <button
               key={n}
               type="button"
