@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { useSession } from "better-auth/react";
 import { authEnabled } from "@/lib/auth/client";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { applyCgvSeatHits, mergeShowtimes, seatFreshnessLabel } from "@/lib/cinema/seats";
 import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
@@ -12,7 +12,7 @@ import { formatClock } from "@/lib/utils";
 const IDS: TheaterId[] = ["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"];
 
 export function BoardView() {
-  const { data: session, isPending } = useSession();
+  const { user: currentUser, isPending } = useCurrentUserState();
   const config = useAppStore((s) => s.config);
   const [data, setData] = useState<Record<string, Showtime[]>>({});
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
@@ -36,11 +36,11 @@ export function BoardView() {
     } finally { setBusy(false); }
   }
 
-  useEffect(() => { if (!authEnabled || session?.user) void refresh(); }, [enabled.join(","), config.daysAhead, config.gasWebUrl, session?.user?.id]);
-  useEffect(() => { if (authEnabled && !session?.user) return; const id = window.setInterval(() => void refresh(), 60000); return () => window.clearInterval(id); }, [enabled.join(","), config.daysAhead, config.gasWebUrl, session?.user?.id]);
+  useEffect(() => { if (!authEnabled || currentUser) void refresh(); }, [enabled.join(","), config.daysAhead, config.gasWebUrl, currentUser?.id]);
+  useEffect(() => { if (authEnabled && !currentUser) return; const id = window.setInterval(() => void refresh(), 60000); return () => window.clearInterval(id); }, [enabled.join(","), config.daysAhead, config.gasWebUrl, currentUser?.id]);
 
   if (authEnabled && isPending) return <div className="min-h-dvh bg-bg p-8 text-muted">로그인 확인 중…</div>;
-  if (authEnabled && !session?.user) return <div className="min-h-dvh bg-bg p-8 text-fg"><h1 className="text-2xl font-bold">오픈벨 전광판</h1><p className="mt-3 text-muted">로그인 후 사용할 수 있습니다.</p><a className="mt-5 inline-block rounded-md bg-pick px-4 py-3" href="/">홈으로</a></div>;
+  if (authEnabled && !currentUser) return <div className="min-h-dvh bg-bg p-8 text-fg"><h1 className="text-2xl font-bold">오픈벨 전광판</h1><p className="mt-3 text-muted">로그인 후 사용할 수 있습니다.</p><a className="mt-5 inline-block rounded-md bg-pick px-4 py-3" href="/">홈으로</a></div>;
 
   return <main className="min-h-dvh bg-bg px-4 py-5 text-fg md:px-6 lg:px-8">
     <header className="mx-auto mb-5 flex max-w-[1800px] items-end justify-between gap-4"><div><p className="text-xs tracking-[.18em] text-muted">OPENBELL BOARD</p><h1 className="mt-1 text-3xl font-bold md:text-4xl">예매 전광판</h1></div><button type="button" onClick={() => void refresh()} className="flex items-center gap-2 rounded-md bg-surface px-3 py-2 text-sm"><RefreshCw className={busy ? "size-4 animate-spin" : "size-4"} />새로고침</button></header>
