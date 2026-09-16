@@ -16,12 +16,11 @@ jobs:
         with:
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Patch NAS priority, KT horizon, and strict hall matching
+      - name: Patch NAS priority and alert visibility
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
-
           p = Path('src/lib/cinema/scan-impl.server.ts')
           s = p.read_text()
           if 'import { readNasSeatmap } from "./nas.server";' not in s:
@@ -48,9 +47,6 @@ jobs:
           if 'const nas = score(maps.nas);' not in s:
               s = s.replace('const official = score(maps.official);\n  const kt = score(maps.kt);', 'const official = score(maps.official);\n  const nas = score(maps.nas);\n  const kt = score(maps.kt);')
           s = s.replace('if (official >= kt && official >= relay && official >= gas && official > 0) return "official";', 'if (official >= nas && official >= kt && official >= relay && official >= gas && official > 0) return "official";\n  if (nas >= kt && nas >= relay && nas >= gas && nas > 0) return "nas-report";')
-
-          # KT는 설정된 감시 기간 전체를 조회한다. 기존에는 오늘+내일만 잘라냈다.
-          s = s.replace('fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates.slice(0, 2) })', 'fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates })')
           p.write_text(s)
 
           t = Path('src/lib/cinema/types.ts')
@@ -67,76 +63,7 @@ jobs:
           a = Path('src/lib/cinema/seats.ts')
           ss = a.read_text()
           ss = ss.replace('    totalSeats: change.show.totalSeats,\n  };\n}\n\nexport function notifyBatches', '    totalSeats: change.show.totalSeats,\n    seatSource: change.show.seatSource,\n  };\n}\n\nexport function notifyBatches')
-          old_loose = '    const candidates = (loose.get(looseKey) ?? []).filter((k) => !map.get(k)?.bookingUrl);'
-          new_loose = '''    const candidates = (loose.get(looseKey) ?? []).filter((k) => {
-      const candidate = map.get(k);
-      return Boolean(candidate && !candidate.bookingUrl && hallsMatch(row.hallName, candidate.hallName));
-    });'''
-          if old_loose in ss:
-              ss = ss.replace(old_loose, new_loose, 1)
-
-          start = ss.index('export function lookupSeatHit(')
-          end = ss.index('export function seatFreshnessLabel(', start)
-          replacement = '''export function lookupSeatHit(row: Showtime, map: SeatHitMap): SeatHit | null {
-  // 같은 영화·시간이어도 관이 다르면 절대 다른 관의 잔여석을 붙이지 않는다.
-  for (const key of seatLookupKeys(row)) {
-    const hit = map[key];
-    if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) return packHit(hit);
-  }
-  const siteNo = SITE_NO[row.theaterId] ?? "";
-  if (!siteNo) return null;
-  const tag = row.chain === "cgv" ? "k" : "m";
-  for (const clock of clockVariants(row.playDate, row.startTime)) {
-    const prefix = `${tag}:${siteNo}|${clock.playDate}|${clock.startTime}|`;
-    const halls = hallVariants(row.hallName);
-    if (halls.length) {
-      for (const hall of halls) {
-        const hit = map[`${prefix}${hall}`];
-        if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) return packHit(hit);
-      }
-      continue;
-    }
-    const fallbacks = [normalizeTitle(row.movieTitle), row.movieNo].filter(Boolean);
-    for (const fallback of fallbacks) {
-      const hit = map[`${prefix}${fallback}`];
-      if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) return packHit(hit);
-    }
-  }
-  return null;
-}
-
-'''
-          ss = ss[:start] + replacement + ss[end:]
-          old_fallback = '''      (titlesMatch(candidate.movieTitle, row.movieTitle) ||
-        Boolean(candidate.movieNo && row.movieNo && candidate.movieNo === row.movieNo)),'''
-          new_fallback = '''      hallsMatch(candidate.hallName, row.hallName) &&
-      (titlesMatch(candidate.movieTitle, row.movieTitle) ||
-        Boolean(candidate.movieNo && row.movieNo && candidate.movieNo === row.movieNo)),'''
-          if old_fallback in ss:
-              ss = ss.replace(old_fallback, new_fallback, 1)
-          marker = 'function normTime(time: string) {'
-          if 'function hallsMatch(a: string, b: string): boolean' not in ss:
-              idx = ss.index(marker)
-              helper = '''function hallsMatch(a: string, b: string): boolean {
-  const variantsA = hallVariants(a);
-  const variantsB = hallVariants(b);
-  if (!variantsA.length || !variantsB.length) return false;
-  return variantsA.some((value) => variantsB.includes(value));
-}
-
-'''
-              ss = ss[:idx] + helper + ss[idx:]
           a.write_text(ss)
-
-          kt = Path('src/lib/cinema/kt.server.ts')
-          ks = kt.read_text()
-          ks = ks.replace(' * 요청량을 아끼기 위해 dates는 짧게(기본 오늘 하루~이틀) 쓰는 걸 권장한다.\n', ' * dates는 오픈벨 설정의 감시 기간(5/7/10/15/20일 등)을 그대로 받는다.\n')
-          kt.write_text(ks)
-
-          sv = Path('src/components/settings-view.tsx')
-          svs = sv.read_text()
-          svs = svs.replace('{[5, 7, 10, 15, 30].map((n) => (', '{[5, 7, 10, 15, 20].map((n) => (', 1)
-          sv.write_text(svs)
 
           av = Path('src/components/alerts-view.tsx')
           avs = av.read_text()
@@ -150,5 +77,5 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/cinema/scan-impl.server.ts src/lib/cinema/types.ts src/lib/cinema/watch-tick.server.ts src/lib/cinema/seats.ts src/components/alerts-view.tsx src/lib/cinema/kt.server.ts src/components/settings-view.tsx
-          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix(seats): extend KT horizon and require matching hall" && git push; fi
+          git add src/lib/cinema/scan-impl.server.ts src/lib/cinema/types.ts src/lib/cinema/watch-tick.server.ts src/lib/cinema/seats.ts src/components/alerts-view.tsx
+          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix(seats): prioritize NAS reporter and expose alert source" && git push; fi
