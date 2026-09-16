@@ -19,6 +19,8 @@ jobs:
           s = p.read_text(encoding='utf-8')
           s = re.sub(r'(?:export\s+)+function\s+alertBookingUrl', 'export function alertBookingUrl', s)
           s = s.replace('bookingUrl: row.bookingUrl || prev.bookingUrl', 'bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl)')
+          s = s.replace(' and /movNo=/i.test(u)', ' && /movNo=/i.test(u)')
+          s = s.replace('cgv\\.co\\/cnm\\/movieBook\\/cinema', 'cgv\\.co\\.kr\\/cnm\\/movieBook\\/cinema')
           if 'function betterBookingUrl' not in s:
               marker = 'export function applyCgvSeatHits'
               helper = '''function betterBookingUrl(a: string, b: string): string {\n  const score = (url: string) => {\n    const u = String(url || '').trim();\n    if (!u) return 0;\n    if (/megabox\\.co\\.kr\\/booking\\/seat\\?[^#]*playSchdlNo=|PcntSeatChoi\\/selectPcntSeatChoi\\.do\\?[^#]*playSchdlNo=/i.test(u)) return 100;\n    if (/cgv\\.co\\.kr\\/cnm\\/movieBook\\/(?:movie|cinema)\\?[^#]*(?:scnSseq|scnsNo)=/i.test(u) && /movNo=/i.test(u)) return 95;\n    if (/cgv\\.co\\.kr\\/cnm\\/movieBook\\/movie\\?[^#]*movNo=/i.test(u)) return 75;\n    if (/cgv\\.co\\.kr\\/cnm\\/movieBook\\/cinema\\?/i.test(u)) return 20;\n    if (/megabox\\.co\\.kr\\/booking\\?/i.test(u)) return 20;\n    return 10;\n  };\n  return score(a) >= score(b) ? String(a || '').trim() : String(b || '').trim();\n}\n\n'''
