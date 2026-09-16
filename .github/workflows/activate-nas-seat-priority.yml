@@ -73,9 +73,16 @@ jobs:
               avs = avs.replace(old, new)
           av.write_text(avs)
           PY
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/settings-view.tsx')
+          s = p.read_text()
+          s = s.replace('{[5, 7, 10, 15, 30].map((n) => (', '{[5, 7, 10, 15, 20].map((n) => (', 1)
+          p.write_text(s)
+          PY
       - name: Commit patched source
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/cinema/scan-impl.server.ts src/lib/cinema/types.ts src/lib/cinema/watch-tick.server.ts src/lib/cinema/seats.ts src/components/alerts-view.tsx
-          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix(seats): prioritize NAS reporter and expose alert source" && git push; fi
+          git add src/lib/cinema/scan-impl.server.ts src/lib/cinema/types.ts src/lib/cinema/watch-tick.server.ts src/lib/cinema/seats.ts src/components/alerts-view.tsx src/components/settings-view.tsx
+          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix: add 20-day monitoring option" && git push; fi
