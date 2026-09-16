@@ -276,7 +276,7 @@ export async function pingSeatmap(input: { url?: string; fresh?: boolean; theate
 }
 
 async function loadGasTimetable(url: string, days: number, theaterId?: TheaterId): Promise<Showtime[]> {
-  const params: Record<string, string> = { op: "live", days: String(Math.min(days, 10)) }; if (theaterId) params.theater = theaterId;
+  const params: Record<string, string> = { op: "live", days: String(Math.min(days, 30)) }; if (theaterId) params.theater = theaterId;
   const live = await loadGasJson(url, params); if (live.length) return live;
   const mega = await loadGasJson(url, { ...params, op: "mega" }); if (mega.length) return mega;
   return loadGasShows(url);

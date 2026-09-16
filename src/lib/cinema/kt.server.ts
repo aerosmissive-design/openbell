@@ -63,7 +63,7 @@ function ymd(dateKey: string): string { return dateKey.replace(/-/g, ""); }
 
 /**
  * KT 쇼무비를 통해 CGV 용산/영등포 잔여석을 조회한다.
- * 호출측에서 오픈벨 설정의 감시 기간(5/7/10/15/20일 등)을 그대로 dates로 전달한다.
+ * 호출측에서 오픈벨 설정의 감시 기간(5/7/10/15/30일 등)을 그대로 dates로 전달한다.
  * KT 자체에서 제공하지 않는 특별관은 이 소스로 숫자가 생기지 않으며, 같은 관의 회차만 매칭한다.
  */
 export async function fetchCgvKtSeatmap(input: { theaters: TheaterId[]; dates: string[] }): Promise<{ map: SeatHitMap; showtimes: Showtime[] }> {
