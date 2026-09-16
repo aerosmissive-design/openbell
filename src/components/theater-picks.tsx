@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ExternalLink } from "lucide-react";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { TheaterId } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
@@ -64,13 +64,26 @@ export function FormatChips({
 export function SettingsTheaterPicks({ onChange }: { onChange?: () => void }) {
   return (
     <>
-      <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
-        감시 극장
-      </h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted">
-        제목을 누르면 그 극장 특별관이 전부 켜지거나 꺼집니다. 켠 특별관만
-        알림이 갑니다.
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
+            감시 극장
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            제목을 누르면 그 극장 특별관이 전부 켜지거나 꺼집니다. 켠 특별관만
+            알림이 갑니다.
+          </p>
+        </div>
+        <a
+          href="https://openbell-fawn.vercel.app/board"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-md bg-pick px-3 text-xs font-medium text-fg ring-1 ring-border-strong"
+        >
+          전광판
+          <ExternalLink className="size-3.5" strokeWidth={1.75} />
+        </a>
+      </div>
       <div className="mt-3 flex flex-col gap-2">
         {THEATERS.map((theater) => (
           <SettingsTheaterRow
