@@ -37,6 +37,86 @@ jobs:
               'src/lib/cinema/scan-impl.server.ts': [
                   ('fetchMegaboxSeatmap({ days: Math.min(days, 5) })', 'fetchMegaboxSeatmap({ days })'),
               ],
+              'src/lib/cinema/seats.ts': [
+                  ('''function seatLookupKeys(row: Showtime): string[] {
+            const titleKey = normalizeTitle(row.movieTitle);
+            const siteNo = SITE_NO[row.theaterId] ?? "";
+            const prefix = row.chain === "cgv" ? "k:" : "m:";
+            const keys = [row.id];
+            for (const clock of clockVariants(row.playDate, row.startTime)) {
+              const stem = siteNo ? `${prefix}${siteNo}|${clock.playDate}|${clock.startTime}` : "";
+              if (!stem) continue;
+              for (const hall of hallVariants(row.hallName)) keys.push(`${stem}|${hall}`);
+              if (titleKey) keys.push(`${stem}|${titleKey}`);
+              if (row.movieNo) keys.push(`${stem}|${row.movieNo}`);
+            }
+            return [...new Set(keys.filter(Boolean))];
+          }''', '''function seatLookupKeys(row: Showtime): string[] {
+            const titleKey = normalizeTitle(row.movieTitle);
+            const siteNo = SITE_NO[row.theaterId] ?? "";
+            const prefix = row.chain === "cgv" ? "k:" : "m:";
+            const keys = [row.id];
+            const rowHalls = hallVariants(row.hallName);
+            for (const clock of clockVariants(row.playDate, row.startTime)) {
+              const stem = siteNo ? `${prefix}${siteNo}|${clock.playDate}|${clock.startTime}` : "";
+              if (!stem) continue;
+              for (const hall of rowHalls) keys.push(`${stem}|${hall}`);
+              if (!rowHalls.length) {
+                if (titleKey) keys.push(`${stem}|${titleKey}`);
+                if (row.movieNo) keys.push(`${stem}|${row.movieNo}`);
+              }
+            }
+            return [...new Set(keys.filter(Boolean))];
+          }''')
+              ],
+              'src/lib/cinema/watch-tick.server.ts': [
+                  ('''function toAlert(show: Showtime, all: Showtime[]): AlertItem {
+            return {
+              id: `alert:${show.id}:${Date.now()}`,
+              createdAt: new Date().toISOString(),
+              kind: "open",
+              title: `${show.movieTitle} 예매 오픈`,
+              body: showAlertBody(show, all),
+              bookingUrl: show.bookingUrl,''', '''function resolveAlertBookingUrl(show: Showtime, all: Showtime[]): string {
+            if (show.bookingUrl?.trim()) return show.bookingUrl.trim();
+            const same = all.filter((candidate) =>
+              candidate.theaterId === show.theaterId &&
+              candidate.playDate === show.playDate &&
+              candidate.startTime === show.startTime &&
+              candidate.movieTitle === show.movieTitle &&
+              candidate.hallName === show.hallName &&
+              candidate.bookingUrl?.trim(),
+            );
+            if (same.length) return same[0].bookingUrl.trim();
+            const cgvSite = show.theaterId === "cgv_yongsan" ? "0013" : show.theaterId === "cgv_yeongdeungpo" ? "0059" : "";
+            if (cgvSite) {
+              const date = String(show.playDate || "").replace(/-/g, "");
+              return `https://cgv.co.kr/cnm/movieBook/cinema?siteNo=${cgvSite}&date=${date}`;
+            }
+            if (show.chain === "megabox") return "https://www.megabox.co.kr/booking";
+            return "";
+          }
+
+          function toAlert(show: Showtime, all: Showtime[]): AlertItem {
+            const bookingUrl = resolveAlertBookingUrl(show, all);
+            return {
+              id: `alert:${show.id}:${Date.now()}`,
+              createdAt: new Date().toISOString(),
+              kind: "open",
+              title: `${show.movieTitle} 예매 오픈`,
+              body: showAlertBody(show, all),
+              bookingUrl:'''),
+                  ('''    const items = [
+      ...fresh.map((show) => toAlert(show, allShows)),
+      ...changes.map((change) => seatChangeAlert(change, allShows)),
+    ];''', '''    const items = [
+      ...fresh.map((show) => toAlert(show, allShows)),
+      ...changes.map((change) => {
+        const bookingUrl = resolveAlertBookingUrl(change.show, allShows);
+        return seatChangeAlert({ ...change, show: { ...change.show, bookingUrl } }, allShows);
+      }),
+    ];''')
+              ],
           }
 
           for name, pairs in replacements.items():
@@ -63,5 +143,5 @@ jobs:
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/components/cinema-app.tsx src/components/watch-view.tsx src/lib/cinema/megabox.server.ts src/lib/cinema/scan-impl.server.ts
-          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix: OpenBell 3.9.26 Megabox seat parity" && git push; fi
+          git add src/components/cinema-app.tsx src/components/watch-view.tsx src/lib/cinema/megabox.server.ts src/lib/cinema/scan-impl.server.ts src/lib/cinema/seats.ts src/lib/cinema/watch-tick.server.ts
+          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix: restore G_PC and booking links" && git push; fi
