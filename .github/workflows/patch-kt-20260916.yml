@@ -12,10 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Patch KT horizon and hall matching
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
-          import re
 
           kt = Path('src/lib/cinema/scan-impl.server.ts')
           s = kt.read_text()
@@ -55,13 +54,10 @@ jobs:
           start = s.index('export function lookupSeatHit(')
           end = s.index('export function seatFreshnessLabel(', start)
           replacement = '''export function lookupSeatHit(row: Showtime, map: SeatHitMap): SeatHit | null {
-  // CGV/KT/NAS/우회 좌석은 같은 영화·시간이라도 관이 다르면 절대 합치지 않는다.
-  // 관 이름의 공백/괄호/"관" 표기 차이만 hallVariants()로 흡수한다.
+  // 같은 영화·시간이어도 관이 다르면 절대 다른 관의 잔여석을 붙이지 않는다.
   for (const key of seatLookupKeys(row)) {
     const hit = map[key];
-    if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) {
-      return packHit(hit);
-    }
+    if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) return packHit(hit);
   }
   const siteNo = SITE_NO[row.theaterId] ?? "";
   if (!siteNo) return null;
@@ -72,9 +68,7 @@ jobs:
     if (halls.length) {
       for (const hall of halls) {
         const hit = map[`${prefix}${hall}`];
-        if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) {
-          return packHit(hit);
-        }
+        if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) return packHit(hit);
       }
       // 관이 있는 회차는 제목/movieNo만으로 다른 관의 숫자를 붙이지 않는다.
       continue;
@@ -82,9 +76,7 @@ jobs:
     const fallbacks = [normalizeTitle(row.movieTitle), row.movieNo].filter(Boolean);
     for (const fallback of fallbacks) {
       const hit = map[`${prefix}${fallback}`];
-      if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) {
-        return packHit(hit);
-      }
+      if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) return packHit(hit);
     }
   }
   return null;
