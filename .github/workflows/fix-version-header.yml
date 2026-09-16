@@ -1,4 +1,4 @@
-name: Fix OpenBell version header
+name: OpenBell patch runner
 
 on:
   push:
@@ -16,148 +16,11 @@ jobs:
         with:
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Apply OpenBell patches
+      - name: Apply patch helper
+        run: python scripts/patch-settings-test-button.py
+      - name: Commit patch
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          replacements = {
-              'src/components/cinema-app.tsx': [
-                  ('v3.9.24', 'v3.9.26'),
-                  ('v3.9.25', 'v3.9.26'),
-                  ('daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 14)', 'daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 30)'),
-              ],
-              'src/components/watch-view.tsx': [
-                  ('show.seatLive === false ? "text-muted" : "text-open",', '"text-muted",'),
-                  ('show.seatLive === false ? "text-muted" : "text-open",', '"text-muted",'),
-              ],
-              'src/lib/cinema/megabox.server.ts': [
-                  ('const days = Math.min(Math.max(input?.days ?? 7, 1), 14);', 'const days = Math.min(Math.max(input?.days ?? 7, 1), 30);'),
-              ],
-              'src/lib/cinema/scan-impl.server.ts': [
-                  ('fetchMegaboxSeatmap({ days: Math.min(days, 5) })', 'fetchMegaboxSeatmap({ days })'),
-              ],
-              'src/lib/cinema/seats.ts': [
-                  ('function alertBookingUrl(item: AlertItem): string {', 'export function alertBookingUrl(item: AlertItem): string {'),
-                  ('if (item.theaterId === "cgv_yongsan") return `https://cgv.co.kr/cnm/movieBook/cinema?siteNo=0013&date=${String(item.playDate || "").replace(/-/g, "")}`;', 'if (item.theaterId === "cgv_yongsan") return `https://cgv.co.kr/cnm/movieBook/cinema?siteNm=%EC%9A%A9%EC%82%B0%EC%95%84%EC%9D%B4%ED%8C%8C%ED%81%B4%EB%AA%B0&siteNo=0013&date=${String(item.playDate || "").replace(/-/g, "")}`;'),
-                  ('if (item.theaterId === "cgv_yeongdeungpo") return `https://cgv.co.kr/cnm/movieBook/cinema?siteNo=0059&date=${String(item.playDate || "").replace(/-/g, "")}`;', 'if (item.theaterId === "cgv_yeongdeungpo") return `https://cgv.co.kr/cnm/movieBook/cinema?siteNm=%EC%98%81%EB%93%B1%ED%8F%AC%ED%83%80%EC%9E%84%EC%8A%A4%ED%80%98%EC%96%B4&siteNo=0059&date=${String(item.playDate || "").replace(/-/g, "")}`;'),
-              ],
-              'src/lib/cinema/mail.server.ts': [
-                  ('import { escapeAttr, escapeHtml } from "./seats";', 'import { alertBookingUrl, escapeAttr, escapeHtml } from "./seats";'),
-              ],
-              'src/lib/cinema/watch-tick.server.ts': [
-                  ('import { diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBody } from "./seats";', 'import { alertBookingUrl, diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBody } from "./seats";'),
-                  ('url: items[0]?.bookingUrl,', 'url: items[0] ? alertBookingUrl(items[0]) : "",'),
-                  ('bookingUrl: a.bookingUrl,', 'bookingUrl: alertBookingUrl(a),'),
-              ],
-          }
-
-          for name, pairs in replacements.items():
-              p = Path(name)
-              s = p.read_text(encoding='utf-8')
-              original = s
-              for old, new in pairs:
-                  if old in s:
-                      s = s.replace(old, new)
-              if s != original:
-                  p.write_text(s, encoding='utf-8')
-                  print('patched', name)
-              else:
-                  print('unchanged', name)
-
-          p = Path('src/components/watch-view.tsx')
-          s = p.read_text(encoding='utf-8')
-          s = s.replace(
-              'className={cn(\n                    "mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[10px]",\n                    show.seatLive === false ? "text-muted" : "text-open",\n                  )}',
-              'className="mt-0.5 flex min-w-0 items-center gap-1 whitespace-nowrap text-[10px] text-muted"',
-          )
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('src/components/settings-view.tsx')
-          s = p.read_text(encoding='utf-8')
-          s = s.replace(
-              'import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";',
-              'import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";\nimport { sendReservationTest } from "@/lib/cinema/reservation-test.server";',
-              1,
-          )
-          if 'async function sendReservationChannelTest' not in s:
-              marker = '  async function sendTestMail() {'
-              helper = '''  async function sendReservationChannelTest(channel: "mail" | "telegram" | "kakao") {
-    if (channel === "mail" && !mailEnabled(config)) {
-      toast.error("먼저 메일 알림을 켜고 연결하세요.");
-      return;
-    }
-    if (channel === "telegram" && (!config.telegramToken.trim() || !config.telegramChatId.trim())) {
-      toast.error("먼저 텔레그램을 연결하세요.");
-      return;
-    }
-    if (channel === "kakao" && (!config.kakaoRestKey.trim() || !config.kakaoRefreshToken.trim())) {
-      toast.error("먼저 카카오를 연결하세요.");
-      return;
-    }
-    setSendingTest(true);
-    try {
-      const result = await sendReservationTest({
-        data: {
-          channel,
-          email: loginEmail || config.email,
-          gmailAppPassword: config.gmailAppPassword,
-          gasWebUrl: config.gasWebUrl || undefined,
-          telegramToken: config.telegramToken,
-          telegramChatId: config.telegramChatId,
-          kakaoRestKey: config.kakaoRestKey,
-          kakaoRefreshToken: config.kakaoRefreshToken,
-        },
-      });
-      const names = result.theaters.map((row) => `${row.movieTitle} ${row.playDate.slice(4, 6)}.${row.playDate.slice(6, 8)} ${row.startTime}`).join(" · ");
-      toast.success(`${result.count}개 극장의 실제 상영 회차로 예매 알림을 보냈습니다. ${names}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "예매 알림 테스트 실패");
-    } finally {
-      setSendingTest(false);
-    }
-  }
-
-'''
-              if marker in s:
-                  s = s.replace(marker, helper + marker, 1)
-          s = s.replace('void sendTestMail();', 'void sendReservationChannelTest("mail");', 1)
-          s = s.replace('{sendingTest ? "보내는 중…" : "테스트 메일 보내기"}', '{sendingTest ? "예매 알림 보내는 중…" : "예매 알림 테스트"}', 1)
-          s = s.replace('''onClick={async () => {
-            try {
-              await sendKakaoMemo({
-                data: {
-                  restKey: config.kakaoRestKey,
-                  refreshToken: config.kakaoRefreshToken,
-                  text: "오픈벨 카톡 연결 테스트입니다. 예매가 열리면 여기로 옵니다.",
-                },
-              });
-              toast.success("나와의 채팅을 확인해 보세요.");
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : "카톡 테스트 실패");
-            }
-          }}''', 'onClick={() => { void sendReservationChannelTest("kakao"); }}', 1)
-          s = s.replace('카톡 테스트 보내기', '예매 알림 테스트', 1)
-          s = s.replace('''onClick={async () => {
-              try {
-                await sendTelegram({
-                  data: {
-                    token: config.telegramToken,
-                    chatId: config.telegramChatId,
-                    text: "오픈벨 연결 테스트입니다.",
-                  },
-                });
-                toast.success(
-                  "텔레그램 테스트 전송. 감시 탭에서 포스터를 누르면, 새 상영이 열릴 때 여기로 옵니다.",
-                );
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : "전송 실패");
-              }
-            }}''', 'onClick={() => { void sendReservationChannelTest("telegram"); }}', 1)
-          s = s.replace('텔레그램 테스트', '예매 알림 테스트', 1)
-          p.write_text(s, encoding='utf-8')
-          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/components/cinema-app.tsx src/components/watch-view.tsx src/lib/cinema/megabox.server.ts src/lib/cinema/scan-impl.server.ts src/lib/cinema/seats.ts src/lib/cinema/mail.server.ts src/lib/cinema/watch-tick.server.ts src/components/settings-view.tsx
-          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "feat: add real reservation alert tests" && git push; fi
+          git add src/components/settings-view.tsx scripts/patch-settings-test-button.py
+          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "feat: real reservation alert tests" && git push; fi
