@@ -8,7 +8,7 @@ import { enqueueNasFromAlert } from "@/lib/cinema/nas-enqueue";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, type SeatHitMap } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
-import type { AlertItem, RankingMovie, Showtime, WatchConfig } from "@/lib/cinema/types";
+import type { AlertItem, RankingMovie, ScanResult, Showtime, WatchConfig } from "@/lib/cinema/types";
 import { mailEnabled, inferSeatSource } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn, formatClock, normalizeTitle } from "@/lib/utils";
@@ -53,9 +53,9 @@ export function CinemaApp() {
     placeholderData: (prev) => prev,
   });
 
-  const query = useQuery({
+  const fastQuery = useQuery({
     queryKey: [
-      "scan",
+      "scan-fast",
       enabledTheaters,
       config.daysAhead,
       config.gasWebUrl,
@@ -67,6 +67,28 @@ export function CinemaApp() {
           theaters: enabledTheaters,
           daysAhead: config.daysAhead,
           gasWebUrl: config.gasWebUrl || undefined,
+          mode: "fast",
+          sources: { official: false, naver: true, gas: false },
+        },
+      }),
+    placeholderData: (prev) => prev,
+  });
+
+  const fullQuery = useQuery({
+    queryKey: [
+      "scan-full",
+      enabledTheaters,
+      config.daysAhead,
+      config.gasWebUrl,
+    ],
+    enabled: enabledTheaters.length > 0,
+    queryFn: () =>
+      scanCinema({
+        data: {
+          theaters: enabledTheaters,
+          daysAhead: config.daysAhead,
+          gasWebUrl: config.gasWebUrl || undefined,
+          mode: "full",
           sources: { official: true, naver: true, gas: Boolean(config.gasWebUrl) },
         },
       }),
@@ -89,7 +111,11 @@ export function CinemaApp() {
     retry: 1,
   });
 
-  const scan = query.data ?? null;
+  const scan = useMemo(
+    () => mergeScanResults(fastQuery.data ?? null, fullQuery.data ?? null),
+    [fastQuery.data, fullQuery.data],
+  );
+  const alertScan = fullQuery.data ?? fastQuery.data ?? null;
   const posterByTitle = useRef(new Map<string, string>());
   for (const row of [
     ...(catalogQuery.data?.catalog ?? []),
@@ -168,11 +194,11 @@ export function CinemaApp() {
   const watchedShows = useMemo(
     () =>
       filterWatched(
-        (scan?.theaters ?? []).flatMap((t) => t.showtimes),
+        (alertScan?.theaters ?? []).flatMap((t) => t.showtimes),
         config,
         titles,
       ),
-    [scan, config, titles],
+    [alertScan, config, titles],
   );
 
   useEffect(() => {
@@ -200,7 +226,7 @@ export function CinemaApp() {
   }, [scan, mergeSeatMap]);
 
   useEffect(() => {
-    if (!scan) return;
+    if (!alertScan) return;
     const sig = watchSignature(config);
     if (!primed) {
       markPrimed(watchedShows.map((s) => s.id));
@@ -214,7 +240,7 @@ export function CinemaApp() {
       extraSeen = primeIdsForWatchChange(
         watchSig,
         config,
-        scan.ranking ?? [],
+        alertScan.ranking ?? [],
         watchedShows,
       );
       if (extraSeen.length) markPrimed(extraSeen);
@@ -227,19 +253,19 @@ export function CinemaApp() {
     const items = fresh.map((show) =>
       toAlert(
         show,
-        (scan.theaters ?? []).flatMap((t) => t.showtimes),
+        (alertScan.theaters ?? []).flatMap((t) => t.showtimes),
       ),
     );
     pushAlerts(items);
     announce(items, config);
     setTab("alerts");
   }, [
-    scan?.scannedAt,
+    alertScan?.scannedAt,
     watchedShows,
     primed,
     watchSig,
     config,
-    scan,
+    alertScan,
     markPrimed,
     setWatchSig,
     remember,
@@ -248,8 +274,8 @@ export function CinemaApp() {
   ]);
 
   useEffect(() => {
-    if (!scan) return;
-    const all = (scan.theaters ?? []).flatMap((t) =>
+    if (!alertScan) return;
+    const all = (alertScan.theaters ?? []).flatMap((t) =>
       applyCgvSeatHits(t.showtimes, seatMap, false, false),
     );
     const { nextQueue, changes } = diffStarSeats(queue, all);
@@ -266,15 +292,15 @@ export function CinemaApp() {
     const items = changes.map((change) => seatChangeAlert(change, all));
     pushAlerts(items);
     announce(items, config);
-  }, [scan?.scannedAt, scan, queue, config, seatMap, replaceQueue, pushAlerts]);
+  }, [alertScan?.scannedAt, alertScan, queue, config, seatMap, replaceQueue, pushAlerts]);
 
   useEffect(() => {
     const url = config.gasWebUrl.trim();
-    if (!url || !scan?.scannedAt) return;
+    if (!url || !alertScan?.scannedAt) return;
     void pingGasBeat({
       data: { url, key: config.gasSyncKey || undefined, src: "page" },
     }).catch(() => null);
-  }, [scan?.scannedAt, config.gasWebUrl, config.gasSyncKey]);
+  }, [alertScan?.scannedAt, config.gasWebUrl, config.gasSyncKey]);
 
   useEffect(() => {
     const tick = () => {
@@ -291,6 +317,7 @@ export function CinemaApp() {
     void Notification.requestPermission().catch(() => null);
   }, []);
 
+  const fetching = fastQuery.isFetching || fullQuery.isFetching || seatQuery.isFetching;
   return (
     <div className="mx-auto flex min-h-dvh max-w-lg flex-col bg-bg md:max-w-5xl">
       <CloudSync />
@@ -313,12 +340,10 @@ export function CinemaApp() {
               <span
                 className={cn(
                   "inline-block size-1.5 rounded-full",
-                  query.isFetching || seatQuery.isFetching
-                    ? "bg-open live-dot"
-                    : "bg-faint",
+                  fetching ? "bg-open live-dot" : "bg-faint",
                 )}
               />
-              {query.isFetching || seatQuery.isFetching ? "조회 중" : "감시 중"}
+              {fetching ? "조회 중" : "감시 중"}
             </p>
             <p className="mt-0.5 font-medium tabular-nums text-xs text-fg">
               {formatClock(scan?.scannedAt ?? null)}
@@ -331,13 +356,14 @@ export function CinemaApp() {
         {tab === "watch" ? (
           <WatchView
             scan={viewScan}
-            loading={catalogQuery.isLoading && !catalogQuery.data}
-            error={query.error}
+            loading={!scan && catalogQuery.isLoading && !catalogQuery.data}
+            error={fullQuery.error ?? fastQuery.error}
             onRefresh={() => {
-              void query.refetch();
+              void fastQuery.refetch();
+              void fullQuery.refetch();
               void seatQuery.refetch();
             }}
-            refreshing={query.isFetching || seatQuery.isFetching}
+            refreshing={fetching}
           />
         ) : null}
         {tab === "alerts" ? <AlertsView /> : null}
@@ -383,6 +409,41 @@ export function CinemaApp() {
       </nav>
     </div>
   );
+}
+
+function mergeScanResults(fast: ScanResult | null, full: ScanResult | null): ScanResult | null {
+  if (!fast) return full;
+  if (!full) return fast;
+  const fastByTheater = new Map(fast.theaters.map((theater) => [theater.theaterId, theater]));
+  const theaters = full.theaters.map((theater) => {
+    const fallback = fastByTheater.get(theater.theaterId);
+    if (!fallback) return theater;
+    const showtimes = mergeShowtimes(fallback.showtimes, theater.showtimes);
+    return {
+      ...fallback,
+      ...theater,
+      showtimes,
+      ok: theater.ok || fallback.ok,
+      error: theater.error ?? fallback.error,
+      source: theater.showtimes.length ? theater.source : fallback.source,
+      seatSource: theater.seatSource !== "none" ? theater.seatSource : fallback.seatSource,
+    };
+  });
+  for (const theater of fast.theaters) {
+    if (!theaters.some((row) => row.theaterId === theater.theaterId)) theaters.push(theater);
+  }
+  const ranking = full.ranking.length ? full.ranking : fast.ranking;
+  const showing = full.showing.length ? full.showing : fast.showing;
+  return {
+    ...fast,
+    ...full,
+    scannedAt: full.scannedAt,
+    playDates: full.playDates.length ? full.playDates : fast.playDates,
+    ranking,
+    showing,
+    catalog: mergeMovieCatalog(fast.catalog ?? [], full.catalog ?? [], ranking, showing, moviesFromShowtimes(theaters.flatMap((theater) => theater.showtimes))),
+    theaters,
+  };
 }
 
 function NavBtn({
@@ -525,7 +586,8 @@ function announce(items: AlertItem[], config: WatchConfig) {
         data: {
           restKey: config.kakaoRestKey,
           refreshToken: config.kakaoRefreshToken,
-          text: `${item.title}\n${item.body}`.slice(0, 200),
+          text: `${item.title}\
+${item.body}`.slice(0, 200),
           bookingUrl: bookingJumpUrl(item.bookingUrl),
         },
       }).catch((err: unknown) => {
