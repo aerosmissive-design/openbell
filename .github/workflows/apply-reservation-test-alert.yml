@@ -1,0 +1,272 @@
+name: apply reservation test alert
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-reservation-test-alert.yml
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[reservation-test-applied]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch reservation test alerts
+        shell: python
+        run: |
+          from pathlib import Path
+
+          scan = Path('src/lib/cinema/scan.ts')
+          s = scan.read_text(encoding='utf-8')
+          s = s.replace(
+              'import { z } from "zod";\n',
+              'import { z } from "zod";\nimport { kstDateKeys } from "@/lib/utils";\nimport { alertBookingUrl, notifyCopy, showAlertBody } from "./seats";\n',
+              1,
+          )
+          marker = 'const TelegramInput = z.object({'
+          if 'export const sendReservationTest' not in s:
+              block = r'''
+const ReservationTestInput = z.object({
+  channel: z.enum(["mail", "telegram", "kakao"]),
+  email: z.string().optional(),
+  gmailAppPassword: z.string().optional(),
+  gasWebUrl: z.string().optional(),
+  telegramToken: z.string().optional(),
+  telegramChatId: z.string().optional(),
+  kakaoRestKey: z.string().optional(),
+  kakaoRefreshToken: z.string().optional(),
+});
+
+type ReservationTestItem = {
+  id: string;
+  createdAt: string;
+  kind: "open";
+  title: string;
+  body: string;
+  bookingUrl: string;
+  theaterId: "megabox_coex" | "megabox_namyangju" | "cgv_yongsan" | "cgv_yeongdeungpo";
+  movieTitle: string;
+  playDate: string;
+  startTime: string;
+  hallName: string;
+  formats: string[];
+  restSeats: number | null;
+  totalSeats?: number | null;
+  seatSource?: string;
+};
+
+function kstNowParts() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return { date: `${get("year")}${get("month")}${get("day")}`, time: `${get("hour")}:${get("minute")}` };
+}
+
+function chooseReservationTestShow(shows: any[], today: string, nowTime: string) {
+  const usable = shows.filter((show) => show && show.bookable !== false && alertBookingUrl(show));
+  const todayFuture = usable.filter((show) => show.playDate === today && String(show.startTime).slice(0, 5) >= nowTime);
+  const pool = todayFuture.length ? todayFuture : usable;
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+export const sendReservationTest = createServerFn({ method: "POST" })
+  .validator(ReservationTestInput)
+  .handler(async ({ data }) => {
+    const theaters = [
+      "cgv_yongsan",
+      "cgv_yeongdeungpo",
+      "megabox_coex",
+      "megabox_namyangju",
+    ] as const;
+    const { runScan } = await import("./scan-impl.server");
+    const scan = await runScan({
+      daysAhead: 7,
+      theaters: [...theaters],
+      gasWebUrl: data.gasWebUrl?.trim() || undefined,
+      sources: { official: true, naver: true, gas: Boolean(data.gasWebUrl?.trim()) },
+    });
+    const now = kstNowParts();
+    const selected: ReservationTestItem[] = [];
+    for (const theaterId of theaters) {
+      const pack = scan.theaters.find((row) => row.theaterId === theaterId);
+      const show = chooseReservationTestShow(pack?.showtimes ?? [], now.date, now.time);
+      if (!show) continue;
+      const item: ReservationTestItem = {
+        id: `alert:test-reservation:${show.id}:${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        kind: "open",
+        title: `${show.movieTitle} 예매 오픈`,
+        body: showAlertBody(show),
+        bookingUrl: alertBookingUrl(show),
+        theaterId,
+        movieTitle: show.movieTitle,
+        playDate: show.playDate,
+        startTime: show.startTime,
+        hallName: show.hallName,
+        formats: show.formats,
+        restSeats: show.restSeats,
+        totalSeats: show.totalSeats,
+        seatSource: show.seatSource,
+      };
+      selected.push(item);
+    }
+    if (!selected.length) {
+      throw new Error("실제 상영 회차를 찾지 못했습니다. 잠시 뒤 다시 눌러 주세요.");
+    }
+
+    const copy = notifyCopy(selected as any, { total: selected.length });
+    if (data.channel === "telegram") {
+      if (!data.telegramToken?.trim() || !data.telegramChatId?.trim()) {
+        throw new Error("텔레그램 토큰과 채팅 ID를 먼저 연결하세요.");
+      }
+      const sent = await telegramCall(data.telegramToken.trim(), "sendMessage", {
+        chat_id: /^-?\d+$/.test(data.telegramChatId.trim()) ? Number(data.telegramChatId.trim()) : data.telegramChatId.trim(),
+        text: copy.telegramHtml,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
+      if (!sent.ok) throw new Error(koreanTelegramError(sent.description || "텔레그램 전송 실패"));
+    } else if (data.channel === "kakao") {
+      if (!data.kakaoRestKey?.trim() || !data.kakaoRefreshToken?.trim()) {
+        throw new Error("카카오 연결을 먼저 완료하세요.");
+      }
+      for (const item of selected) {
+        await sendKakaoMemoServer(
+          data.kakaoRestKey.trim(),
+          data.kakaoRefreshToken.trim(),
+          `${item.title}\n${item.body}`.slice(0, 200),
+          item.bookingUrl,
+        );
+      }
+    } else {
+      if (!data.email?.trim()) throw new Error("메일 주소를 확인하세요.");
+      const { sendOpenbellMail } = await import("./mail.server");
+      const result = await sendOpenbellMail({
+        to: data.email.trim(),
+        subject: `[오픈벨] 예매 오픈 테스트 ${selected.length}건`,
+        text: copy.text,
+        url: selected[0]?.bookingUrl,
+        items: selected.map((item) => ({ title: item.title, body: item.body, bookingUrl: item.bookingUrl })),
+        gasWebUrl: data.gasWebUrl,
+        gmailAppPassword: data.gmailAppPassword,
+      });
+      if (!result.ok) throw new Error(result.error);
+    }
+    return {
+      ok: true as const,
+      count: selected.length,
+      theaters: selected.map((item) => ({ theaterId: item.theaterId, movieTitle: item.movieTitle, playDate: item.playDate, startTime: item.startTime, hallName: item.hallName })),
+    };
+  });
+
+async function sendKakaoMemoServer(restKey: string, refreshToken: string, text: string, bookingUrl: string) {
+  const tokenBody = new URLSearchParams({ grant_type: "refresh_token", client_id: restKey, refresh_token: refreshToken });
+  const tokenRes = await fetch("https://kauth.kakao.com/oauth/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded;charset=utf-8" },
+    body: tokenBody,
+    signal: AbortSignal.timeout(10000),
+  });
+  const tokenJson = await tokenRes.json() as { access_token?: string; error_description?: string };
+  if (!tokenJson.access_token) throw new Error(tokenJson.error_description || "카카오 토큰이 만료되었습니다.");
+  const memoRes = await fetch("https://kapi.kakao.com/v2/api/talk/memo/default/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tokenJson.access_token}`, "content-type": "application/x-www-form-urlencoded;charset=utf-8" },
+    body: new URLSearchParams({ template_object: JSON.stringify({ object_type: "text", text: text.slice(0, 200), link: { web_url: bookingUrl, mobile_web_url: bookingUrl }, button_title: "바로 예매" }) }),
+    signal: AbortSignal.timeout(10000),
+  });
+  const json = await memoRes.json() as { result_code?: number; msg?: string };
+  if (!memoRes.ok || (json.result_code != null && json.result_code !== 0)) throw new Error(json.msg || "카카오톡 전송에 실패했습니다.");
+}
+
+'''
+              s = s.replace(marker, block + marker, 1)
+          scan.write_text(s, encoding='utf-8')
+
+          settings = Path('src/components/settings-view.tsx')
+          s = settings.read_text(encoding='utf-8')
+          s = s.replace(
+              'import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram } from "@/lib/cinema/scan";',
+              'import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendKakaoMemo, sendTelegram, sendReservationTest } from "@/lib/cinema/scan";',
+              1,
+          )
+          marker = '  async function sendTestMail() {'
+          if 'async function sendReservationChannelTest' not in s:
+              helper = r'''
+  async function sendReservationChannelTest(channel: "mail" | "telegram" | "kakao") {
+    if (channel === "mail" && !mailEnabled(config)) {
+      toast.error("먼저 메일 알림을 켜고 연결하세요.");
+      return;
+    }
+    if (channel === "telegram" && (!config.telegramToken.trim() || !config.telegramChatId.trim())) {
+      toast.error("먼저 텔레그램을 연결하세요.");
+      return;
+    }
+    if (channel === "kakao" && (!config.kakaoRestKey.trim() || !config.kakaoRefreshToken.trim())) {
+      toast.error("먼저 카카오를 연결하세요.");
+      return;
+    }
+    setSendingTest(true);
+    try {
+      const result = await sendReservationTest({
+        data: {
+          channel,
+          email: loginEmail || config.email,
+          gmailAppPassword: config.gmailAppPassword,
+          gasWebUrl: config.gasWebUrl || undefined,
+          telegramToken: config.telegramToken,
+          telegramChatId: config.telegramChatId,
+          kakaoRestKey: config.kakaoRestKey,
+          kakaoRefreshToken: config.kakaoRefreshToken,
+        },
+      });
+      const names = result.theaters.map((row) => `${row.movieTitle} ${row.playDate.slice(4, 6)}.${row.playDate.slice(6, 8)} ${row.startTime}`).join(" · ");
+      toast.success(`${result.count}개 극장의 실제 상영 회차로 예매 알림을 보냈습니다. ${names}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "예매 알림 테스트 실패");
+    } finally {
+      setSendingTest(false);
+    }
+  }
+
+'''
+              s = s.replace(marker, helper + marker, 1)
+
+          s = s.replace(
+              'onClick={() => {\n                void sendTestMail();\n              }}',
+              'onClick={() => {\n                void sendReservationChannelTest("mail");\n              }}',
+              1,
+          )
+          s = s.replace('{sendingTest ? "보내는 중…" : "테스트 메일 보내기"}', '{sendingTest ? "예매 알림 보내는 중…" : "예매 알림 테스트"}', 1)
+          old_kakao = '''onClick={async () => {\n            try {\n              await sendKakaoMemo({\n                data: {\n                  restKey: config.kakaoRestKey,\n                  refreshToken: config.kakaoRefreshToken,\n                  text: "오픈벨 카톡 연결 테스트입니다. 예매가 열리면 여기로 옵니다.",\n                },\n              });\n              toast.success("나와의 채팅을 확인해 보세요.");\n            } catch (err) {\n              toast.error(err instanceof Error ? err.message : "카톡 테스트 실패");\n            }\n          }}'''
+          s = s.replace(old_kakao, 'onClick={() => { void sendReservationChannelTest("kakao"); }}', 1)
+          s = s.replace('>\n          카톡 테스트 보내기\n        </Button>', '>\n          예매 알림 테스트\n        </Button>', 1)
+          s = s.replace('onClick={async () => {\n              try {\n                await sendTelegram({\n                  data: {\n                    token: config.telegramToken,\n                    chatId: config.telegramChatId,\n                    text: "오픈벨 연결 테스트입니다.",\n                  },\n                });\n                toast.success(\n                  "텔레그램 테스트 전송. 감시 탭에서 포스터를 누르면, 새 상영이 열릴 때 여기로 옵니다.",\n                );\n              } catch (err) {\n                toast.error(err instanceof Error ? err.message : "전송 실패");\n              }\n            }}', 'onClick={() => { void sendReservationChannelTest("telegram"); }}', 1)
+          s = s.replace('>\n            텔레그램 테스트\n          </Button>', '>\n            예매 알림 테스트\n          </Button>', 1)
+          settings.write_text(s, encoding='utf-8')
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/cinema/scan.ts src/components/settings-view.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: real reservation test alerts [reservation-test-applied]"
+          git push
+
+      - name: Remove patch workflow
+        if: success()
+        run: |
+          git rm .github/workflows/apply-reservation-test-alert.yml
+          git commit -m "chore: remove one-time reservation test patch [reservation-test-applied]"
+          git push
