@@ -51,7 +51,7 @@ export async function runScan(input: {
     ? readNasSeatmap([...wanted].filter(isCgvId)).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[], source: "pc" as const }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[], source: "pc" as const });
   const ktSeats = [...wanted].some(isCgvId)
-    ? fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates.slice(0, 2) }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
+    ? fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
     : Promise.resolve({ map: {} as SeatHitMap, showtimes: [] as Showtime[] });
   const megaSeats = [...wanted].some((id) => id === "megabox_coex" || id === "megabox_namyangju")
     ? fetchMegaboxSeatmap({ days: Math.min(days, 5) }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] }))
@@ -164,9 +164,6 @@ type GasShowRow = { id?: string; theaterId?: string; theater?: string; title?: s
 
 function applySeatLayers(rows: Showtime[], layers: SeatHitMap[]): Showtime[] {
   let out = rows;
-  // Apply from lowest priority to highest priority. Each higher-priority source
-  // overwrites a lower-priority hit for the same showtime. This is per-showtime,
-  // so one bad/empty route cannot block a valid seat count from the next route.
   for (const layer of [...layers].reverse()) out = applyCgvSeatHits(out, layer, true);
   return out;
 }
@@ -178,6 +175,7 @@ function applyReporterFallback(rows: Showtime[], reporter: Showtime[]): Showtime
       candidate.theaterId === row.theaterId &&
       normalizePlayDate(candidate.playDate) === normalizePlayDate(row.playDate) &&
       normTime(candidate.startTime) === normTime(row.startTime) &&
+      hallsMatch(candidate.hallName, row.hallName) &&
       (titlesMatch(candidate.movieTitle, row.movieTitle) ||
         Boolean(candidate.movieNo && row.movieNo && candidate.movieNo === row.movieNo)),
     );
@@ -191,6 +189,20 @@ function applyReporterFallback(rows: Showtime[], reporter: Showtime[]): Showtime
       seatSource: hit.seatSource ?? row.seatSource,
     };
   });
+}
+
+function hallsMatch(a: string, b: string): boolean {
+  const normalize = (value: string) => String(value || "").toUpperCase().replace(/[\s|()[\]{}·•]/g, "");
+  const variants = (value: string) => {
+    const base = normalize(value);
+    const noBracket = base.replace(/\[.*?\]/g, "");
+    const loose = noBracket.replace(/관$/, "");
+    return new Set([base, noBracket, loose, `${loose}관`].filter(Boolean));
+  };
+  const aa = variants(a); const bb = variants(b);
+  if (!aa.size || !bb.size) return false;
+  for (const v of aa) if (bb.has(v)) return true;
+  return false;
 }
 
 function normTime(time: string) {
@@ -240,7 +252,6 @@ export async function pingSeatmap(input: { url?: string; fresh?: boolean; theate
   const megaHit = Object.keys(mega.map).length > 0 || mega.showtimes.some((row) => typeof row.restSeats === "number");
   const cgvOfficialHit = Object.keys(officialCgv.map).length > 0 || officialCgv.showtimes.some((row) => typeof row.restSeats === "number");
   const relay = wantCgv && !cgvOfficialHit ? await fetchCgvRelaySeatmap({ theaterId: input.theaterId === "cgv_yongsan" || input.theaterId === "cgv_yeongdeungpo" ? input.theaterId : undefined, days, fresh }).catch(() => ({ map: {} as SeatHitMap, showtimes: [] as Showtime[] })) : { map: {} as SeatHitMap, showtimes: [] as Showtime[] };
-  const cgvHit = cgvOfficialHit || Object.keys(relay.map).length > 0;
   let gasMap: SeatHitMap = {}; let gasShows: Showtime[] = []; let gasStatus: "ok" | "old" | "denied" | "empty" | "badurl" | "timeout" = "empty";
   if (input.url?.trim() && ((wantMega && !megaHit) || (wantCgv && !cgvHit))) {
     const live = await loadGasTimetable(input.url.trim(), days, input.theaterId).catch(() => [] as Showtime[]);
