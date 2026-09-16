@@ -13,9 +13,9 @@ function betterBookingUrl(a: string, b: string): string {
     const u = String(url || '').trim();
     if (!u) return 0;
     if (/megabox\.co\.kr\/booking\/seat\?[^#]*playSchdlNo=|PcntSeatChoi\/selectPcntSeatChoi\.do\?[^#]*playSchdlNo=/i.test(u)) return 100;
-    if (/cgv\.co\.kr\/cnm\/movieBook\/(?:movie|cinema)\?[^#]*(?:scnSseq|scnsNo)=/i.test(u) and /movNo=/i.test(u)) return 95;
+    if (/cgv\.co\.kr\/cnm\/movieBook\/(?:movie|cinema)\?[^#]*(?:scnSseq|scnsNo)=/i.test(u) && /movNo=/i.test(u)) return 95;
     if (/cgv\.co\.kr\/cnm\/movieBook\/movie\?[^#]*movNo=/i.test(u)) return 75;
-    if (/cgv\.co\/cnm\/movieBook\/cinema\?/i.test(u)) return 20;
+    if (/cgv\.co\.kr\/cnm\/movieBook\/cinema\?/i.test(u)) return 20;
     if (/megabox\.co\.kr\/booking\?/i.test(u)) return 20;
     return 10;
   };
