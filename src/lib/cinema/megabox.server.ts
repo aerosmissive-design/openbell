@@ -411,7 +411,7 @@ function megaboxSeatUrl(
       playDe: playDate,
     });
     if (movieNo) q.set("movieNo", movieNo);
-    return `https://m.megabox.co.kr/on/oh/ohz/PcntSeatChoi/selectPcntSeatChoi.do?${q.toString()}`;
+    return `https://m.megabox.co.kr/booking/seat?playSchdlNo=${encodeURIComponent(playSchdlNo)}`;
   }
   const q = new URLSearchParams({ brchNo, playDe: playDate });
   if (movieNo) q.set("movieNo", movieNo);
