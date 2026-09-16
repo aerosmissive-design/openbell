@@ -1,6 +1,5 @@
 name: patch-kt-20260916
-on:
-  push:
+on: push
 permissions:
   contents: write
 jobs:
@@ -9,8 +8,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Patch KT horizon and hall matching
-        shell: python {0}
         run: |
+          python - <<'PY'
           from pathlib import Path
 
           kt = Path('src/lib/cinema/scan-impl.server.ts')
@@ -39,7 +38,7 @@ jobs:
 
           seats = Path('src/lib/cinema/seats.ts')
           s = seats.read_text()
-          old = '''    const candidates = (loose.get(looseKey) ?? []).filter((k) => !map.get(k)?.bookingUrl);'''
+          old = '    const candidates = (loose.get(looseKey) ?? []).filter((k) => !map.get(k)?.bookingUrl);'
           new = '''    const candidates = (loose.get(looseKey) ?? []).filter((k) => {
       const candidate = map.get(k);
       return Boolean(candidate && !candidate.bookingUrl && hallsMatch(row.hallName, candidate.hallName));
@@ -67,7 +66,6 @@ jobs:
         const hit = map[`${prefix}${hall}`];
         if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) return packHit(hit);
       }
-      // 관이 있는 회차는 제목/movieNo만으로 다른 관의 숫자를 붙이지 않는다.
       continue;
     }
     const fallbacks = [normalizeTitle(row.movieTitle), row.movieNo].filter(Boolean);
@@ -103,13 +101,12 @@ jobs:
 '''
           s = s[:idx] + helper + s[idx:]
           seats.write_text(s)
-
+          PY
       - name: Typecheck/build
         run: |
           npm ci
           npm run build
-
-      - name: Commit patch and remove temporary workflow
+      - name: Commit patch and remove workflow
         run: |
           git config user.name "openbell-bot"
           git config user.email "openbell-bot@users.noreply.github.com"
