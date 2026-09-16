@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { kstDateKeys } from "@/lib/utils";
-import { fetchCgvOfficial } from "./cgv.server";
+import { fetchCgvOfficial, fetchCgvRelaySeatmap, fetchCgvNaver } from "./cgv.server";
 import { fetchMegaboxSchedule } from "./megabox.server";
 import { notifyCopy, showAlertBody } from "./seats";
 import type { Showtime, TheaterId } from "./types";
@@ -68,11 +68,10 @@ function sameShow(a: Showtime, b: Showtime) {
 async function findExactOrBestCgvShow(theaterId: "cgv_yongsan" | "cgv_yeongdeungpo", candidate: Showtime) {
   const rows = await fetchCgvOfficial(theaterId, candidate.playDate);
   const matches = rows.filter((row) => sameShow(row, candidate));
-  return (
-    matches.filter((row) => isExactCgvUrl(row.bookingUrl))[Math.floor(Math.random() * Math.max(1, matches.filter((row) => isExactCgvUrl(row.bookingUrl)).length))] ||
+  const exact = matches.filter((row) => isExactCgvUrl(row.bookingUrl));
+  return exact[Math.floor(Math.random() * Math.max(1, exact.length))] ||
     matches[Math.floor(Math.random() * Math.max(1, matches.length))] ||
-    candidate
-  );
+    candidate;
 }
 
 async function findExactOrBestMegaboxShow(theaterId: "megabox_coex" | "megabox_namyangju", candidate: Showtime) {
@@ -87,10 +86,35 @@ async function findExactOrBestMegaboxShow(theaterId: "megabox_coex" | "megabox_n
 async function fetchCandidates(theaterId: TheaterId, dates: string[]) {
   const all: Showtime[] = [];
   for (const date of dates) {
+    if (theaterId.startsWith("cgv_")) {
+      let rows: Showtime[] = [];
+      try {
+        rows = await fetchCgvOfficial(theaterId, date);
+      } catch {
+        rows = [];
+      }
+      if (!rows.length) {
+        try {
+          const relay = await fetchCgvRelaySeatmap({ theaterId, days: 1, fresh: true });
+          rows = relay.showtimes.filter((s) => s.playDate === date);
+        } catch {
+          rows = [];
+        }
+      }
+      if (!rows.length) {
+        try {
+          const naver = await fetchCgvNaver(theaterId);
+          rows = naver.get(date) ?? [];
+        } catch {
+          rows = [];
+        }
+      }
+      all.push(...rows);
+      continue;
+    }
+
     try {
-      const rows = theaterId.startsWith("cgv_")
-        ? await fetchCgvOfficial(theaterId, date)
-        : await fetchMegaboxSchedule(theaterId, date, { ignoreCircuit: true, timeoutMs: 8000 });
+      const rows = await fetchMegaboxSchedule(theaterId, date, { ignoreCircuit: true, timeoutMs: 8000 });
       all.push(...rows);
     } catch {
       // One failed date/source must not stop the other dates or the alert itself.
@@ -104,7 +128,7 @@ async function findTestShows(now: { date: string; time: string }) {
   const selected: Showtime[] = [];
 
   for (const theaterId of THEATERS) {
-    let candidates = await fetchCandidates(theaterId, dates);
+    const candidates = await fetchCandidates(theaterId, dates);
     const candidate = pick(candidates, now.date, now.time);
     if (!candidate) continue;
 
