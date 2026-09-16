@@ -1,0 +1,131 @@
+name: patch-kt-20260916
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/patch-kt-20260916.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch KT horizon and hall matching
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          kt = Path('src/lib/cinema/scan-impl.server.ts')
+          s = kt.read_text()
+          old = 'fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates.slice(0, 2) })'
+          new = 'fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates })'
+          if old not in s:
+              raise SystemExit('scan-impl KT horizon pattern not found')
+          kt.write_text(s.replace(old, new, 1))
+
+          ktserver = Path('src/lib/cinema/kt.server.ts')
+          s = ktserver.read_text()
+          old = ' * 요청량을 아끼기 위해 dates는 짧게(기본 오늘 하루~이틀) 쓰는 걸 권장한다.\n'
+          new = ' * dates는 오픈벨 설정의 감시 기간(5/7/10/15/20일 등)을 그대로 받는다.\n'
+          if old in s:
+              s = s.replace(old, new, 1)
+          ktserver.write_text(s)
+
+          settings = Path('src/components/settings-view.tsx')
+          s = settings.read_text()
+          old = '{[5, 7, 10, 15, 30].map((n) => ('
+          new = '{[5, 7, 10, 15, 20].map((n) => ('
+          if old not in s:
+              raise SystemExit('settings days pattern not found')
+          settings.write_text(s.replace(old, new, 1))
+
+          seats = Path('src/lib/cinema/seats.ts')
+          s = seats.read_text()
+          old = '''    const candidates = (loose.get(looseKey) ?? []).filter((k) => !map.get(k)?.bookingUrl);'''
+          new = '''    const candidates = (loose.get(looseKey) ?? []).filter((k) => {
+      const candidate = map.get(k);
+      return Boolean(candidate && !candidate.bookingUrl && hallsMatch(row.hallName, candidate.hallName));
+    });'''
+          if old not in s:
+              raise SystemExit('mergeShowtimes loose candidate pattern not found')
+          s = s.replace(old, new, 1)
+
+          start = s.index('export function lookupSeatHit(')
+          end = s.index('export function seatFreshnessLabel(', start)
+          replacement = '''export function lookupSeatHit(row: Showtime, map: SeatHitMap): SeatHit | null {
+  // CGV/KT/NAS/우회 좌석은 같은 영화·시간이라도 관이 다르면 절대 합치지 않는다.
+  // 관 이름의 공백/괄호/"관" 표기 차이만 hallVariants()로 흡수한다.
+  for (const key of seatLookupKeys(row)) {
+    const hit = map[key];
+    if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) {
+      return packHit(hit);
+    }
+  }
+  const siteNo = SITE_NO[row.theaterId] ?? "";
+  if (!siteNo) return null;
+  const tag = row.chain === "cgv" ? "k" : "m";
+  for (const clock of clockVariants(row.playDate, row.startTime)) {
+    const prefix = `${tag}:${siteNo}|${clock.playDate}|${clock.startTime}|`;
+    const halls = hallVariants(row.hallName);
+    if (halls.length) {
+      for (const hall of halls) {
+        const hit = map[`${prefix}${hall}`];
+        if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) {
+          return packHit(hit);
+        }
+      }
+      // 관이 있는 회차는 제목/movieNo만으로 다른 관의 숫자를 붙이지 않는다.
+      continue;
+    }
+    const fallbacks = [normalizeTitle(row.movieTitle), row.movieNo].filter(Boolean);
+    for (const fallback of fallbacks) {
+      const hit = map[`${prefix}${fallback}`];
+      if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) {
+        return packHit(hit);
+      }
+    }
+  }
+  return null;
+}
+
+'''
+          s = s[:start] + replacement + s[end:]
+
+          old = '''      (titlesMatch(candidate.movieTitle, row.movieTitle) ||
+        Boolean(candidate.movieNo && row.movieNo && candidate.movieNo === row.movieNo)),'''
+          new = '''      hallsMatch(candidate.hallName, row.hallName) &&
+      (titlesMatch(candidate.movieTitle, row.movieTitle) ||
+        Boolean(candidate.movieNo && row.movieNo && candidate.movieNo === row.movieNo)),'''
+          if old not in s:
+              raise SystemExit('reporter fallback pattern not found')
+          s = s.replace(old, new, 1)
+
+          marker = 'function normTime(time: string) {'
+          idx = s.index(marker)
+          helper = '''function hallsMatch(a: string, b: string): boolean {
+  const variantsA = hallVariants(a);
+  const variantsB = hallVariants(b);
+  if (!variantsA.length || !variantsB.length) return false;
+  return variantsA.some((value) => variantsB.includes(value));
+}
+
+'''
+          s = s[:idx] + helper + s[idx:]
+          seats.write_text(s)
+
+      - name: Typecheck/build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit patch and remove temporary workflow
+        run: |
+          git config user.name "openbell-bot"
+          git config user.email "openbell-bot@users.noreply.github.com"
+          git add src/lib/cinema/scan-impl.server.ts src/lib/cinema/kt.server.ts src/components/settings-view.tsx src/lib/cinema/seats.ts
+          git commit -m "fix: extend KT seat lookup to configured horizon and require matching hall" || true
+          git rm .github/workflows/patch-kt-20260916.yml
+          git commit -m "chore: remove temporary KT patch workflow"
+          git push
