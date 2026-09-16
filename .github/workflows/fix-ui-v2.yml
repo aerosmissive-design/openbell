@@ -1,0 +1,84 @@
+name: OpenBell deterministic UI fix v2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 2
+
+      - name: Patch theater selection and four-column display
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # The settings selection must control the actual scan list.
+          p = Path('src/components/cinema-app.tsx')
+          s = p.read_text()
+          old = '''  const enabledTheaters = useMemo(\n    () => THEATERS.map((t) => t.id),\n    [],\n  );'''
+          new = '''  const enabledTheaters = useMemo(\n    () => THEATERS.filter((t) => config.theaters?.[t.id] !== false).map((t) => t.id),\n    [config.theaters],\n  );'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif new not in s:
+              raise SystemExit('cinema-app enabledTheaters target missing')
+          p.write_text(s)
+
+          # The watch page must use the same selected-theater state.
+          p = Path('src/components/watch-view.tsx')
+          s = p.read_text()
+          old = '  const enabledTheaters = THEATERS;'
+          new = '  const enabledTheaters = THEATERS.filter((theater) => config.theaters?.[theater.id] !== false);'
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif new not in s:
+              raise SystemExit('watch-view enabledTheaters target missing')
+
+          # Four large theater cards across on desktop, two on tablet, one on phone.
+          old = '      <div className="flex flex-col gap-3">\n      {theaterRows.map(({ theater, result, shows }) => ('
+          new = '      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">\n      {theaterRows.map(({ theater, result, shows }) => ('
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif new not in s:
+              raise SystemExit('theater grid target missing')
+
+          # Compact the theater cards so four columns are practical.
+          s = s.replace('''        "rise-in flex flex-col overflow-hidden rounded-xl p-3 shadow-border transition-colors",''', '''        "rise-in flex min-w-0 flex-col overflow-hidden rounded-xl p-2 shadow-border transition-colors",''', 1)
+          s = s.replace('''            <h2 className="truncate text-xl font-bold leading-tight text-fg">''', '''            <h2 className="truncate text-sm font-bold leading-tight text-fg">''', 1)
+          s = s.replace('''        <div className="mt-3 border-t border-border pt-3">''', '''        <div className="mt-2 border-t border-border pt-2">''', 1)
+          p.write_text(s)
+
+          # Make the settings theater controls unambiguously clickable with a native checkbox.
+          p = Path('src/components/theater-picks.tsx')
+          s = p.read_text()
+          old = '''      <div className="flex items-stretch gap-2">\n        <button\n          type="button"\n          onClick={() => {\n            setTheaterFormats(theater.id, allOn ? [] : ids);\n            onChange?.();\n          }}\n          className={cn(\n            "min-h-11 min-w-0 flex-1 rounded-lg px-3 py-2 text-left",\n            allOn ? "bg-pick ring-1 ring-border-strong" : "",\n          )}\n        >\n          <p className="truncate text-sm font-bold text-fg">{theater.name}</p>\n          <p className="mt-0.5 truncate text-xs text-muted">\n            {summary || "특별관 없음"}\n          </p>\n        </button>'''
+          new = '''      <div className="flex items-stretch gap-2">\n        <label\n          className={cn(\n            "flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left",\n            allOn ? "bg-pick ring-1 ring-border-strong" : "bg-surface-2 ring-1 ring-border",\n          )}\n        >\n          <input\n            type="checkbox"\n            checked={allOn}\n            onChange={(e) => {\n              setTheaterFormats(theater.id, e.target.checked ? ids : []);\n              onChange?.();\n            }}\n            className="size-5 shrink-0 accent-notify"\n          />\n          <span className="min-w-0 flex-1">\n            <p className="truncate text-sm font-bold text-fg">{theater.name}</p>\n            <p className="mt-0.5 truncate text-xs text-muted">\n              {summary || "특별관 없음"}\n            </p>\n          </span>\n        </label>'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif new not in s:
+              raise SystemExit('settings theater row target missing')
+          p.write_text(s)
+          PY
+
+      - name: Typecheck
+        run: |
+          npm install --no-audit --no-fund
+          npm run typecheck
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/cinema-app.tsx src/components/watch-view.tsx src/components/theater-picks.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: make theater selection and four-column board deterministic"
+          git push origin main
