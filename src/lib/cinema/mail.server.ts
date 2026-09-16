@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { escapeAttr, escapeHtml } from "./seats";
+import { alertBookingUrl, escapeAttr, escapeHtml } from "./seats";
 
 export type MailSendResult =
   | { ok: true; needsConfirm?: boolean }

@@ -19,7 +19,7 @@ import {
   watchSignature,
 } from "./match";
 import { runScan } from "./scan-impl.server";
-import { diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBody } from "./seats";
+import { alertBookingUrl, diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBody } from "./seats";
 import { THEATERS } from "./theaters";
 import type { AlertItem, BookingIntent, Showtime, TheaterId, WatchConfig } from "./types";
 import { mailEnabled } from "./types";
@@ -255,11 +255,11 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
             to: config.email,
             subject,
             text: mailCopy.text,
-            url: items[0]?.bookingUrl,
+            url: items[0] ? alertBookingUrl(items[0]) : "",
             items: mailItems.map((a) => ({
               title: a.title,
               body: a.body,
-              bookingUrl: a.bookingUrl,
+              bookingUrl: alertBookingUrl(a),
             })),
             gasWebUrl: config.gasWebUrl,
             gmailAppPassword: config.gmailAppPassword,
