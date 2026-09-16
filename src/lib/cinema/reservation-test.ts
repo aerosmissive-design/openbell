@@ -50,7 +50,7 @@ function isExactCgvUrl(url: string) {
 }
 
 function isExactMegaboxUrl(url: string) {
-  return /megabox\.co\.kr\/booking\/seat\?[^#]*playSchdlNo=/i.test(url) ||
+  return /(?:www\.|m\.)?megabox\.co\.kr\/booking\/seat\?[^#]*playSchdlNo=/i.test(url) ||
     /megabox\.co\.kr\/on\/oh\/ohz\/PcntSeatChoi\/selectPcntSeatChoi\.do\?[^#]*playSchdlNo=/i.test(url);
 }
 
@@ -65,19 +65,26 @@ function sameShow(a: Showtime, b: Showtime) {
     (!hallA || !hallB || hallA === hallB || hallA.includes(hallB) || hallB.includes(hallA));
 }
 
-async function exactCgvShow(theaterId: "cgv_yongsan" | "cgv_yeongdeungpo", candidate: Showtime) {
+async function findExactOrBestCgvShow(theaterId: "cgv_yongsan" | "cgv_yeongdeungpo", candidate: Showtime) {
   const rows = await fetchCgvOfficial(theaterId, candidate.playDate);
-  const matches = rows.filter((row) => sameShow(row, candidate) && isExactCgvUrl(row.bookingUrl));
-  return matches.length ? matches[Math.floor(Math.random() * matches.length)] : null;
+  const matches = rows.filter((row) => sameShow(row, candidate));
+  return (
+    matches.filter((row) => isExactCgvUrl(row.bookingUrl))[Math.floor(Math.random() * Math.max(1, matches.filter((row) => isExactCgvUrl(row.bookingUrl)).length))] ||
+    matches[Math.floor(Math.random() * Math.max(1, matches.length))] ||
+    candidate
+  );
 }
 
-async function exactMegaboxShow(theaterId: "megabox_coex" | "megabox_namyangju", candidate: Showtime) {
+async function findExactOrBestMegaboxShow(theaterId: "megabox_coex" | "megabox_namyangju", candidate: Showtime) {
   const rows = await fetchMegaboxSchedule(theaterId, candidate.playDate, { ignoreCircuit: true, timeoutMs: 8000 });
-  const matches = rows.filter((row) => sameShow(row, candidate) && isExactMegaboxUrl(row.bookingUrl));
-  return matches.length ? matches[Math.floor(Math.random() * matches.length)] : null;
+  const matches = rows.filter((row) => sameShow(row, candidate));
+  const exact = matches.filter((row) => isExactMegaboxUrl(row.bookingUrl));
+  return exact[Math.floor(Math.random() * Math.max(1, exact.length))] ||
+    matches[Math.floor(Math.random() * Math.max(1, matches.length))] ||
+    candidate;
 }
 
-async function fetchExactCandidates(theaterId: TheaterId, dates: string[]) {
+async function fetchCandidates(theaterId: TheaterId, dates: string[]) {
   const all: Showtime[] = [];
   for (const date of dates) {
     try {
@@ -86,38 +93,32 @@ async function fetchExactCandidates(theaterId: TheaterId, dates: string[]) {
         : await fetchMegaboxSchedule(theaterId, date, { ignoreCircuit: true, timeoutMs: 8000 });
       all.push(...rows);
     } catch {
-      // Keep trying the remaining dates. The test must only succeed with an exact URL.
+      // One failed date/source must not stop the other dates or the alert itself.
     }
   }
   return all;
 }
 
-async function findExactTestShows(now: { date: string; time: string }) {
+async function findTestShows(now: { date: string; time: string }) {
   const dates = kstDateKeys(7);
   const selected: Showtime[] = [];
-  const failures: string[] = [];
 
   for (const theaterId of THEATERS) {
-    const candidates = await fetchExactCandidates(theaterId, dates);
+    let candidates = await fetchCandidates(theaterId, dates);
     const candidate = pick(candidates, now.date, now.time);
-    if (!candidate) {
-      failures.push(theaterId);
-      continue;
-    }
+    if (!candidate) continue;
+
     try {
-      const exact = theaterId.startsWith("cgv_")
-        ? await exactCgvShow(theaterId, candidate)
-        : await exactMegaboxShow(theaterId, candidate);
-      if (!exact) failures.push(theaterId);
-      else selected.push(exact);
+      const best = theaterId.startsWith("cgv_")
+        ? await findExactOrBestCgvShow(theaterId, candidate)
+        : await findExactOrBestMegaboxShow(theaterId, candidate);
+      selected.push(best || candidate);
     } catch {
-      failures.push(theaterId);
+      // Keep the already selected real show and its best available fallback URL.
+      selected.push(candidate);
     }
   }
 
-  if (failures.length || selected.length !== THEATERS.length) {
-    throw new Error(`실제 예매 회차 URL을 확인하지 못했습니다: ${failures.join(", ") || "알 수 없는 극장"}. 잠시 뒤 다시 눌러 주세요.`);
-  }
   return selected;
 }
 
@@ -139,7 +140,9 @@ async function telegramSend(token: string, chatId: string, html: string) {
 export const sendReservationTest = createServerFn({ method: "POST" })
   .validator(Input)
   .handler(async ({ data }) => {
-    const selected = await findExactTestShows(kstNow());
+    const selected = await findTestShows(kstNow());
+    if (!selected.length) throw new Error("실제 상영 중인 테스트 회차를 찾지 못했습니다. 잠시 뒤 다시 눌러 주세요.");
+
     const items = selected.map((show, i) => ({
       id: `alert:test-reservation:${show.id}:${Date.now()}:${i}`,
       createdAt: new Date().toISOString(),
