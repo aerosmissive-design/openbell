@@ -46,7 +46,14 @@ jobs:
               repl = '''    const nasSeatSource = nas.source === "nas423" ? "g-nas423" : nas.source === "nas225" ? "g-nas225" : nas.source === "nas" ? "g-nas" : "g-pc";\n    const showtimes = applyCgvSeatHits(live, lastKnown, false, false).map((row) => {\n      const liveSource =\n        lookupSeatHit(row, officialMap) ? "official" :\n        lookupSeatHit(row, nas.map) ? nasSeatSource :\n        lookupSeatHit(row, kt.map) ? "cgv-kt" :\n        lookupSeatHit(row, relay.map) ? "cgv-relay" :\n        lookupSeatHit(row, gasMap) ? "gas-cache" :\n        row.restSeats != null ? "last-known" : undefined;\n      return ({'''
               s = s.replace(needle, repl)
               s = s.replace('      playDate: normalizePlayDate(row.playDate),\n    }));', '      playDate: normalizePlayDate(row.playDate),\n      seatSource: liveSource,\n    });\n    });', 1)
+          # GAS/manual refresh paths must honor the same 30-day ceiling as the main scan.
+          s = s.replace('Math.min(days, 10)', 'Math.min(days, 30)')
+          s = s.replace('Math.min(days, 14)', 'Math.min(days, 30)')
           p.write_text(s)
+
+          k = Path('src/lib/cinema/kt.server.ts')
+          ks = k.read_text().replace('5/7/10/15/20일 등', '5/7/10/15/30일 등')
+          k.write_text(ks)
 
           t = Path('src/lib/cinema/types.ts')
           ts = t.read_text()
@@ -81,13 +88,10 @@ jobs:
               wvs = wvs.replace(marker, replacement, 1)
           wv.write_text(wvs)
 
-          # The monitoring horizon is 5/7/10/15/30 days everywhere in the settings UI.
           settings = Path('src/components/settings-view.tsx')
-          st = settings.read_text()
-          st = st.replace('{[5, 7, 10, 15, 20].map((n) => (', '{[5, 7, 10, 15, 30].map((n) => (', 1)
+          st = settings.read_text().replace('{[5, 7, 10, 15, 20].map((n) => (', '{[5, 7, 10, 15, 30].map((n) => (', 1)
           settings.write_text(st)
 
-          # Bump the app version to 3.9.25.
           v = Path('VERSION')
           v.write_text('3.9.25\n')
           PY
@@ -95,5 +99,5 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION src/lib/cinema/scan-impl.server.ts src/lib/cinema/types.ts src/lib/cinema/watch-tick.server.ts src/lib/cinema/seats.ts src/components/alerts-view.tsx src/components/watch-view.tsx src/components/settings-view.tsx
-          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "release: 3.9.25 with 30-day monitoring and seat source labels" && git push; fi
+          git add VERSION src/lib/cinema/scan-impl.server.ts src/lib/cinema/kt.server.ts src/lib/cinema/types.ts src/lib/cinema/watch-tick.server.ts src/lib/cinema/seats.ts src/components/alerts-view.tsx src/components/watch-view.tsx src/components/settings-view.tsx
+          if git diff --cached --quiet; then echo "No patch needed"; else git commit -m "fix: align all monitoring paths to 30 days" && git push; fi
