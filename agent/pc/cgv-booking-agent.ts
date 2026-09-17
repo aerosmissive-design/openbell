@@ -1,12 +1,13 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { rankSeatBlocks, type SeatPoint, type SeatPreference } from "../../src/lib/booking/seat-ranker";
 
 export type BookingTarget = {
   movieTitle: string;
-  playDate: string; // YYYY-MM-DD
-  showtime: string; // HH:mm
+  playDate: string;
+  showtime: string;
   requestedSeatCount: number;
-  seatIds: string[];
-  browserAccessUrl?: string;
+  seatIds?: string[];
+  seatPreference?: Omit<SeatPreference, "count">;
 };
 
 export type BookingAgentOptions = {
@@ -21,17 +22,12 @@ const CGV_BOOKING_URL = "https://cgv.co.kr/cnm/movieBook/movie";
 const FINAL_PAYMENT_WORDS = /결제|주문|구매|최종/i;
 const SAFE_NEXT_WORDS = /다음|선택완료|좌석선택완료|예매하기/i;
 
-/**
- * PC-side CGV booking automation.
- *
- * The flow is deliberately stopped at the payment stage. This class contains
- * no final-payment click and rejects any attempt to use a final-payment label.
- */
 export class CgvBookingAgent {
   private browser?: Browser;
   private context?: BrowserContext;
   private page?: Page;
   private stopped = false;
+  private selectedSeats: string[] = [];
   private readonly options: Required<Pick<BookingAgentOptions, "headless" | "timeoutMs">> & BookingAgentOptions;
 
   constructor(options: BookingAgentOptions = {}) {
@@ -68,24 +64,26 @@ export class CgvBookingAgent {
 
   async selectSeats(target: BookingTarget) {
     const page = this.getPage();
-    if (target.seatIds.length !== target.requestedSeatCount) {
-      throw new Error("SEAT_COUNT_MISMATCH");
+    const explicit = target.seatIds?.filter(Boolean) ?? [];
+    const seatIds = explicit.length ? explicit : await this.autoSelectSeats(target.requestedSeatCount, target.seatPreference);
+    if (seatIds.length !== target.requestedSeatCount) throw new Error("SEAT_COUNT_MISMATCH");
+
+    for (const seatId of seatIds) {
+      const seat = this.findSeat(page, seatId);
+      if (!(await seat.count())) throw new Error(`CGV_SEAT_NOT_FOUND:${seatId}`);
+      await seat.click();
     }
-    for (const seatId of target.seatIds) {
-      const safeId = escapeCssAttribute(seatId);
-      const seat = page.locator(`[data-seat-id="${safeId}"], [data-seat="${safeId}"]`).first();
-      if (await seat.count()) {
-        await seat.click();
-        continue;
-      }
-      const textSeat = page.getByText(seatId, { exact: true }).first();
-      if (await textSeat.count()) {
-        await textSeat.click();
-        continue;
-      }
-      throw new Error(`CGV_SEAT_NOT_FOUND:${seatId}`);
-    }
+    this.selectedSeats = seatIds;
     await this.clickSafeNext(page);
+  }
+
+  async autoSelectSeats(count: number, preference: Omit<SeatPreference, "count"> = {}) {
+    const page = this.getPage();
+    const seats = await this.readSeatMap(page);
+    const blocks = rankSeatBlocks(seats, { count, ...preference });
+    const block = blocks[0];
+    if (!block) throw new Error("CGV_NO_CONTIGUOUS_SEATS");
+    return block.seats.map((seat) => seat.id);
   }
 
   async fillBookingInfo(info: Record<string, string>) {
@@ -97,14 +95,13 @@ export class CgvBookingAgent {
     await this.clickSafeNext(page);
   }
 
-  /** Move through non-payment confirmation UI and stop when payment is shown. */
   async goToPaymentPage(target: BookingTarget) {
     const page = this.getPage();
     await this.advanceUntilPayment(page);
     this.stopped = true;
     const url = page.url();
-    await this.options.onPaymentReady?.({ url, seats: target.seatIds });
-    return { url, seats: target.seatIds, hardStop: true as const };
+    await this.options.onPaymentReady?.({ url, seats: this.selectedSeats.length ? this.selectedSeats : target.seatIds ?? [] });
+    return { url, seats: this.selectedSeats.length ? this.selectedSeats : target.seatIds ?? [], hardStop: true as const };
   }
 
   async pauseAtPayment() {
@@ -119,19 +116,46 @@ export class CgvBookingAgent {
   async close() {
     await this.context?.close().catch(() => undefined);
     await this.browser?.close().catch(() => undefined);
+    await this.browser?.close().catch(() => undefined);
     this.context = undefined;
     this.browser = undefined;
     this.page = undefined;
   }
 
+  private async readSeatMap(page: Page): Promise<SeatPoint[]> {
+    const raw = await page.locator('[data-seat-id], [data-seat], [aria-label*="좌석"], [aria-label*="seat"]').evaluateAll((elements) =>
+      elements.map((el) => {
+        const node = el as HTMLElement;
+        const id = node.getAttribute("data-seat-id") || node.getAttribute("data-seat") || node.getAttribute("aria-label") || node.textContent || "";
+        const label = (node.getAttribute("aria-label") || node.textContent || "").trim();
+        const disabled = node.hasAttribute("disabled") || node.getAttribute("aria-disabled") === "true";
+        const cls = `${node.className || ""} ${node.getAttribute("data-status") || ""}`.toLowerCase();
+        const m = id.match(/([A-Z가-힣]+)\s*[-_ ]?\s*(\d{1,3})/i) || label.match(/([A-Z가-힣]+)\s*[-_ ]?\s*(\d{1,3})/i);
+        if (!m) return null;
+        return {
+          id,
+          row: m[1].toUpperCase(),
+          number: Number(m[2]),
+          available: !disabled && !/(disabled|unavailable|occupied|reserved|sold|매진|선택불가|예약)/.test(cls + " " + label.toLowerCase()),
+          aisle: /aisle|통로/.test(cls + " " + label.toLowerCase()),
+          edge: /edge|끝|사이드/.test(cls + " " + label.toLowerCase()),
+        } satisfies SeatPoint;
+      }).filter(Boolean),
+    );
+    const seats = raw as SeatPoint[];
+    if (!seats.length) throw new Error("CGV_SEAT_MAP_NOT_FOUND");
+    return seats;
+  }
+
+  private findSeat(page: Page, seatId: string) {
+    const safe = escapeCssAttribute(seatId);
+    return page.locator(`[data-seat-id="${safe}"], [data-seat="${safe}"]`).first().or(page.getByText(seatId, { exact: true }).first());
+  }
+
   private async advanceUntilPayment(page: Page) {
     for (let step = 0; step < 4; step += 1) {
       if (await this.isPaymentStage(page)) return;
-      const clicked = await this.clickSafeNext(page);
-      if (!clicked) {
-        if (await this.isPaymentStage(page)) return;
-        throw new Error("CGV_PAYMENT_STAGE_NOT_REACHED");
-      }
+      if (!(await this.clickSafeNext(page))) throw new Error("CGV_PAYMENT_STAGE_NOT_REACHED");
       await page.waitForLoadState("domcontentloaded").catch(() => undefined);
       await page.waitForTimeout(300);
     }
@@ -142,7 +166,7 @@ export class CgvBookingAgent {
     const url = page.url().toLowerCase();
     if (url.includes("payment") || url.includes("pay")) return true;
     const body = await page.locator("body").innerText().catch(() => "");
-    return /최종결제금액|결제수단|결제하기|결제 정보/.test(body);
+    return /최종결제금액|결제수단|결제 정보/.test(body);
   }
 
   private async clickSafeNext(page: Page) {
@@ -152,8 +176,7 @@ export class CgvBookingAgent {
     ];
     for (const candidate of candidates) {
       if (!(await candidate.count())) continue;
-      const name = await candidate.getAttribute("aria-label").catch(() => null);
-      const text = (await candidate.innerText().catch(() => "")) || name || "";
+      const text = (await candidate.innerText().catch(() => "")) || (await candidate.getAttribute("aria-label").catch(() => null)) || "";
       if (FINAL_PAYMENT_WORDS.test(text)) continue;
       await candidate.click();
       return true;
@@ -168,25 +191,16 @@ export class CgvBookingAgent {
       page.getByText(date, { exact: true }).first(),
     ];
     for (const candidate of candidates) {
-      if (await candidate.count()) {
-        await candidate.click();
-        return;
-      }
+      if (await candidate.count()) { await candidate.click(); return; }
     }
     throw new Error(`SHOW_DATE_NOT_FOUND:${date}`);
   }
 
   private async clickTextOrRole(page: Page, text: string) {
     const exact = page.getByText(text, { exact: true }).first();
-    if (await exact.count()) {
-      await exact.click();
-      return;
-    }
+    if (await exact.count()) { await exact.click(); return; }
     const role = page.getByRole("button", { name: new RegExp(escapeRegExp(text), "i") }).first();
-    if (await role.count()) {
-      await role.click();
-      return;
-    }
+    if (await role.count()) { await role.click(); return; }
     throw new Error(`CGV_TARGET_NOT_FOUND:${text}`);
   }
 }
