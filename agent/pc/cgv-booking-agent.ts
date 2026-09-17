@@ -128,6 +128,14 @@ export class CgvBookingAgent {
     return this.page?.url() ?? null;
   }
 
+  async waitForBrowserClose() {
+    const page = this.page;
+    if (!page || page.isClosed()) return;
+    await new Promise<void>((resolve) => {
+      page.once("close", () => resolve());
+    });
+  }
+
   async getBrowserAccess() {
     return this.page?.url() ?? null;
   }
