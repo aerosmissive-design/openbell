@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { applyCgvSeatHits, mergeShowtimes, seatFreshnessLabel } from "@/lib/cinema/seats";
-import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
+import { seatFreshnessLabel } from "@/lib/cinema/seats";
+import { scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { Showtime, TheaterId } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
@@ -38,14 +38,12 @@ export function BoardView() {
   async function refresh() {
     setBusy(true);
     try {
-      const [scan, seats] = await Promise.all([
-        scanCinema({ data: { theaters: enabled, daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 20), gasWebUrl: config.gasWebUrl || undefined, mode: "full", sources: { official: true, naver: true, gas: Boolean(config.gasWebUrl) } } }),
-        pullTheaterSeats({ url: config.gasWebUrl.trim() || undefined, daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 20), fresh: true }),
-      ]);
+      const scan = await scanCinema({ data: { theaters: enabled, daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 20), gasWebUrl: config.gasWebUrl || undefined, mode: "full", sources: { official: true, naver: true, gas: Boolean(config.gasWebUrl) } } });
       const next: Record<string, Showtime[]> = {};
       for (const theater of scan.theaters) {
-        const merged = mergeShowtimes(theater.showtimes, seats.showtimes.filter((s) => s.theaterId === theater.theaterId));
-        next[theater.theaterId] = applyCgvSeatHits(merged, seats.map, false, false).slice(0, 18);
+        next[theater.theaterId] = [...theater.showtimes]
+          .sort((a, b) => `${a.playDate}${a.startTime}`.localeCompare(`${b.playDate}${b.startTime}`))
+          .slice(0, 18);
       }
       setData(next);
       setUpdatedAt(new Date().toISOString());
