@@ -6,6 +6,7 @@ export type BookingTarget = {
   playDate: string;
   showtime: string;
   requestedSeatCount: number;
+  bookingUrl?: string;
   seatIds?: string[];
   seatPreference?: Omit<SeatPreference, "count">;
 };
@@ -52,12 +53,27 @@ export class CgvBookingAgent {
 
   async openMovie(target: BookingTarget) {
     const page = this.getPage();
+    if (target.bookingUrl) {
+      if (!isExactCgvBookingUrl(target.bookingUrl)) throw new Error("INVALID_EXACT_CGV_BOOKING_URL");
+      await page.goto(target.bookingUrl, { waitUntil: "domcontentloaded" });
+      await this.waitForProgress(page);
+      return;
+    }
+
     await page.goto(this.options.baseUrl ?? CGV_BOOKING_URL, { waitUntil: "domcontentloaded" });
     await this.clickTextOrRole(page, target.movieTitle);
   }
 
   async openShowtime(target: BookingTarget) {
     const page = this.getPage();
+    if (target.bookingUrl) {
+      if (page.url() !== target.bookingUrl) {
+        await page.goto(target.bookingUrl, { waitUntil: "domcontentloaded" });
+      }
+      await this.waitForProgress(page);
+      return;
+    }
+
     await this.selectDate(page, target.playDate);
     await this.clickTextOrRole(page, target.showtime);
   }
@@ -69,7 +85,7 @@ export class CgvBookingAgent {
     if (seatIds.length !== target.requestedSeatCount) throw new Error("SEAT_COUNT_MISMATCH");
 
     for (const seatId of seatIds) {
-      const seat = this.findSeat(page, seatId);
+      const seat = await this.findSeat(page, seatId);
       if (!(await seat.count())) throw new Error(`CGV_SEAT_NOT_FOUND:${seatId}`);
       await seat.click();
     }
@@ -79,6 +95,8 @@ export class CgvBookingAgent {
 
   async autoSelectSeats(count: number, preference: Omit<SeatPreference, "count"> = {}) {
     const page = this.getPage();
+    const seatCandidates = page.locator('[data-seat-id], [data-seat], [aria-label*="좌석"], [aria-label*="seat"]');
+    await seatCandidates.first().waitFor({ state: "attached", timeout: this.options.timeoutMs });
     const seats = await this.readSeatMap(page);
     const blocks = rankSeatBlocks(seats, { count, ...preference });
     const block = blocks[0];
@@ -149,10 +167,11 @@ export class CgvBookingAgent {
     return seats;
   }
 
-  private findSeat(page: Page, seatId: string) {
+  private async findSeat(page: Page, seatId: string) {
     const safe = escapeCssAttribute(seatId);
     const byAttribute = page.locator(`[data-seat-id="${safe}"], [data-seat="${safe}"]`).first();
-    return byAttribute.or(page.getByText(seatId, { exact: true }).first());
+    if (await byAttribute.count()) return byAttribute;
+    return page.getByText(seatId, { exact: true }).first();
   }
 
   private async advanceUntilPayment(page: Page) {
@@ -211,6 +230,20 @@ export class CgvBookingAgent {
     const role = page.getByRole("button", { name: new RegExp(escapeRegExp(text), "i") }).first();
     if (await role.count()) { await role.click(); return; }
     throw new Error(`CGV_TARGET_NOT_FOUND:${text}`);
+  }
+}
+
+function isExactCgvBookingUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const pathname = url.pathname.replace(/\/+$/, "");
+    return url.protocol === "https:" &&
+      (host === "cgv.co.kr" || host === "www.cgv.co.kr") &&
+      pathname === "/cnm/movieBook/movie" &&
+      ["movNo", "scnYmd", "scnsNo", "scnSseq"].every((key) => url.searchParams.get(key));
+  } catch {
+    return false;
   }
 }
 
