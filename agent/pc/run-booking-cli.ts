@@ -13,9 +13,7 @@ function loadEnv(path = "config.env") {
       const value = line.slice(index + 1).trim().replace(/^['\"]|['\"]$/g, "");
       if (!process.env[key]) process.env[key] = value;
     }
-  } catch {
-    // Environment variables may be supplied directly by the shell.
-  }
+  } catch {}
 }
 
 function required(name: string) {
@@ -26,17 +24,27 @@ function required(name: string) {
 
 loadEnv(process.env.OPENBELL_AGENT_CONFIG || "config.env");
 
+const count = Number(process.env.BOOKING_SEAT_COUNT || "2");
+if (!Number.isInteger(count) || count < 1) throw new Error("BOOKING_SEAT_COUNT must be a positive integer");
+
+const explicitSeatIds = (process.env.BOOKING_SEAT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+if (explicitSeatIds.length && explicitSeatIds.length !== count) {
+  throw new Error("BOOKING_SEAT_IDS must contain exactly BOOKING_SEAT_COUNT seats when provided");
+}
+
 const target = {
   movieTitle: required("BOOKING_MOVIE"),
   playDate: required("BOOKING_DATE"),
   showtime: required("BOOKING_SHOWTIME"),
-  requestedSeatCount: Number(process.env.BOOKING_SEAT_COUNT || "2"),
-  seatIds: (process.env.BOOKING_SEAT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean),
+  requestedSeatCount: count,
+  seatIds: explicitSeatIds,
+  seatPreference: {
+    preferredRow: process.env.SEAT_PREFERRED_ROW?.trim() || undefined,
+    preferredRowDistance: Number(process.env.SEAT_PREFERRED_ROW_DISTANCE || "0") || undefined,
+    allowAisle: /^(1|true|yes)$/i.test(process.env.SEAT_ALLOW_AISLE || "true"),
+    allowEdge: /^(1|true|yes)$/i.test(process.env.SEAT_ALLOW_EDGE || "false"),
+  },
 };
-
-if (target.seatIds.length !== target.requestedSeatCount) {
-  throw new Error("BOOKING_SEAT_IDS must contain exactly BOOKING_SEAT_COUNT seats");
-}
 
 const headless = /^(1|true|yes)$/i.test(process.env.PLAYWRIGHT_HEADLESS || "false");
 const storageStatePath = process.env.CGV_STORAGE_STATE?.trim() || undefined;
