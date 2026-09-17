@@ -11,7 +11,7 @@ export const CHART_SIZE = 9;
 export type RankingMovie = { rank: number; title: string; movieNo: string; bookingRate: number | null; posterUrl: string | null; releaseDate: string | null; bookingOpen: boolean; released: boolean };
 export type Showtime = { id: string; theaterId: TheaterId; theaterName: string; chain: "megabox" | "cgv"; movieTitle: string; movieNo: string; playDate: string; startTime: string; endTime: string | null; hallName: string; formats: FormatId[]; restSeats: number | null; totalSeats: number | null; bookingUrl: string; bookable: boolean; seatLive?: boolean; seatCheckedAt?: string | null; seatSource?: string };
 export type TheaterScan = { theaterId: TheaterId; ok: boolean; error: string | null; showtimes: Showtime[]; source: string; seatSource: string };
-export type ScanResult = { scannedAt: string; playDates: string[]; ranking: RankingMovie[]; showing: RankingMovie[]; catalog: RankingMovie[]; catalogNote?: string; theaters: TheaterScan[] };
+export type ScanResult = { scannedAt: string; playDates: string[]; ranking: RankingMovie[]; showing: RankingMovie[]; catalog: RankingMovie[]; catalogNote?: string; theaters: TheaterScan[]; seatSourceTimes?: Record<string, Record<string, string>> };
 export type ScanProps = { scan: ScanResult | null; loading: boolean; error: Error | null; onRefresh: () => void; refreshing: boolean };
 export type AlertItem = { id: string; createdAt: string; kind: "open" | "seat"; title: string; body: string; bookingUrl: string; theaterId: TheaterId; movieTitle: string; playDate: string; startTime: string; hallName: string; formats: FormatId[]; restSeats: number | null; totalSeats?: number | null; seatSource?: string };
 export type HoldZone = "center" | "rear" | "front";

@@ -114,12 +114,16 @@ export const useAppStore = create<AppState>()(
           return { seatMap: next };
         }),
       mergeOverlayShows: (theaterId, shows) =>
-        set((s) => ({
-          overlayShows: {
-            ...s.overlayShows,
-            [theaterId]: shows,
-          },
-        })),
+        set((s) => {
+          if (!shows.length) return s;
+          const previous = s.overlayShows[theaterId] ?? [];
+          const out = [...previous];
+          for (const row of shows) {
+            const index = out.findIndex((candidate) => candidate.theaterId === row.theaterId && candidate.playDate === row.playDate && candidate.startTime === row.startTime && candidate.hallName === row.hallName && (candidate.movieNo && row.movieNo ? candidate.movieNo === row.movieNo : candidate.movieTitle.trim().toLowerCase() === row.movieTitle.trim().toLowerCase()));
+            if (index < 0) out.push(row); else out[index] = { ...out[index], ...row, restSeats: row.restSeats ?? out[index].restSeats, totalSeats: row.totalSeats ?? out[index].totalSeats };
+          }
+          return { overlayShows: { ...s.overlayShows, [theaterId]: out } };
+        }),
       setConfig: (patch) =>
         set((s) => ({ config: { ...s.config, ...patch } })),
       setTheater: (id, on) =>

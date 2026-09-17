@@ -181,10 +181,10 @@ export function CinemaApp() {
         ),
       ),
       catalogNote: catalogQuery.data?.catalogNote || scan?.catalogNote,
-      seatSourceTimes: scan?.seatSourceTimes,
+      seatSourceTimes: mergeSeatSourceTimes(scan?.seatSourceTimes, seatQuery.data?.seatSourceTimes),
       theaters,
     };
-  }, [scan, catalogQuery.data, seatMap, overlayShows]);
+  }, [scan, catalogQuery.data, seatMap, overlayShows, seatQuery.data?.seatSourceTimes]);
   const titles = useMemo(
     () => watchedTitleSet(viewScan?.ranking ?? [], config),
     [viewScan?.ranking, config],
@@ -328,7 +328,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.35
+                v3.9.36
               </span>
             </h1>
           </div>
@@ -407,6 +407,12 @@ export function CinemaApp() {
       </nav>
     </div>
   );
+}
+
+function mergeSeatSourceTimes(base?: ScanResult["seatSourceTimes"], extra?: ScanResult["seatSourceTimes"]): ScanResult["seatSourceTimes"] {
+  const out: NonNullable<ScanResult["seatSourceTimes"]> = { ...(base ?? {}) };
+  for (const [theaterId, times] of Object.entries(extra ?? {})) { const current = { ...(out[theaterId] ?? {}) }; for (const [key, value] of Object.entries(times ?? {})) { if (!current[key] || new Date(value).getTime() >= new Date(current[key]).getTime()) current[key] = value; } out[theaterId] = current; }
+  return out;
 }
 
 function mergeScanResults(fast: ScanResult | null, full: ScanResult | null): ScanResult | null {
