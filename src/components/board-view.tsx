@@ -38,6 +38,21 @@ function formatBoardTimestamp(iso: string | null): string {
   return `${get("month")}.${get("day")}일 ${get("hour")}:${get("minute")}`;
 }
 
+function formatPlayDate(playDate: string | null | undefined): string {
+  if (!playDate) return "";
+  const raw = String(playDate).trim();
+  // YYYYMMDD
+  if (/^\d{8}$/.test(raw)) {
+    const m = Number(raw.slice(4, 6));
+    const d = Number(raw.slice(6, 8));
+    return `${m}/${d}`;
+  }
+  // YYYY-MM-DD or similar
+  const m = raw.match(/(\d{4})[-./]?(\d{1,2})[-./]?(\d{1,2})/);
+  if (m) return `${Number(m[2])}/${Number(m[3])}`;
+  return raw;
+}
+
 function isImax(show: Showtime) {
   return show.formats?.includes("imax") || /imax|아이맥스/i.test(`${show.hallName} ${show.movieTitle}`);
 }
@@ -229,7 +244,11 @@ export function BoardView() {
                           className={`block rounded-xl bg-[#090d16]/80 p-2.5 ring-1 ${ring} hover:bg-[#162033]`}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <b className="text-base tabular-nums">{show.startTime}</b>
+                            <b className="text-base tabular-nums">
+                              {formatPlayDate(show.playDate)
+                                ? `${formatPlayDate(show.playDate)} ${show.startTime}`
+                                : show.startTime}
+                            </b>
                             <span
                               className={
                                 imax
@@ -248,8 +267,7 @@ export function BoardView() {
                               {tone === "zero" ? " · 매진" : tone === "low" ? " · 잔여 적음" : " · 잔여"}
                             </b>
                             <span className="text-[#7b879e]">
-                              {seatFreshnessLabel(show) ||
-                                (show.playDate ? String(show.playDate).slice(5) : "")}
+                              {seatFreshnessLabel(show) || ""}
                             </span>
                           </div>
                         </a>
