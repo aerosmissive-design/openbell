@@ -37,6 +37,42 @@ function optionalNumber(name: string) {
   return parsed;
 }
 
+async function createSession(input: {
+  openbellUrl: string;
+  workerToken: string;
+  theaterId: string;
+  movieTitle: string;
+  playDate: string;
+  showtime: string;
+  hall: string;
+  requestedSeatCount: number;
+}) {
+  const response = await fetch(`${input.openbellUrl}/api/booking/create`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${input.workerToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      theaterId: input.theaterId,
+      movieTitle: input.movieTitle,
+      playDate: input.playDate,
+      showtime: input.showtime,
+      hall: input.hall,
+      requestedSeatCount: input.requestedSeatCount,
+      agent: "pc",
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`OPENBELL_SESSION_CREATE_FAILED:${response.status}:${text.slice(0, 500)}`);
+  }
+  const data = (await response.json()) as { ok?: boolean; session?: { id?: string } };
+  if (!data.ok || !data.session?.id) throw new Error("OPENBELL_SESSION_CREATE_INVALID_RESPONSE");
+  return data.session.id;
+}
+
 loadEnv(process.env.OPENBELL_AGENT_CONFIG || "config.env");
 
 const requestedSeatCount = Number(process.env.BOOKING_SEAT_COUNT || "2");
@@ -69,11 +105,28 @@ const headless = bool("PLAYWRIGHT_HEADLESS", false);
 const storageStatePath = process.env.CGV_STORAGE_STATE?.trim() || undefined;
 const openbellUrl = process.env.OPENBELL_URL?.trim().replace(/\/$/, "");
 const workerToken = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim();
-const bookingSessionId = process.env.BOOKING_SESSION_ID?.trim();
+let bookingSessionId = process.env.BOOKING_SESSION_ID?.trim();
 
 const bookingInfo: Record<string, string> = {};
 for (const [key, value] of Object.entries(process.env)) {
   if (key.startsWith("BOOKING_INFO_")) bookingInfo[key.slice("BOOKING_INFO_".length)] = value || "";
+}
+
+if (!bookingSessionId) {
+  if (!openbellUrl || !workerToken) {
+    throw new Error("AUTO_BOOKING_SESSION_REQUIRES_OPENBELL_URL_AND_NAS_WORKER_TOKEN");
+  }
+  bookingSessionId = await createSession({
+    openbellUrl,
+    workerToken,
+    theaterId: process.env.BOOKING_THEATER_ID?.trim() || "CGV용산아이파크몰",
+    movieTitle: target.movieTitle,
+    playDate: target.playDate,
+    showtime: target.showtime,
+    hall: process.env.BOOKING_HALL?.trim() || "20관",
+    requestedSeatCount,
+  });
+  console.log(`OpenBell booking session created: ${bookingSessionId}`);
 }
 
 const result = await runBooking({
