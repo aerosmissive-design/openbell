@@ -149,9 +149,14 @@ export function CinemaApp() {
         showtimes.every(
           (row) => row.restSeats == null || row.seatLive === false,
         );
+      // 오버레이(G_PC 등)로 회차가 채워졌으면 예전 "데이터 없음" error 를 지운다.
+      const ok = showtimes.length > 0 || t.ok;
+      const error = showtimes.length > 0 ? null : (t.error ?? null);
       return {
         ...t,
         showtimes,
+        ok,
+        error,
         seatSource: inferSeatSource({
           theaterId: t.theaterId,
           seatSource: t.seatSource,
@@ -391,8 +396,7 @@ export function CinemaApp() {
             icon={
               <Star
                 className="size-5"
-                strokeWidth={1.75}
-                fill={tab === "star" || queue.length ? "currentColor" : "none"}
+                strokeWidth={1.75}\n                fill={tab === "star" || queue.length ? "currentColor" : "none"}
               />
             }
             ariaLabel="별표"
@@ -424,12 +428,15 @@ function mergeScanResults(fast: ScanResult | null, full: ScanResult | null): Sca
     const fallback = fastByTheater.get(theater.theaterId);
     if (!fallback) return theater;
     const showtimes = mergeShowtimes(theater.showtimes, fallback.showtimes);
+    // full 이 "데이터 없음" 이어도 fast/다른 소스에 회차가 있으면 error 제거
+    const ok = showtimes.length > 0 || theater.ok || fallback.ok;
+    const error = showtimes.length > 0 ? null : (theater.error ?? fallback.error ?? null);
     return {
       ...fallback,
       ...theater,
       showtimes,
-      ok: theater.ok || fallback.ok,
-      error: theater.error ?? fallback.error,
+      ok,
+      error,
       source: theater.showtimes.length ? theater.source : fallback.source,
       seatSource: theater.seatSource !== "none" ? theater.seatSource : fallback.seatSource,
     };
@@ -550,67 +557,53 @@ function queueNasHoldJobs(items: AlertItem[], config: WatchConfig) {
     .catch(() => null);
 }
 
-function announce(items: AlertItem[], config: WatchConfig) {
+async function announce(items: AlertItem[], config: WatchConfig) {
   if (!items.length) return;
   queueNasHoldJobs(items, config);
-  const text = notifyCopy(items);
   const batches = notifyBatches(items);
-  if (config.telegram?.token && config.telegram?.chatId) {
-    for (const batch of batches) {
+  for (const batch of batches) {
+    const copy = notifyCopy(batch);
+    if (config.browserNotify && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      try {
+        new Notification(copy.subject, { body: copy.text.slice(0, 180) });
+      } catch {}
+    }
+    if (mailEnabled(config)) {
+      void sendAlertEmail({
+        data: {
+          to: config.email,
+          subject: copy.subject,
+          text: copy.text,
+          url: batch[0]?.bookingUrl,
+          gasWebUrl: config.gasWebUrl || undefined,
+          gmailAppPassword: config.gmailAppPassword || undefined,
+        },
+      }).catch(() => null);
+    }
+    if (config.telegramToken.trim() && config.telegramChatId.trim()) {
       void sendTelegram({
         data: {
-          token: config.telegram.token,
-          chatId: config.telegram.chatId,
-          text: batch,
-          html: true,
+          token: config.telegramToken,
+          chatId: config.telegramChatId,
+          text: copy.telegramHtml,
+          parseMode: "HTML",
         },
       }).catch(() => null);
     }
-  }
-  if (config.webhookUrl) {
-    void sendWebhook({
-      data: { url: config.webhookUrl, payload: { text, items } },
-    }).catch(() => null);
-  }
-  if (config.kakao?.restKey && config.kakao?.refreshToken) {
-    for (const item of items.slice(0, 3)) {
+    if (config.kakaoRestKey.trim() && config.kakaoRefreshToken.trim()) {
       void sendKakaoMemo({
         data: {
-          restKey: config.kakao.restKey,
-          refreshToken: config.kakao.refreshToken,
-          text: item.title.slice(0, 200),
-          bookingUrl: item.bookingUrl || undefined,
+          restKey: config.kakaoRestKey,
+          refreshToken: config.kakaoRefreshToken,
+          text: copy.text,
+          bookingUrl: batch[0]?.bookingUrl,
         },
       }).catch(() => null);
     }
-  }
-  if (mailEnabled(config) && config.mailTo) {
-    void sendAlertEmail({
-      data: {
-        to: config.mailTo,
-        subject: items[0]?.title || "오픈벨 알림",
-        text,
-        items: items.map((i) => ({
-          title: i.title,
-          body: i.body,
-          bookingUrl: i.bookingUrl || "",
-        })),
-        gasWebUrl: config.gasWebUrl || undefined,
-        gmailAppPassword: config.gmailAppPassword || undefined,
-      },
-    }).catch(() => null);
-  }
-  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-    try {
-      new Notification(items[0].title, { body: items[0].body, tag: items[0].id });
-    } catch {}
-  }
-  for (const item of items) {
-    if (item.bookingUrl) {
-      try {
-        const jump = bookingJumpUrl(item.bookingUrl);
-        if (jump) window.open(jump, "_blank", "noopener");
-      } catch {}
+    if (config.webhookUrl.trim()) {
+      void sendWebhook({
+        data: { url: config.webhookUrl, text: copy.text, subject: copy.subject },
+      }).catch(() => null);
     }
   }
 }
