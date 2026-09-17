@@ -67,6 +67,9 @@ const target = {
 
 const headless = bool("PLAYWRIGHT_HEADLESS", false);
 const storageStatePath = process.env.CGV_STORAGE_STATE?.trim() || undefined;
+const openbellUrl = process.env.OPENBELL_URL?.trim().replace(/\/$/, "");
+const workerToken = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim();
+const bookingSessionId = process.env.BOOKING_SESSION_ID?.trim();
 
 const bookingInfo: Record<string, string> = {};
 for (const [key, value] of Object.entries(process.env)) {
@@ -85,6 +88,27 @@ const result = await runBooking({
     console.log(`SEATS: ${seats.join(", ")}`);
     console.log("Final payment was NOT clicked.");
     console.log("========================================\n");
+
+    if (!bookingSessionId) return;
+    if (!openbellUrl || !workerToken) {
+      throw new Error("BOOKING_SESSION_CALLBACK_REQUIRES_OPENBELL_URL_AND_NAS_WORKER_TOKEN");
+    }
+
+    const response = await fetch(`${openbellUrl}/api/booking/payment-ready`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${workerToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ id: bookingSessionId, browserAccessUrl: url, selectedSeats: seats }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`OPENBELL_PAYMENT_READY_FAILED:${response.status}:${text.slice(0, 500)}`);
+    }
+
+    console.log("OpenBell PAYMENT_READY callback sent successfully.");
   },
 });
 
