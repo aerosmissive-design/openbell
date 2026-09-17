@@ -92,7 +92,7 @@ export async function runScan(input: {
     ? deadline(readNasSeatmap([...wanted].filter(isCgvId)), fast ? SCAN_DEADLINES.fastNas : SCAN_DEADLINES.nas, emptyNas)
     : Promise.resolve(emptyNas);
   const ktSeats = !fast && hasCgv
-    ? deadline(fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates }), SCAN_DEADLINES.kt, emptyCgv)
+    ? deadline(fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates.slice(0, 2) }), SCAN_DEADLINES.kt, emptyCgv)
     : Promise.resolve(emptyCgv);
   const megaSeats = !fast && hasMega
     ? deadline(fetchMegaboxSeatmap({ days }), SCAN_DEADLINES.mega, emptyCgv)
