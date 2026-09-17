@@ -100,8 +100,9 @@ export class CgvBookingAgent {
     await this.advanceUntilPayment(page);
     this.stopped = true;
     const url = page.url();
-    await this.options.onPaymentReady?.({ url, seats: this.selectedSeats.length ? this.selectedSeats : target.seatIds ?? [] });
-    return { url, seats: this.selectedSeats.length ? this.selectedSeats : target.seatIds ?? [], hardStop: true as const };
+    const seats = this.selectedSeats.length ? this.selectedSeats : target.seatIds ?? [];
+    await this.options.onPaymentReady?.({ url, seats });
+    return { url, seats, hardStop: true as const };
   }
 
   async pauseAtPayment() {
@@ -116,7 +117,6 @@ export class CgvBookingAgent {
   async close() {
     await this.context?.close().catch(() => undefined);
     await this.browser?.close().catch(() => undefined);
-    await this.browser?.close().catch(() => undefined);
     this.context = undefined;
     this.browser = undefined;
     this.page = undefined;
@@ -126,19 +126,21 @@ export class CgvBookingAgent {
     const raw = await page.locator('[data-seat-id], [data-seat], [aria-label*="좌석"], [aria-label*="seat"]').evaluateAll((elements) =>
       elements.map((el) => {
         const node = el as HTMLElement;
-        const id = node.getAttribute("data-seat-id") || node.getAttribute("data-seat") || node.getAttribute("aria-label") || node.textContent || "";
+        const rawId = node.getAttribute("data-seat-id") || node.getAttribute("data-seat") || node.getAttribute("aria-label") || node.textContent || "";
         const label = (node.getAttribute("aria-label") || node.textContent || "").trim();
         const disabled = node.hasAttribute("disabled") || node.getAttribute("aria-disabled") === "true";
-        const cls = `${node.className || ""} ${node.getAttribute("data-status") || ""}`.toLowerCase();
-        const m = id.match(/([A-Z가-힣]+)\s*[-_ ]?\s*(\d{1,3})/i) || label.match(/([A-Z가-힣]+)\s*[-_ ]?\s*(\d{1,3})/i);
+        const cls = `${String(node.className || "")} ${node.getAttribute("data-status") || ""}`.toLowerCase();
+        const m = rawId.match(/([A-Z가-힣]+)\s*[-_ ]?\s*(\d{1,3})/i) || label.match(/([A-Z가-힣]+)\s*[-_ ]?\s*(\d{1,3})/i);
         if (!m) return null;
+        const row = m[1].toUpperCase();
+        const number = Number(m[2]);
         return {
-          id,
-          row: m[1].toUpperCase(),
-          number: Number(m[2]),
-          available: !disabled && !/(disabled|unavailable|occupied|reserved|sold|매진|선택불가|예약)/.test(cls + " " + label.toLowerCase()),
-          aisle: /aisle|통로/.test(cls + " " + label.toLowerCase()),
-          edge: /edge|끝|사이드/.test(cls + " " + label.toLowerCase()),
+          id: `${row}${number}`,
+          row,
+          number,
+          available: !disabled && !/(disabled|unavailable|occupied|reserved|sold|매진|선택불가|예약)/.test(`${cls} ${label.toLowerCase()}`),
+          aisle: /aisle|통로/.test(`${cls} ${label.toLowerCase()}`),
+          edge: /edge|끝|사이드/.test(`${cls} ${label.toLowerCase()}`),
         } satisfies SeatPoint;
       }).filter(Boolean),
     );
