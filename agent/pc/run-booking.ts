@@ -5,15 +5,17 @@ export type RunBookingInput = BookingTarget & {
   bookingInfo?: Record<string, string>;
   storageStatePath?: string;
   headless?: boolean;
+  holdAtPayment?: boolean;
   onStateChange?: (state: BookingState) => Promise<void>;
   onPaymentReady?: (result: { url: string; seats: string[] }) => Promise<void>;
 };
 
 /** Runs the full non-payment portion of a CGV booking. */
 export async function runBooking(input: RunBookingInput) {
+  const headless = input.headless ?? true;
   const agent = new CgvBookingAgent({
     storageStatePath: input.storageStatePath,
-    headless: input.headless ?? true,
+    headless,
     onPaymentReady: input.onPaymentReady,
   });
 
@@ -38,7 +40,14 @@ export async function runBooking(input: RunBookingInput) {
       await input.onStateChange?.("BOOKING_INFO");
     }
 
-    return await agent.goToPaymentPage(input);
+    const result = await agent.goToPaymentPage(input);
+    const holdAtPayment = input.holdAtPayment ?? !headless;
+    if (holdAtPayment) {
+      await input.onStateChange?.("WAITING_USER");
+      console.log("Payment hard stop reached. Browser remains open for manual completion.");
+      await agent.waitForBrowserClose();
+    }
+    return result;
   } catch (error) {
     await agent.close();
     throw error;
