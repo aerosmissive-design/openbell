@@ -27,6 +27,7 @@ export type BookingSession = {
   selectedSeats: string[];
   state: BookingState;
   agent: BookingAgent;
+  bookingUrl?: string;
   browserAccessUrl?: string;
   createdAt: string;
   paymentReadyAt?: string;
