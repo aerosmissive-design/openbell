@@ -128,6 +128,7 @@ const target = {
 };
 
 const headless = bool("PLAYWRIGHT_HEADLESS", false);
+const holdAtPayment = bool("PAYMENT_HOLD_BROWSER", true);
 const storageStatePath = process.env.CGV_STORAGE_STATE?.trim() || undefined;
 const openbellUrl = process.env.OPENBELL_URL?.trim().replace(/\/$/, "");
 const workerToken = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim();
@@ -171,6 +172,7 @@ const result = await runBooking({
   ...target,
   storageStatePath,
   headless,
+  holdAtPayment,
   bookingInfo: Object.keys(bookingInfo).length ? bookingInfo : undefined,
   onStateChange: stateCallback,
   onPaymentReady: async ({ url, seats }) => {
@@ -179,6 +181,7 @@ const result = await runBooking({
     console.log(`URL: ${url}`);
     console.log(`SEATS: ${seats.join(", ")}`);
     console.log("Final payment was NOT clicked.");
+    if (!headless && holdAtPayment) console.log("Browser is being kept open for manual completion.");
     console.log("========================================\n");
 
     if (!bookingSessionId) return;
