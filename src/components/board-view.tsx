@@ -6,6 +6,7 @@ import { loadBoardData } from "@/lib/cinema/scan";
 import { seatFreshnessLabel } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { Showtime, TheaterId } from "@/lib/cinema/types";
+import { useAppStore } from "@/lib/store";
 
 type BoardTheaterBlock = {
   theaterId: TheaterId;
@@ -15,7 +16,6 @@ type BoardTheaterBlock = {
   count: number;
   showtimes: Showtime[];
 };
-import { useAppStore } from "@/lib/store";
 
 const IDS: TheaterId[] = [
   "cgv_yongsan",
