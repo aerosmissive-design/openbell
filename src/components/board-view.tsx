@@ -7,6 +7,8 @@ import { seatFreshnessLabel } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { Showtime, TheaterId } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
+import { decodeHtml } from "@/lib/utils";
+import { seatSourceLabel } from "@/lib/cinema/types";
 
 type BoardTheaterBlock = {
   theaterId: TheaterId;
@@ -41,13 +43,11 @@ function formatBoardTimestamp(iso: string | null): string {
 function formatPlayDate(playDate: string | null | undefined): string {
   if (!playDate) return "";
   const raw = String(playDate).trim();
-  // YYYYMMDD
   if (/^\d{8}$/.test(raw)) {
     const m = Number(raw.slice(4, 6));
     const d = Number(raw.slice(6, 8));
     return `${m}/${d}`;
   }
-  // YYYY-MM-DD or similar
   const m = raw.match(/(\d{4})[-./]?(\d{1,2})[-./]?(\d{1,2})/);
   if (m) return `${Number(m[2])}/${Number(m[3])}`;
   return raw;
@@ -235,6 +235,12 @@ export function BoardView() {
                           : tone === "low"
                             ? "text-[#ffd166]"
                             : "text-[#62e6a1]";
+                      const srcLabel =
+                        seatSourceLabel(show.seatSource) !== "없음"
+                          ? seatSourceLabel(show.seatSource)
+                          : block.source !== "none"
+                            ? seatSourceLabel(block.source)
+                            : "—";
                       return (
                         <a
                           key={show.id}
@@ -256,19 +262,24 @@ export function BoardView() {
                                   : "text-[11px] text-[#7b879e]"
                               }
                             >
-                              {imax ? "IMAX" : show.hallName}
+                              {imax ? "IMAX" : decodeHtml(show.hallName || "")}
                             </span>
                           </div>
-                          <p className="mt-1 truncate text-sm font-medium">{show.movieTitle}</p>
-                          <div className="mt-1.5 flex items-center justify-between text-xs">
-                            <b className={seatColor}>
-                              {show.restSeats ?? "-"}
-                              {show.totalSeats != null ? ` / ${show.totalSeats}` : ""}석
-                              {tone === "zero" ? " · 매진" : tone === "low" ? " · 잔여 적음" : " · 잔여"}
-                            </b>
-                            <span className="text-[#7b879e]">
-                              {seatFreshnessLabel(show) || ""}
-                            </span>
+                          <p className="mt-1 truncate text-sm font-medium">{decodeHtml(show.movieTitle)}</p>
+                          <div className="mt-1.5 flex flex-col gap-0.5 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <b className={seatColor}>
+                                {show.restSeats ?? "-"}
+                                {show.totalSeats != null ? ` / ${show.totalSeats}` : ""}석
+                                {tone === "zero" ? " · 매진" : tone === "low" ? " · 잔여 적음" : " · 잔여"}
+                              </b>
+                              <span className="text-[#7b879e]">
+                                {seatFreshnessLabel(show) || ""}
+                              </span>
+                            </div>
+                            <div className="text-right text-[10px] tabular-nums text-[#9aa6bf]">
+                              출처 {srcLabel}
+                            </div>
                           </div>
                         </a>
                       );
