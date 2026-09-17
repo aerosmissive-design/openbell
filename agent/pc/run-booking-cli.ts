@@ -47,6 +47,7 @@ async function createSession(input: {
   showtime: string;
   hall: string;
   requestedSeatCount: number;
+  bookingUrl?: string;
 }) {
   const response = await fetch(`${input.openbellUrl}/api/booking/create`, {
     method: "POST",
@@ -61,6 +62,7 @@ async function createSession(input: {
       showtime: input.showtime,
       hall: input.hall,
       requestedSeatCount: input.requestedSeatCount,
+      bookingUrl: input.bookingUrl || undefined,
       agent: "pc",
     }),
   });
@@ -109,11 +111,13 @@ if (explicitSeatIds.length && explicitSeatIds.length !== requestedSeatCount) {
   throw new Error("BOOKING_SEAT_IDS must contain exactly BOOKING_SEAT_COUNT seats when provided");
 }
 
+const exactBookingUrl = process.env.BOOKING_URL?.trim() || undefined;
 const target = {
   movieTitle: required("BOOKING_MOVIE"),
   playDate: required("BOOKING_DATE"),
   showtime: required("BOOKING_SHOWTIME"),
   requestedSeatCount,
+  bookingUrl: exactBookingUrl,
   seatIds: explicitSeatIds.length ? explicitSeatIds : undefined,
   seatPreference: {
     preferredRow: process.env.SEAT_PREFERRED_ROW?.trim() || undefined,
@@ -148,6 +152,7 @@ if (!bookingSessionId) {
     showtime: target.showtime,
     hall: process.env.BOOKING_HALL?.trim() || "20관",
     requestedSeatCount,
+    bookingUrl: target.bookingUrl,
   });
   console.log(`OpenBell booking session created: ${bookingSessionId}`);
 }
