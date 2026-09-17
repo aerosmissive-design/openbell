@@ -75,6 +75,11 @@ export async function runScan(input: {
   const hasCgv = [...wanted].some(isCgvId);
   const hasMega = [...wanted].some((id) => id === "megabox_coex" || id === "megabox_namyangju");
 
+  const gasSeatRequestedAt = !fast && input.gasWebUrl ? Date.now() : 0;
+  const officialSeatRequestedAt = !fast && hasCgv ? Date.now() : 0;
+  const relaySeatRequestedAt = !fast && hasCgv ? Date.now() : 0;
+  const nasSeatRequestedAt = hasCgv ? Date.now() : 0;
+  const ktSeatRequestedAt = !fast && hasCgv ? Date.now() : 0;
   const gasSeats = !fast && input.gasWebUrl
     ? deadline(
         loadGasSeatmap(input.gasWebUrl),
@@ -109,9 +114,12 @@ export async function runScan(input: {
   const [catalog, cgvComing, seats, officialCgv, relay, nas, kt, mega, gasList, ...theaters] = await Promise.all([
     rankingPromise, cgvComingPromise, gasSeats, officialCgvSeats, relaySeats, nasSeats, ktSeats, megaSeats, gasShows, ...jobs,
   ]);
-  const gasMap: SeatHitMap = { ...seats.map };
+  const gasMap: SeatHitMap = stampSeatMap({ ...seats.map }, gasSeatRequestedAt);
   for (const row of gasList) putSeatHit(gasMap, row);
-  const officialMap: SeatHitMap = { ...officialCgv.map, ...mega.map };
+  const officialMap: SeatHitMap = stampSeatMap({ ...officialCgv.map, ...mega.map }, officialSeatRequestedAt);
+  const relayMap: SeatHitMap = stampSeatMap({ ...relay.map }, relaySeatRequestedAt);
+  const nasMap: SeatHitMap = stampSeatMap({ ...nas.map }, nasSeatRequestedAt);
+  const ktMap: SeatHitMap = stampSeatMap({ ...kt.map }, ktSeatRequestedAt);
   const lastKnown = await deadline(loadSeatLastKnown(), fast ? SCAN_DEADLINES.lastKnown : SCAN_DEADLINES.lastKnown, {} as SeatHitMap);
   const withSeats = theaters.map((theater) => {
     const extraMega = theater.theaterId === "megabox_coex" || theater.theaterId === "megabox_namyangju" ? mega.showtimes.filter((row) => row.theaterId === theater.theaterId) : [];
@@ -128,9 +136,9 @@ export async function runScan(input: {
     const nasSeatSource = nas.source === "nas423" ? "g-nas423" : nas.source === "nas225" ? "g-nas225" : nas.source === "nas" ? "g-nas" : "g-pc";
     let live = applySeatLayers(merged, [
       { map: officialMap, source: "official" },
-      { map: nas.map, source: nasSeatSource },
-      { map: kt.map, source: "cgv-kt" },
-      { map: relay.map, source: "cgv-relay" },
+      { map: nasMap, source: nasSeatSource },
+      { map: ktMap, source: "cgv-kt" },
+      { map: relayMap, source: "cgv-relay" },
       { map: gasMap, source: "gas-cache" },
     ]);
     if (isCgvId(theater.theaterId) && extraNas.length) live = applyReporterFallback(live, extraNas);
@@ -151,7 +159,7 @@ export async function runScan(input: {
   });
   const tagged = withSeats.map((theater) => ({
     ...theater,
-    seatSource: detectSeatSource(theater.showtimes, { official: officialMap, nas: nas.map, kt: kt.map, relay: relay.map, gas: gasMap }, nas.source),
+    seatSource: detectSeatSource(theater.showtimes, { official: officialMap, nas: nasMap, kt: ktMap, relay: relayMap, gas: gasMap }, nas.source),
   }));
   const harvested: SeatHitMap = {};
   for (const theater of tagged) for (const row of theater.showtimes) putSeatHit(harvested, row);
@@ -162,9 +170,9 @@ export async function runScan(input: {
     theater.theaterId,
     latestSeatSourceTimes(theater.theaterId, theater.showtimes, [
       { key: "official", map: officialMap },
-      { key: "nas", map: nas.map },
-      { key: "kt", map: kt.map },
-      { key: "relay", map: relay.map },
+      { key: "nas", map: nasMap },
+      { key: "kt", map: ktMap },
+      { key: "relay", map: relayMap },
       { key: "gas", map: gasMap },
     ]),
   ]));
@@ -192,59 +200,41 @@ async function scanTheater(
     ? deadline(fetchNaver(theaterId), fast ? SCAN_DEADLINES.fastTheater : SCAN_DEADLINES.theater, new Map<string, Showtime[]>())
     : Promise.resolve(new Map<string, Showtime[]>());
   const officialByDate = new Map<string, Showtime[]>();
-  const telePromise = theaterId === "cgv_yongsan"
-    ? deadline(
-        fetchYongsanTelegram(),
-        fast ? SCAN_DEADLINES.fastYongsanTele : SCAN_DEADLINES.yongsanTele,
-        new Map<string, Showtime[]>(),
-      )
+  const naverByDate = await naverPromise;
+  for (const [date, rows] of naverByDate) officialByDate.set(date, rows);
+  let official = false;
+  let source = "none";
+  const officialPromise = !fast && sources.official
+    ? deadline(fetchCgvNaver(theaterId), SCAN_DEADLINES.theater, new Map<string, Showtime[]>())
     : Promise.resolve(new Map<string, Showtime[]>());
-  const [naverByDate, teleByDate] = await Promise.all([naverPromise, telePromise]);
-  const stillMissing = playDates.filter((d) => !(officialByDate.get(d)?.length || naverByDate.get(d)?.length));
-  let gasByDate = new Map<string, Showtime[]>();
-  if (!fast && sources.gas) {
-    try { gasByDate = byDateForTheater(await gasShows, theaterId); } catch { gasByDate = new Map(); }
-  }
-  const showtimes: Showtime[] = [];
-  let usedOfficial = false, usedNaver = false, usedGas = false, usedTele = false;
+  const telePromise = !fast && theaterId === "cgv_yongsan" && sources.yongsanTele
+    ? deadline(fetchYongsanTelegram(), SCAN_DEADLINES.yongsanTele, new Map<string, Showtime[]>())
+    : Promise.resolve(new Map<string, Showtime[]>());
+  const [officialMap, teleMap] = await Promise.all([officialPromise, telePromise]);
+  const playByDate = new Map<string, Showtime[]>();
   for (const date of playDates) {
-    const primary = mergeShowtimes(officialByDate.get(date) ?? [], naverByDate.get(date) ?? []);
-    if (primary.length) { showtimes.push(...primary); if (officialByDate.get(date)?.length) usedOfficial = true; if (naverByDate.get(date)?.length) usedNaver = true; continue; }
-    if (stillMissing.includes(date)) {
-      const tele = teleByDate.get(date); if (tele?.length) { showtimes.push(...tele); usedTele = true; continue; }
+    const primary = officialMap.get(date) ?? [];
+    const fallback = naverByDate.get(date) ?? [];
+    const tele = teleMap.get(date) ?? [];
+    const rows = primary.length ? primary : fallback.length ? fallback : tele;
+    if (rows.length) {
+      playByDate.set(date, rows);
+      if (primary.length) { official = true; source = "official"; }
+      else if (fallback.length) source = "naver-place";
+      else if (tele.length) source = "yongsan-channel";
     }
-    const gas = gasByDate.get(date); if (gas?.length) { showtimes.push(...gas); usedGas = true; }
   }
-  const source = usedOfficial ? "official" : usedNaver ? "naver-place" : usedTele ? "yongsan-channel" : usedGas ? "gas-cache" : "none";
-  if (!showtimes.length) return { theaterId, ok: false, error: failMessage(theaterId, sources), showtimes: [], source, seatSource: "none" };
-  return { theaterId, ok: true, error: null, showtimes: normalizeShowtimes(showtimes), source, seatSource: "none" };
-}
-
-async function fetchNaver(theaterId: TheaterId): Promise<Map<string, Showtime[]>> {
-  if (isCgvId(theaterId)) return fetchCgvNaver(theaterId);
-  return fetchNaverMegabox(theaterId as MegaboxId);
-}
-
-function failMessage(theaterId: TheaterId, sources: ScanSources) {
-  const tried = isCgvId(theaterId)
-    ? [sources.naver ? "네이버" : "", theaterId === "cgv_yongsan" ? "용아맥 채널" : ""].filter(Boolean)
-    : [sources.official ? "공홈" : "", sources.naver ? "네이버" : ""].filter(Boolean);
-  const name = isCgvId(theaterId) ? "CGV" : "메가박스";
-  return `${name} 시간표를 ${tried.join(" → ") || "조회"}에서 가져오지 못했습니다.`;
-}
-
-function rankingFromShows(theaters: TheaterScan[]): RankingMovie[] {
-  const counts = new Map<string, number>();
-  for (const theater of theaters) for (const show of theater.showtimes) {
-    const title = show.movieTitle.trim(); if (title) counts.set(title, (counts.get(title) ?? 0) + 1);
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 9).map(([title], i) => ({
-    rank: i + 1, title, movieNo: "", bookingRate: null, posterUrl: null, releaseDate: null, bookingOpen: true, released: true,
-  }));
+  const showtimes = [...playByDate.values()].flat();
+  return { theaterId, ok: showtimes.length > 0, error: showtimes.length ? null : "시간표를 가져오지 못했습니다.", showtimes, source, seatSource: "none" };
 }
 
 type GasSeatMap = SeatHitMap;
 type GasShowRow = { id?: string; theaterId?: string; theater?: string; title?: string; date?: string; time?: string; hall?: string; formats?: Showtime["formats"]; restSeats?: number | null; totalSeats?: number | null; url?: string };
+
+function stampSeatMap(map: SeatHitMap, at: number): SeatHitMap {
+  if (!Object.keys(map).length || !at) return map;
+  return Object.fromEntries(Object.entries(map).map(([key, hit]) => [key, { ...hit, at: typeof hit.at === "number" && Number.isFinite(hit.at) ? hit.at : at }]));
+}
 
 function latestSeatSourceTimes(theaterId: TheaterId, rows: Showtime[], sources: { key: string; map: SeatHitMap }[]) {
   const out: Record<string, string> = {};
