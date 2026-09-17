@@ -15,6 +15,7 @@ import type {
 } from "@/lib/cinema/types";
 import { normalizeHold, normalizeScanSources, CHART_SIZE } from "@/lib/cinema/types";
 import { stripConfigSecrets } from "@/lib/cinema/secret-fields";
+import { decodeHtml, normalizeTitle } from "@/lib/utils";
 
 type Tab = "watch" | "alerts" | "star" | "settings";
 
@@ -169,16 +170,18 @@ export const useAppStore = create<AppState>()(
         }),
       toggleWatchTitle: (title) =>
         set((s) => {
-          const key = title.trim();
+          // HTML 엔티티(& 등) 디코드 후 정규화 비교 — 표시 제목과 저장 제목이
+          // "&" vs "&" 로 달라도 같은 영화로 보고 토글한다.
+          const display = decodeHtml(String(title || "")).trim();
+          if (!display) return s;
+          const key = normalizeTitle(display);
           if (!key) return s;
           const has = s.config.watchTitles.some(
-            (t) => t.toLowerCase() === key.toLowerCase(),
+            (t) => normalizeTitle(t) === key,
           );
           const watchTitles = has
-            ? s.config.watchTitles.filter(
-                (t) => t.toLowerCase() !== key.toLowerCase(),
-              )
-            : [...s.config.watchTitles, key].slice(0, 24);
+            ? s.config.watchTitles.filter((t) => normalizeTitle(t) !== key)
+            : [...s.config.watchTitles, display].slice(0, 24);
           return { config: { ...s.config, watchTitles } };
         }),
       markPrimed: (ids, dates) =>
