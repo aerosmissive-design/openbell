@@ -17,6 +17,7 @@ if not exist "%~dp0config.env" (
   exit /b 1
 )
 
+set "OPENBELL_AGENT_CONFIG=%~dp0config.env"
 node --experimental-strip-types "%~dp0run-booking-cli.ts"
 if errorlevel 1 (
   echo.
