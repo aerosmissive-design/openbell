@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { updateBookingState } from "@/lib/booking/session";
+import { updateBookingState, saveBookingSession } from "@/lib/booking/session";
+import { sendPaymentReadyTelegram } from "@/lib/telegram/notifier";
 
 function authorized(request: Request) {
   const expected = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim() || process.env.CRON_SECRET?.trim() || "";
@@ -22,10 +23,21 @@ export const Route = createFileRoute("/api/booking/payment-ready")({
         if (!id) return json({ ok: false, error: "id required" }, 400);
         try {
           const session = await updateBookingState(id, "PAYMENT_READY");
-          const updated = { ...session, browserAccessUrl: body.browserAccessUrl || session.browserAccessUrl, selectedSeats: Array.isArray(body.selectedSeats) ? body.selectedSeats.map(String) : session.selectedSeats };
-          const { saveBookingSession } = await import("@/lib/booking/session");
+          const updated = {
+            ...session,
+            browserAccessUrl: body.browserAccessUrl || session.browserAccessUrl,
+            selectedSeats: Array.isArray(body.selectedSeats) ? body.selectedSeats.map(String) : session.selectedSeats,
+          };
           await saveBookingSession(updated);
-          return json({ ok: true, hardStop: true, session: updated });
+
+          let telegram: unknown = { ok: false, skipped: true };
+          try {
+            telegram = await sendPaymentReadyTelegram(updated);
+          } catch (error) {
+            telegram = { ok: false, error: error instanceof Error ? error.message : "telegram failed" };
+          }
+
+          return json({ ok: true, hardStop: true, session: updated, telegram });
         } catch (error) {
           const message = error instanceof Error ? error.message : "payment-ready failed";
           return json({ ok: false, error: message }, message === "BOOKING_SESSION_NOT_FOUND" ? 404 : 409);
