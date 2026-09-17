@@ -265,7 +265,7 @@ export function BoardView() {
                               {imax ? "IMAX" : decodeHtml(show.hallName || "")}
                             </span>
                           </div>
-                          <p className="mt-1 truncate text-sm font-medium">{decodeHtml(show.movieTitle)}</p>
+                          <p className="mt-1 text-sm font-medium leading-snug">{decodeHtml(show.movieTitle)}</p>
                           <div className="mt-1.5 flex flex-col gap-0.5 text-xs">
                             <div className="flex items-center justify-between gap-2">
                               <b className={seatColor}>
