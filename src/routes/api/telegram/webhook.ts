@@ -7,14 +7,14 @@ function json(data: unknown, status = 200) {
 }
 
 function webhookAuthorized(request: Request) {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
-  if (!secret) return true;
-  return request.headers.get("x-telegram-bot-api-secret-token") === secret;
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim() || "";
+  return Boolean(secret) && request.headers.get("x-telegram-bot-api-secret-token") === secret;
 }
 
 export const Route = createFileRoute("/api/telegram/webhook")({
   server: {
     handlers: {
+      OPTIONS: () => json({ ok: true }),
       POST: async ({ request }) => {
         if (!webhookAuthorized(request)) return json({ ok: false }, 401);
 
