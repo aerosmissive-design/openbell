@@ -2,10 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { loadBoardData, type BoardTheaterBlock } from "@/lib/cinema/board-data.server";
+import { loadBoardData } from "@/lib/cinema/scan";
 import { seatFreshnessLabel } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { Showtime, TheaterId } from "@/lib/cinema/types";
+
+type BoardTheaterBlock = {
+  theaterId: TheaterId;
+  theaterName: string;
+  source: string;
+  reportedAt: string | null;
+  count: number;
+  showtimes: Showtime[];
+};
 import { useAppStore } from "@/lib/store";
 
 const IDS: TheaterId[] = [
