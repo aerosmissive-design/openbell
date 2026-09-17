@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 title OpenBell PC Booking Agent Installer
 
 echo ============================================
@@ -56,13 +56,13 @@ echo [4/4] Checking config.env...
 if not exist "%~dp0config.env" (
   copy /y "%~dp0config.env.example" "%~dp0config.env" >nul
   echo config.env was created from config.env.example.
-  echo Fill in the required values, then run 예매Agent.bat.
+  echo Fill in the required values, then run agent\pc\예매Agent.bat.
 )
 
 echo.
 echo ============================================
 echo Installation complete.
-echo Run 예매Agent.bat to start the PC agent.
+echo Run agent\pc\예매Agent.bat to start the PC agent.
 echo ============================================
 echo.
 pause
