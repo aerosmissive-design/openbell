@@ -2,9 +2,9 @@ import type { Showtime, TheaterId } from "./types";
 import { putSeatHit, type SeatHitMap } from "./seats";
 import { readAppMeta } from "./app-meta.server";
 import { cgvHallFromCapacity, megaboxFormats } from "./theaters";
-import { normalizePlayDate } from "@/lib/utils";
+import { decodeHtml, normalizePlayDate } from "@/lib/utils";
 
-const NAS_FRESH_MS = 3 * 60 * 1000;
+const NAS_FRESH_MS = 30 * 60 * 1000; // 감시/설정용. 전광판은 maxAgeMs:0
 const THEATER_NAME: Record<string, string> = {
   cgv_yongsan: "CGV 용산아이파크몰",
   cgv_yeongdeungpo: "CGV 영등포타임스퀘어",
@@ -111,7 +111,7 @@ export async function nasReporterHealth(
   return out;
 }
 
-/** maxAgeMs: 0이면 신선도 무시(전광판용). 기본은 3분. */
+/** maxAgeMs: 0이면 신선도 무시(전광판용). 기본은 30분. */
 export async function readNasSeatmap(
   theaters: TheaterId[],
   options?: { maxAgeMs?: number },
@@ -133,8 +133,8 @@ export async function readNasSeatmap(
         const restSeats = Number(r.restSeats);
         if (!Number.isFinite(restSeats)) continue;
         const totalSeats = Number(r.totalSeats);
-        const rawHall = String(r.hallName ?? "").trim();
-        const movieTitle = String(r.movieTitle ?? "").trim();
+        const rawHall = decodeHtml(String(r.hallName ?? "").trim());
+        const movieTitle = decodeHtml(String(r.movieTitle ?? "").trim());
         const playDate = normalizePlayDate(String(r.playDate ?? "").trim());
         const startTime = String(r.startTime ?? "").trim();
         if (!movieTitle || !playDate || !startTime) continue;
