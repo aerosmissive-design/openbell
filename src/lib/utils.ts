@@ -7,19 +7,25 @@ export function cn(...inputs: ClassValue[]) {
 
 export function decodeHtml(value: string): string {
   if (!value) return "";
-  return String(value)
-    .replace(/&#40;/g, "(")
-    .replace(/&#41;/g, ")")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n: string) =>
-      String.fromCharCode(parseInt(n, 16)),
-    )
-    .replace(/&amp;/g, "&");
+  let t = String(value);
+  // 이중/삼중 인코딩(&amp;amp;) 및 세미콜론 없는 &amp 대응
+  for (let i = 0; i < 3; i++) {
+    const prev = t;
+    t = t
+      .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(Number(n)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, n: string) =>
+        String.fromCharCode(parseInt(n, 16)),
+      )
+      .replace(/&quot;/gi, '"')
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&amp(?![a-zA-Z0-9#])/g, "&");
+    if (t === prev) break;
+  }
+  return t;
 }
 
 export function normalizeTitle(value: string): string {
