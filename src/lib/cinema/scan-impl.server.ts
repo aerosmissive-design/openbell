@@ -131,9 +131,12 @@ export async function runScan(input: {
       ? deadline(fetchCgvRelaySeatmap({ days }), SCAN_DEADLINES.relay, emptyMap())
       : Promise.resolve(emptyMap());
   const ktPromise =
-    !fast && hasCgv
+    !fast && (hasCgv || hasMega)
       ? deadline(
-          fetchCgvKtSeatmap({ theaters: wanted.filter(isCgvId), dates: playDates }),
+          fetchCgvKtSeatmap({
+            theaters: wanted.filter((id) => isCgvId(id) || id.startsWith("megabox")),
+            dates: playDates,
+          }),
           SCAN_DEADLINES.kt,
           emptyMap(),
         )
@@ -203,7 +206,6 @@ export async function runScan(input: {
         { key: "cgv-relay", map: relay.map },
         { key: "gas-cache", map: {} },
       ]);
-      // PC/NAS 출처는 Redis 출처별 키의 at 을 직접 사용 (서로 덮어쓰지 않음)
       const fromReporter = reporterTimes[theaterId] || {};
       return [theaterId, { ...fromMaps, ...fromReporter }];
     }),
