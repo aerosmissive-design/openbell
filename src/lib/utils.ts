@@ -6,19 +6,20 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function decodeHtml(value: string): string {
-  return value
+  if (!value) return "";
+  return String(value)
     .replace(/&#40;/g, "(")
     .replace(/&#41;/g, ")")
     .replace(/&#39;/g, "'")
-    .replace(/"/g, '"')
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&nbsp;/g, " ")
     .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(Number(n)))
     .replace(/&#x([0-9a-f]+);/gi, (_, n: string) =>
       String.fromCharCode(parseInt(n, 16)),
-    );
+    )
+    .replace(/&amp;/g, "&");
 }
 
 export function normalizeTitle(value: string): string {
