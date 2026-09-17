@@ -2,17 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { authEnabled } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { loadBoardData, type BoardTheaterBlock } from "@/lib/cinema/board-data.server";
 import { seatFreshnessLabel } from "@/lib/cinema/seats";
-import { scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { Showtime, TheaterId } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
-import { formatClock } from "@/lib/utils";
 
-const IDS: TheaterId[] = ["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"];
+const IDS: TheaterId[] = [
+  "cgv_yongsan",
+  "cgv_yeongdeungpo",
+  "megabox_coex",
+  "megabox_namyangju",
+];
 
-// 인수인계서 요구사항: "실시간"이 아니라 "9.16일 13:15 기준"처럼 날짜까지 명시한다.
-// formatClock()은 시각만 주기 때문에 전광판 전용으로 날짜+시각 포맷을 따로 둔다.
 function formatBoardTimestamp(iso: string | null): string {
   if (!iso) return "—";
   const parts = new Intl.DateTimeFormat("ko-KR", {
@@ -27,40 +29,242 @@ function formatBoardTimestamp(iso: string | null): string {
   return `${get("month")}.${get("day")}일 ${get("hour")}:${get("minute")}`;
 }
 
+function isImax(show: Showtime) {
+  return show.formats?.includes("imax") || /imax|아이맥스/i.test(`${show.hallName} ${show.movieTitle}`);
+}
+
+function seatTone(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "neutral";
+  if (n === 0) return "zero";
+  if (n <= 5) return "low";
+  return "good";
+}
+
 export function BoardView() {
   const { user: currentUser, isPending } = useCurrentUserState();
   const config = useAppStore((s) => s.config);
-  const [data, setData] = useState<Record<string, Showtime[]>>({});
+  const [blocks, setBlocks] = useState<BoardTheaterBlock[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
-  const enabled = useMemo(() => IDS.filter((id) => config.theaters?.[id] !== false), [config.theaters]);
+  const [error, setError] = useState<string | null>(null);
+  const [dateFilter, setDateFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const enabled = useMemo(
+    () => IDS.filter((id) => config.theaters?.[id] !== false),
+    [config.theaters],
+  );
 
   async function refresh() {
     setBusy(true);
+    setError(null);
     try {
-      const scan = await scanCinema({ data: { theaters: enabled, daysAhead: Math.min(Math.max(config.daysAhead || 7, 1), 20), gasWebUrl: config.gasWebUrl || undefined, mode: "full", sources: { official: true, naver: true, gas: Boolean(config.gasWebUrl) } } });
-      const next: Record<string, Showtime[]> = {};
-      for (const theater of scan.theaters) {
-        next[theater.theaterId] = [...theater.showtimes]
-          .sort((a, b) => `${a.playDate}${a.startTime}`.localeCompare(`${b.playDate}${b.startTime}`))
-          .slice(0, 18);
-      }
-      setData(next);
-      setUpdatedAt(new Date().toISOString());
-    } finally { setBusy(false); }
+      const data = await loadBoardData({ data: { theaters: enabled } });
+      setBlocks(data.theaters);
+      setUpdatedAt(data.scannedAt);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  useEffect(() => { if (!authEnabled || currentUser) void refresh(); }, [enabled.join(","), config.daysAhead, config.gasWebUrl, currentUser?.id]);
-  useEffect(() => { if (authEnabled && !currentUser) return; const id = window.setInterval(() => void refresh(), 60000); return () => window.clearInterval(id); }, [enabled.join(","), config.daysAhead, config.gasWebUrl, currentUser?.id]);
+  useEffect(() => {
+    if (!authEnabled || currentUser) void refresh();
+  }, [enabled.join(","), currentUser?.id]);
 
-  if (authEnabled && isPending) return <div className="min-h-dvh bg-bg p-8 text-muted">로그인 확인 중…</div>;
-  if (authEnabled && !currentUser) return <div className="min-h-dvh bg-bg p-8 text-fg"><h1 className="text-2xl font-bold">오픈벨 전광판</h1><p className="mt-3 text-muted">로그인 후 사용할 수 있습니다.</p><a className="mt-5 inline-block rounded-md bg-pick px-4 py-3" href="/">홈으로</a></div>;
+  useEffect(() => {
+    if (authEnabled && !currentUser) return;
+    const id = window.setInterval(() => void refresh(), 30_000);
+    return () => window.clearInterval(id);
+  }, [enabled.join(","), currentUser?.id]);
 
-  return <main className="min-h-dvh bg-bg px-4 py-5 text-fg md:px-6 lg:px-8">
-    <header className="mx-auto mb-5 flex max-w-[1800px] items-end justify-between gap-4"><div><p className="text-xs tracking-[.18em] text-muted">OPENBELL BOARD</p><h1 className="mt-1 text-3xl font-bold md:text-4xl">예매 전광판</h1></div><button type="button" onClick={() => void refresh()} className="flex items-center gap-2 rounded-md bg-surface px-3 py-2 text-sm"><RefreshCw className={busy ? "size-4 animate-spin" : "size-4"} />새로고침</button></header>
-    <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {IDS.filter((id) => enabled.includes(id)).map((id) => { const theater = THEATERS.find((t) => t.id === id)!; return <section key={id} className="min-w-0 rounded-2xl bg-surface p-4 shadow-border md:p-5"><h2 className="mb-4 text-xl font-bold md:text-2xl">{theater.shortName}</h2><div className="space-y-2">{(data[id] || []).map((show) => { const imax = show.formats.includes("imax") || /IMAX/i.test(show.hallName); return <a key={show.id} href={show.bookingUrl || "#"} target="_blank" rel="noreferrer" className="block rounded-xl bg-bg/60 p-3 ring-1 ring-border hover:bg-pick"><div className="flex justify-between gap-2"><b className="text-lg tabular-nums">{formatClock(show.startTime)}</b><span className={imax ? "rounded-full bg-open px-2 py-1 text-[11px] font-bold text-white" : "text-[11px] text-muted"}>{imax ? "IMAX" : show.hallName}</span></div><p className="mt-1 text-sm font-medium">{show.movieTitle}</p><div className="mt-2 flex justify-between text-xs"><b>잔여 <span className="text-base">{show.restSeats ?? "-"}</span>석</b><span className="text-muted">{seatFreshnessLabel(show) || "확인 대기"}</span></div></a>; })}</div></section>; })}
-    </div>
-    {updatedAt && <p className="mx-auto mt-4 max-w-[1800px] text-right text-xs text-muted">{formatBoardTimestamp(updatedAt)} 기준 · 60초 자동 갱신</p>}
-  </main>;
+  const allDates = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of blocks) for (const s of b.showtimes) if (s.playDate) set.add(s.playDate);
+    return [...set].sort();
+  }, [blocks]);
+
+  const filteredBlocks = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return blocks.map((b) => {
+      const showtimes = b.showtimes.filter((s) => {
+        if (dateFilter !== "all" && s.playDate !== dateFilter) return false;
+        if (!q) return true;
+        return `${s.movieTitle} ${s.hallName}`.toLowerCase().includes(q);
+      });
+      return { ...b, showtimes };
+    });
+  }, [blocks, dateFilter, search]);
+
+  const totalRows = filteredBlocks.reduce((n, b) => n + b.showtimes.length, 0);
+
+  if (authEnabled && isPending) {
+    return <div className="min-h-dvh bg-[#090d16] p-8 text-[#9aa6bf]">로그인 확인 중…</div>;
+  }
+  if (authEnabled && !currentUser) {
+    return (
+      <div className="min-h-dvh bg-[#090d16] p-8 text-[#eef2f8]">
+        <h1 className="text-2xl font-bold">오픈벨 전광판</h1>
+        <p className="mt-3 text-[#9aa6bf]">로그인 후 사용할 수 있습니다.</p>
+        <a className="mt-5 inline-block rounded-md bg-[#2dd4a8] px-4 py-3 text-[#0b1220]" href="/">
+          홈으로
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <main className="min-h-dvh bg-[#090d16] px-3 py-4 text-[#eef2f8] md:px-5 lg:px-6">
+      <div className="mx-auto max-w-[1600px]">
+        <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] tracking-[0.18em] text-[#7b879e]">OPENBELL BOARD · 취합 전광판</p>
+            <h1 className="mt-1 text-2xl font-bold md:text-3xl">예매 전광판</h1>
+            <p className="mt-1 text-xs text-[#9aa6bf]">
+              PC Reporter · NAS 등 서버로 들어온 잔여석을 모두 취합합니다. 공홈 실시간 스캔이 아닙니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="flex items-center gap-2 rounded-lg border border-[#25324b] bg-[#111827] px-3 py-2 text-sm hover:border-[#3d4f73]"
+          >
+            <RefreshCw className={busy ? "size-4 animate-spin" : "size-4"} />
+            새로고침
+          </button>
+        </header>
+
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-xl border border-[#25324b] bg-[#111827] px-3 py-2">
+            <div className="text-[11px] text-[#7b879e]">표시 회차</div>
+            <div className="text-lg font-semibold tabular-nums">{totalRows}</div>
+          </div>
+          <div className="rounded-xl border border-[#25324b] bg-[#111827] px-3 py-2">
+            <div className="text-[11px] text-[#7b879e]">감시 극장</div>
+            <div className="text-lg font-semibold">{enabled.length}곳</div>
+          </div>
+          <div className="rounded-xl border border-[#25324b] bg-[#111827] px-3 py-2">
+            <div className="text-[11px] text-[#7b879e]">마지막 갱신</div>
+            <div className="text-sm font-medium">{formatBoardTimestamp(updatedAt)}</div>
+          </div>
+          <div className="rounded-xl border border-[#25324b] bg-[#111827] px-3 py-2">
+            <div className="text-[11px] text-[#7b879e]">자동 갱신</div>
+            <div className="text-sm font-medium">30초</div>
+          </div>
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <select
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="rounded-lg border border-[#25324b] bg-[#111827] px-3 py-2 text-sm"
+          >
+            <option value="all">전체 날짜</option>
+            {allDates.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="영화명 / 관 검색"
+            className="min-w-[180px] flex-1 rounded-lg border border-[#25324b] bg-[#111827] px-3 py-2 text-sm outline-none focus:border-[#3d4f73]"
+          />
+          {error && <span className="text-sm text-[#ff6b7a]">{error}</span>}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {filteredBlocks.map((block) => {
+            const meta = THEATERS.find((t) => t.id === block.theaterId);
+            return (
+              <section
+                key={block.theaterId}
+                className="flex min-h-[280px] min-w-0 flex-col overflow-hidden rounded-2xl border border-[#25324b] bg-[#111827]"
+              >
+                <div className="border-b border-[#25324b] px-3 py-2.5">
+                  <h2 className="text-base font-bold md:text-lg">{block.theaterName || meta?.name}</h2>
+                  <p className="mt-0.5 text-[11px] text-[#7b879e]">
+                    {block.source !== "none" ? block.source : "출처 없음"}
+                    {block.reportedAt ? ` · ${formatBoardTimestamp(block.reportedAt)} 수신` : ""}
+                    {` · ${block.showtimes.length}회차`}
+                  </p>
+                </div>
+                <div className="flex-1 space-y-1.5 overflow-y-auto p-2" style={{ maxHeight: "70vh" }}>
+                  {block.showtimes.length === 0 ? (
+                    <div className="px-3 py-8 text-center text-xs text-[#7b879e]">회차 없음</div>
+                  ) : (
+                    block.showtimes.slice(0, 80).map((show) => {
+                      const tone = seatTone(show.restSeats);
+                      const imax = isImax(show);
+                      const ring =
+                        tone === "zero"
+                          ? "ring-[#ff6b7a]/30"
+                          : tone === "low"
+                            ? "ring-[#ffd166]/25"
+                            : "ring-[#62e6a1]/15";
+                      const seatColor =
+                        tone === "zero"
+                          ? "text-[#ff6b7a]"
+                          : tone === "low"
+                            ? "text-[#ffd166]"
+                            : "text-[#62e6a1]";
+                      return (
+                        <a
+                          key={show.id}
+                          href={show.bookingUrl || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`block rounded-xl bg-[#090d16]/80 p-2.5 ring-1 ${ring} hover:bg-[#162033]`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <b className="text-base tabular-nums">{show.startTime}</b>
+                            <span
+                              className={
+                                imax
+                                  ? "rounded-full bg-[#e879f9]/20 px-2 py-0.5 text-[10px] font-bold text-[#e879f9]"
+                                  : "text-[11px] text-[#7b879e]"
+                              }
+                            >
+                              {imax ? "IMAX" : show.hallName}
+                            </span>
+                          </div>
+                          <p className="mt-1 truncate text-sm font-medium">{show.movieTitle}</p>
+                          <div className="mt-1.5 flex items-center justify-between text-xs">
+                            <b className={seatColor}>
+                              {show.restSeats ?? "-"}
+                              {show.totalSeats != null ? ` / ${show.totalSeats}` : ""}석
+                              {tone === "zero" ? " · 매진" : tone === "low" ? " · 잔여 적음" : " · 잔여"}
+                            </b>
+                            <span className="text-[#7b879e]">
+                              {seatFreshnessLabel(show) ||
+                                (show.playDate ? String(show.playDate).slice(5) : "")}
+                            </span>
+                          </div>
+                        </a>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#7b879e]">
+          <div className="flex flex-wrap gap-3">
+            <span className="text-[#62e6a1]">● 여유</span>
+            <span className="text-[#ffd166]">● 임박</span>
+            <span className="text-[#ff6b7a]">● 매진</span>
+            <span className="text-[#e879f9]">● IMAX</span>
+          </div>
+          <p>
+            {updatedAt ? `${formatBoardTimestamp(updatedAt)} 기준` : "—"} · 30초 자동 갱신 · 출처: PC/NAS 리포트 취합
+          </p>
+        </div>
+      </div>
+    </main>
+  );
 }
