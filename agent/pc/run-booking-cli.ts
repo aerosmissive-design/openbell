@@ -13,7 +13,9 @@ function loadEnv(path = "config.env") {
       const value = line.slice(index + 1).trim().replace(/^['\"]|['\"]$/g, "");
       if (!process.env[key]) process.env[key] = value;
     }
-  } catch {}
+  } catch {
+    // Shell environment variables are also supported.
+  }
 }
 
 function required(name: string) {
@@ -22,13 +24,30 @@ function required(name: string) {
   return value;
 }
 
+function bool(name: string, fallback = false) {
+  const value = process.env[name];
+  return value == null ? fallback : /^(1|true|yes|on)$/i.test(value.trim());
+}
+
+function optionalNumber(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`INVALID_ENV:${name}`);
+  return parsed;
+}
+
 loadEnv(process.env.OPENBELL_AGENT_CONFIG || "config.env");
 
-const count = Number(process.env.BOOKING_SEAT_COUNT || "2");
-if (!Number.isInteger(count) || count < 1) throw new Error("BOOKING_SEAT_COUNT must be a positive integer");
+const requestedSeatCount = Number(process.env.BOOKING_SEAT_COUNT || "2");
+if (!Number.isInteger(requestedSeatCount) || requestedSeatCount < 1) throw new Error("INVALID_BOOKING_SEAT_COUNT");
 
-const explicitSeatIds = (process.env.BOOKING_SEAT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
-if (explicitSeatIds.length && explicitSeatIds.length !== count) {
+const explicitSeatIds = (process.env.BOOKING_SEAT_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+if (explicitSeatIds.length && explicitSeatIds.length !== requestedSeatCount) {
   throw new Error("BOOKING_SEAT_IDS must contain exactly BOOKING_SEAT_COUNT seats when provided");
 }
 
@@ -36,17 +55,17 @@ const target = {
   movieTitle: required("BOOKING_MOVIE"),
   playDate: required("BOOKING_DATE"),
   showtime: required("BOOKING_SHOWTIME"),
-  requestedSeatCount: count,
-  seatIds: explicitSeatIds,
+  requestedSeatCount,
+  seatIds: explicitSeatIds.length ? explicitSeatIds : undefined,
   seatPreference: {
     preferredRow: process.env.SEAT_PREFERRED_ROW?.trim() || undefined,
-    preferredRowDistance: Number(process.env.SEAT_PREFERRED_ROW_DISTANCE || "0") || undefined,
-    allowAisle: /^(1|true|yes)$/i.test(process.env.SEAT_ALLOW_AISLE || "true"),
-    allowEdge: /^(1|true|yes)$/i.test(process.env.SEAT_ALLOW_EDGE || "false"),
+    preferredRowDistance: optionalNumber("SEAT_PREFERRED_ROW_DISTANCE"),
+    allowAisle: bool("SEAT_ALLOW_AISLE", true),
+    allowEdge: bool("SEAT_ALLOW_EDGE", false),
   },
 };
 
-const headless = /^(1|true|yes)$/i.test(process.env.PLAYWRIGHT_HEADLESS || "false");
+const headless = bool("PLAYWRIGHT_HEADLESS", false);
 const storageStatePath = process.env.CGV_STORAGE_STATE?.trim() || undefined;
 
 const bookingInfo: Record<string, string> = {};
