@@ -1,21 +1,13 @@
 import { kstDateKeys, normalizePlayDate } from "@/lib/utils";
-import { fetchCgvNaver, fetchCgvOfficialSeatmap, fetchCgvRelaySeatmap, fetchCgvUpcomingCatalog, fetchYongsanTelegram, isCgvId } from "./cgv.server";
-import { fetchMegaboxCatalog, fetchMegaboxSchedule, fetchMegaboxSeatmap, fetchNaverMegabox } from "./megabox.server";
-import { fetchCgvKtSeatmap } from "./kt.server";
+import { isCgvId } from "./cgv.server";
 import { readNasSeatmap } from "./nas.server";
-import { applyCgvSeatHits, lookupSeatHit, mergeShowtimes, putSeatHit, type SeatHitMap } from "./seats";
+import { putSeatHit, type SeatHitMap } from "./seats";
 import { THEATERS } from "./theaters";
-import type { RankingMovie, ScanResult, Showtime, TheaterId } from "./types";
+import type { ScanResult, Showtime, TheaterId } from "./types";
 
 const SCAN_DEADLINES = {
   fastNas: 2500,
   nas: 4000,
-  gas: 5000,
-  officialCgv: 8000,
-  relay: 8000,
-  kt: 8000,
-  mega: 8000,
-  lastKnown: 2000,
 };
 
 async function deadline<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -32,7 +24,8 @@ async function deadline<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   }
 }
 
-export async function scanCinemaImpl(input: {
+/** Emergency slim runScan: PC/NAS seat-report data for watch + settings. Full official/naver scan to be restored. */
+export async function runScan(input: {
   theaters: TheaterId[];
   daysAhead: number;
   gasWebUrl?: string;
@@ -43,39 +36,50 @@ export async function scanCinemaImpl(input: {
   const playDates = kstDateKeys(days);
   const wanted = input.theaters.length ? input.theaters : (THEATERS.map((t) => t.id) as TheaterId[]);
   const fast = input.mode === "fast";
-  const sources = input.sources || { official: true, naver: true, gas: Boolean(input.gasWebUrl) };
-  const hasCgv = wanted.some(isCgvId);
-  const hasMega = wanted.some((id) => id.startsWith("megabox"));
-  const emptyCgv = { map: {} as SeatHitMap, showtimes: [] as Showtime[] };
   const emptyNas = { map: {} as SeatHitMap, showtimes: [] as Showtime[], source: "pc" as const };
 
-  // Minimal emergency restore — full logic continues in next push if this builds
-  const nas = await deadline(readNasSeatmap([...wanted], { maxAgeMs: 30 * 60 * 1000 }), fast ? SCAN_DEADLINES.fastNas : SCAN_DEADLINES.nas, emptyNas);
+  const nas = await deadline(
+    readNasSeatmap([...wanted], { maxAgeMs: 30 * 60 * 1000 }),
+    fast ? SCAN_DEADLINES.fastNas : SCAN_DEADLINES.nas,
+    emptyNas,
+  );
 
   const theaters = wanted.map((theaterId) => {
     const meta = THEATERS.find((t) => t.id === theaterId);
     const shows = nas.showtimes.filter((s) => s.theaterId === theaterId);
+    const seatSource =
+      shows[0]?.seatSource ||
+      (nas.source === "nas423"
+        ? "g-nas423+"
+        : nas.source === "nas225"
+          ? "g-nas225+"
+          : shows.length
+            ? "g-pc"
+            : "none");
     return {
       theaterId,
       theaterName: meta?.name || theaterId,
       ok: shows.length > 0,
-      source: shows.length ? (nas.source === "nas423" ? "g-nas423+" : nas.source === "nas225" ? "g-nas225+" : "g-pc") : "none",
-      seatSource: shows[0]?.seatSource || "none",
+      source: shows.length ? seatSource : "none",
+      seatSource,
       showtimes: shows,
       error: shows.length ? undefined : "데이터 없음",
     };
   });
 
-  const seatSourceTimes = Object.fromEntries(
-    theaters.map((t) => [
-      t.theaterId,
-      t.showtimes[0]?.seatCheckedAt
-        ? {
-            [t.seatSource === "g-nas423+" ? "g-nas423+" : t.seatSource === "g-nas225+" ? "g-nas225+" : "g-pc"]: t.showtimes[0].seatCheckedAt,
-          }
-        : {},
-    ]),
-  );
+  const seatSourceTimes: Record<string, Record<string, string>> = {};
+  for (const t of theaters) {
+    const times: Record<string, string> = {};
+    for (const show of t.showtimes) {
+      if (!show.seatCheckedAt || !show.seatSource) continue;
+      const key = show.seatSource;
+      const prev = times[key];
+      if (!prev || new Date(show.seatCheckedAt).getTime() >= new Date(prev).getTime()) {
+        times[key] = show.seatCheckedAt;
+      }
+    }
+    seatSourceTimes[t.theaterId] = times;
+  }
 
   return {
     scannedAt: new Date().toISOString(),
@@ -88,9 +92,16 @@ export async function scanCinemaImpl(input: {
   };
 }
 
-function latestSeatSourceTimes(theaterId: TheaterId, sources: { key: string; map: SeatHitMap; source?: string }[]) {
+function latestSeatSourceTimes(
+  theaterId: TheaterId,
+  sources: { key: string; map: SeatHitMap; source?: string }[],
+) {
   const out: Record<string, string> = {};
-  const siteNo = ({ cgv_yongsan: "0013", cgv_yeongdeungpo: "0059", megabox_coex: "1351", megabox_namyangju: "0019" } as Record<string, string>)[theaterId] ?? "";
+  const siteNo =
+    ({ cgv_yongsan: "0013", cgv_yeongdeungpo: "0059", megabox_coex: "1351", megabox_namyangju: "0019" } as Record<
+      string,
+      string
+    >)[theaterId] ?? "";
   const prefixes = siteNo ? [`k:${siteNo}|`, `m:${siteNo}|`] : [];
   for (const source of sources) {
     let latest = 0;
@@ -131,7 +142,6 @@ export async function pingSeatmap(input: {
   theaterId?: TheaterId;
   daysAhead?: number;
 }) {
-  const days = Math.min(Math.max(input.daysAhead ?? 7, 1), 14);
   const nasTheaters = (["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"] as TheaterId[]).filter(
     (id) => !input.theaterId || input.theaterId === id,
   );
