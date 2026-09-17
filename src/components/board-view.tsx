@@ -11,6 +11,22 @@ import { formatClock } from "@/lib/utils";
 
 const IDS: TheaterId[] = ["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"];
 
+// 인수인계서 요구사항: "실시간"이 아니라 "9.16일 13:15 기준"처럼 날짜까지 명시한다.
+// formatClock()은 시각만 주기 때문에 전광판 전용으로 날짜+시각 포맷을 따로 둔다.
+function formatBoardTimestamp(iso: string | null): string {
+  if (!iso) return "—";
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${get("month")}.${get("day")}일 ${get("hour")}:${get("minute")}`;
+}
+
 export function BoardView() {
   const { user: currentUser, isPending } = useCurrentUserState();
   const config = useAppStore((s) => s.config);
@@ -47,6 +63,6 @@ export function BoardView() {
     <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       {IDS.filter((id) => enabled.includes(id)).map((id) => { const theater = THEATERS.find((t) => t.id === id)!; return <section key={id} className="min-w-0 rounded-2xl bg-surface p-4 shadow-border md:p-5"><h2 className="mb-4 text-xl font-bold md:text-2xl">{theater.shortName}</h2><div className="space-y-2">{(data[id] || []).map((show) => { const imax = show.formats.includes("imax") || /IMAX/i.test(show.hallName); return <a key={show.id} href={show.bookingUrl || "#"} target="_blank" rel="noreferrer" className="block rounded-xl bg-bg/60 p-3 ring-1 ring-border hover:bg-pick"><div className="flex justify-between gap-2"><b className="text-lg tabular-nums">{formatClock(show.startTime)}</b><span className={imax ? "rounded-full bg-open px-2 py-1 text-[11px] font-bold text-white" : "text-[11px] text-muted"}>{imax ? "IMAX" : show.hallName}</span></div><p className="mt-1 text-sm font-medium">{show.movieTitle}</p><div className="mt-2 flex justify-between text-xs"><b>잔여 <span className="text-base">{show.restSeats ?? "-"}</span>석</b><span className="text-muted">{seatFreshnessLabel(show) || "확인 대기"}</span></div></a>; })}</div></section>; })}
     </div>
-    {updatedAt && <p className="mx-auto mt-4 max-w-[1800px] text-right text-xs text-muted">{formatClock(updatedAt)} 기준 · 60초 자동 갱신</p>}
+    {updatedAt && <p className="mx-auto mt-4 max-w-[1800px] text-right text-xs text-muted">{formatBoardTimestamp(updatedAt)} 기준 · 60초 자동 갱신</p>}
   </main>;
 }
