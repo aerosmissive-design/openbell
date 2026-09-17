@@ -92,7 +92,7 @@ export async function runScan(input: {
     ? deadline(readNasSeatmap([...wanted].filter(isCgvId)), fast ? SCAN_DEADLINES.fastNas : SCAN_DEADLINES.nas, emptyNas)
     : Promise.resolve(emptyNas);
   const ktSeats = !fast && hasCgv
-    ? deadline(fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates.slice(0, 2) }), SCAN_DEADLINES.kt, emptyCgv)
+    ? deadline(fetchCgvKtSeatmap({ theaters: [...wanted].filter(isCgvId), dates: playDates }), SCAN_DEADLINES.kt, emptyCgv)
     : Promise.resolve(emptyCgv);
   const megaSeats = !fast && hasMega
     ? deadline(fetchMegaboxSeatmap({ days }), SCAN_DEADLINES.mega, emptyCgv)
@@ -125,19 +125,20 @@ export async function runScan(input: {
     const base = normalizeShowtimes(theater.showtimes);
     const normalizedExtra = normalizeShowtimes(extra);
     const merged = normalizedExtra.length ? mergeShowtimes(base, normalizedExtra) : base;
-    let live = applySeatLayers(merged, [officialMap, nas.map, kt.map, relay.map, gasMap]);
-    if (isCgvId(theater.theaterId) && extraNas.length) live = applyReporterFallback(live, extraNas);
     const nasSeatSource = nas.source === "nas423" ? "g-nas423" : nas.source === "nas225" ? "g-nas225" : nas.source === "nas" ? "g-nas" : "g-pc";
-    const showtimes = applyCgvSeatHits(live, lastKnown, false, false).map((row) => {
-      const liveSource =
-        lookupSeatHit(row, officialMap) ? "official" :
-        lookupSeatHit(row, nas.map) ? nasSeatSource :
-        lookupSeatHit(row, kt.map) ? "cgv-kt" :
-        lookupSeatHit(row, relay.map) ? "cgv-relay" :
-        lookupSeatHit(row, gasMap) ? "gas-cache" :
-        row.restSeats != null ? "last-known" : undefined;
-      return { ...row, playDate: normalizePlayDate(row.playDate), seatSource: liveSource };
-    });
+    let live = applySeatLayers(merged, [
+      { map: officialMap, source: "official" },
+      { map: nas.map, source: nasSeatSource },
+      { map: kt.map, source: "cgv-kt" },
+      { map: relay.map, source: "cgv-relay" },
+      { map: gasMap, source: "gas-cache" },
+    ]);
+    if (isCgvId(theater.theaterId) && extraNas.length) live = applyReporterFallback(live, extraNas);
+    const showtimes = applyCgvSeatHits(live, lastKnown, false, true).map((row) => ({
+      ...row,
+      playDate: normalizePlayDate(row.playDate),
+      seatSource: row.seatSource ?? undefined,
+    }));
     let source = theater.source;
     if (!theater.showtimes.length) {
       if (extraOfficial.length) source = "official";
@@ -157,10 +158,21 @@ export async function runScan(input: {
   if (Object.keys(harvested).length) await saveSeatLastKnown(harvested);
   const ranking = catalog.ranking.length ? catalog.ranking : rankingFromShows(tagged);
   const showing = catalog.showing.length ? catalog.showing : ranking;
+  const seatSourceTimes = Object.fromEntries(tagged.map((theater) => [
+    theater.theaterId,
+    latestSeatSourceTimes(theater.theaterId, theater.showtimes, [
+      { key: "official", map: officialMap },
+      { key: "nas", map: nas.map },
+      { key: "kt", map: kt.map },
+      { key: "relay", map: relay.map },
+      { key: "gas", map: gasMap },
+    ]),
+  ]));
   return {
     scannedAt: new Date().toISOString(), playDates, ranking, showing,
     catalog: mergeMovieCatalog(catalog.catalog ?? [], catalog.ranking, catalog.showing, cgvComing.movies, moviesFromShowtimes(tagged.flatMap((t) => t.showtimes))),
     theaters: tagged,
+    seatSourceTimes,
   };
 }
 
@@ -234,10 +246,43 @@ function rankingFromShows(theaters: TheaterScan[]): RankingMovie[] {
 type GasSeatMap = SeatHitMap;
 type GasShowRow = { id?: string; theaterId?: string; theater?: string; title?: string; date?: string; time?: string; hall?: string; formats?: Showtime["formats"]; restSeats?: number | null; totalSeats?: number | null; url?: string };
 
-function applySeatLayers(rows: Showtime[], layers: SeatHitMap[]): Showtime[] {
-  let out = rows;
-  for (const layer of [...layers].reverse()) out = applyCgvSeatHits(out, layer, true);
+function latestSeatSourceTimes(theaterId: TheaterId, rows: Showtime[], sources: { key: string; map: SeatHitMap }[]) {
+  const out: Record<string, string> = {};
+  for (const source of sources) {
+    let latest = 0;
+    for (const row of rows) {
+      if (row.theaterId !== theaterId) continue;
+      const hit = lookupSeatHit(row, source.map);
+      if (hit && typeof hit.at === "number" && Number.isFinite(hit.at)) latest = Math.max(latest, hit.at);
+    }
+    if (latest > 0) out[source.key] = new Date(latest).toISOString();
+  }
   return out;
+}
+
+function applySeatLayers(rows: Showtime[], layers: { map: SeatHitMap; source: string }[]): Showtime[] {
+  const newest: SeatHitMap = {};
+  const sourceByKey = new Map<string, string>();
+  for (const { map, source } of layers) {
+    for (const [key, hit] of Object.entries(map)) {
+      if (typeof hit.rest !== "number" || !Number.isFinite(hit.rest)) continue;
+      const at = typeof hit.at === "number" && Number.isFinite(hit.at) ? hit.at : 0;
+      const prev = newest[key];
+      if (!prev || (prev.at ?? 0) <= at) {
+        newest[key] = { ...hit, at };
+        sourceByKey.set(key, source);
+      }
+    }
+  }
+  return applyCgvSeatHits(rows, newest, true, true).map((row) => {
+    const hit = lookupSeatHit(row, newest);
+    if (!hit) return row;
+    const source = Object.keys(newest)
+      .filter((key) => newest[key].at === hit.at)
+      .map((key) => sourceByKey.get(key))
+      .find(Boolean);
+    return { ...row, seatSource: source ?? row.seatSource, seatCheckedAt: hit.at ? new Date(hit.at).toISOString() : row.seatCheckedAt };
+  });
 }
 
 function applyReporterFallback(rows: Showtime[], reporter: Showtime[]): Showtime[] {
@@ -251,7 +296,7 @@ function applyReporterFallback(rows: Showtime[], reporter: Showtime[]): Showtime
       (titlesMatch(candidate.movieTitle, row.movieTitle) || Boolean(candidate.movieNo && row.movieNo && candidate.movieNo === row.movieNo)),
     );
     if (!hit || hit.restSeats == null) return row;
-    return { ...row, restSeats: hit.restSeats, totalSeats: hit.totalSeats ?? row.totalSeats, seatLive: true, seatCheckedAt: hit.seatCheckedAt ?? row.seatCheckedAt, seatSource: hit.seatSource ?? row.seatSource };
+    return { ...row, restSeats: hit.restSeats, totalSeats: hit.totalSeats ?? row.totalSeats, seatLive: true, seatCheckedAt: hit.seatCheckedAt ?? row.seatCheckedAt, seatSource: hit.seatSource ?? (hit.theaterId.startsWith("cgv") ? "g-pc" : row.seatSource) };
   });
 }
 
@@ -276,28 +321,14 @@ function normTime(time: string) {
   return `${padded.slice(0, 2)}:${padded.slice(-2)}`;
 }
 
-function detectSeatSource(rows: Showtime[], maps: { official: SeatHitMap; nas: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }, reporterSource: "pc" | "nas" | "nas423" | "nas225") {
-  const seated = rows.filter((row) => row.restSeats != null);
-  if (!seated.length) return "none";
-  const live = seated.filter((row) => row.seatLive !== false);
-  if (!live.length) return "last-known";
-  const score = (map: SeatHitMap) => live.filter((row) => lookupSeatHit(row, map)).length;
-  const official = score(maps.official), nas = score(maps.nas), kt = score(maps.kt), relay = score(maps.relay), gas = score(maps.gas);
-  if (official >= nas && official >= kt && official >= relay && official >= gas && official > 0) return "official";
-  if (nas >= kt && nas >= relay && nas >= gas && nas > 0) {
-    const rowSource = live.find((row) => row.seatSource === "g-nas423" || row.seatSource === "g-nas225" || row.seatSource === "g-nas" || row.seatSource === "g-pc")?.seatSource;
-    if (rowSource) return rowSource;
-    if (reporterSource === "nas423") return "g-nas423";
-    if (reporterSource === "nas225") return "g-nas225";
-    if (reporterSource === "nas") return "g-nas";
-    return "g-pc";
-  }
-  if (kt >= relay && kt >= gas && kt > 0) return "cgv-kt";
-  if (relay >= gas && relay > 0) return "cgv-relay";
-  if (gas > 0) return "gas-cache";
-  return seated[0]?.chain === "cgv" ? "cgv-relay" : "official";
+function detectSeatSource(rows: Showtime[], _maps: { official: SeatHitMap; nas: SeatHitMap; kt: SeatHitMap; relay: SeatHitMap; gas: SeatHitMap }, _reporterSource: "pc" | "nas" | "nas423" | "nas225") {
+  const live = rows.filter((row) => row.restSeats != null && row.seatLive !== false);
+  if (!live.length) return "none";
+  const latest = live
+    .filter((row) => row.seatSource && row.seatSource !== "none" && row.seatCheckedAt)
+    .sort((a, b) => new Date(b.seatCheckedAt!).getTime() - new Date(a.seatCheckedAt!).getTime())[0];
+  return latest?.seatSource ?? "none";
 }
-
 function byDateForTheater(shows: Showtime[], theaterId: TheaterId): Map<string, Showtime[]> {
   const map = new Map<string, Showtime[]>();
   for (const show of shows) {
