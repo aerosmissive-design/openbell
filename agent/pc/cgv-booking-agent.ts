@@ -17,14 +17,15 @@ export type BookingAgentOptions = {
   onPaymentReady?: (info: { url: string; seats: string[] }) => Promise<void>;
 };
 
-const CGV_URL = "https://www.cgv.co.kr";
+const CGV_BOOKING_URL = "https://cgv.co.kr/cnm/movieBook/movie";
+const FINAL_PAYMENT_WORDS = /결제|주문|구매|최종/i;
+const SAFE_NEXT_WORDS = /다음|선택완료|좌석선택완료|예매하기/i;
 
 /**
- * CGV booking automation.
+ * PC-side CGV booking automation.
  *
- * IMPORTANT: this class intentionally has no method that clicks a final
- * payment/order button. The flow ends at the payment-ready page and calls
- * onPaymentReady. This is a code-level hard stop, not merely a UI convention.
+ * The flow is deliberately stopped at the payment stage. This class contains
+ * no final-payment click and rejects any attempt to use a final-payment label.
  */
 export class CgvBookingAgent {
   private browser?: Browser;
@@ -34,7 +35,7 @@ export class CgvBookingAgent {
   private readonly options: Required<Pick<BookingAgentOptions, "headless" | "timeoutMs">> & BookingAgentOptions;
 
   constructor(options: BookingAgentOptions = {}) {
-    this.options = { headless: true, timeoutMs: 15_000, ...options };
+    this.options = { headless: false, timeoutMs: 15_000, ...options };
   }
 
   async launch() {
@@ -44,7 +45,7 @@ export class CgvBookingAgent {
     );
     this.context.setDefaultTimeout(this.options.timeoutMs);
     this.page = await this.context.newPage();
-    await this.page.goto(this.options.baseUrl ?? CGV_URL, { waitUntil: "domcontentloaded" });
+    await this.page.goto(this.options.baseUrl ?? CGV_BOOKING_URL, { waitUntil: "domcontentloaded" });
   }
 
   private getPage() {
@@ -55,7 +56,7 @@ export class CgvBookingAgent {
 
   async openMovie(target: BookingTarget) {
     const page = this.getPage();
-    await page.goto(`${CGV_URL}/tickets`, { waitUntil: "domcontentloaded" });
+    await page.goto(this.options.baseUrl ?? CGV_BOOKING_URL, { waitUntil: "domcontentloaded" });
     await this.clickTextOrRole(page, target.movieTitle);
   }
 
@@ -71,15 +72,20 @@ export class CgvBookingAgent {
       throw new Error("SEAT_COUNT_MISMATCH");
     }
     for (const seatId of target.seatIds) {
-      const seat = page.locator(`[data-seat-id="${CSS.escape(seatId)}"]`).first();
+      const safeId = escapeCssAttribute(seatId);
+      const seat = page.locator(`[data-seat-id="${safeId}"], [data-seat="${safeId}"]`).first();
       if (await seat.count()) {
         await seat.click();
         continue;
       }
       const textSeat = page.getByText(seatId, { exact: true }).first();
-      await textSeat.click();
+      if (await textSeat.count()) {
+        await textSeat.click();
+        continue;
+      }
+      throw new Error(`CGV_SEAT_NOT_FOUND:${seatId}`);
     }
-    await this.clickIfPresent(page, /좌석.*선택|다음/i);
+    await this.clickSafeNext(page);
   }
 
   async fillBookingInfo(info: Record<string, string>) {
@@ -88,15 +94,13 @@ export class CgvBookingAgent {
       const field = page.getByLabel(label, { exact: false }).first();
       if (await field.count()) await field.fill(value);
     }
+    await this.clickSafeNext(page);
   }
 
-  /** Navigate to the pre-payment state and STOP. */
+  /** Move through non-payment confirmation UI and stop when payment is shown. */
   async goToPaymentPage(target: BookingTarget) {
     const page = this.getPage();
-    await this.clickIfPresent(page, /결제|payment/i);
-    await page.waitForLoadState("domcontentloaded").catch(() => undefined);
-
-    // Never click a final payment/order button.
+    await this.advanceUntilPayment(page);
     this.stopped = true;
     const url = page.url();
     await this.options.onPaymentReady?.({ url, seats: target.seatIds });
@@ -120,11 +124,48 @@ export class CgvBookingAgent {
     this.page = undefined;
   }
 
+  private async advanceUntilPayment(page: Page) {
+    for (let step = 0; step < 4; step += 1) {
+      if (await this.isPaymentStage(page)) return;
+      const clicked = await this.clickSafeNext(page);
+      if (!clicked) {
+        if (await this.isPaymentStage(page)) return;
+        throw new Error("CGV_PAYMENT_STAGE_NOT_REACHED");
+      }
+      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+      await page.waitForTimeout(300);
+    }
+    if (!(await this.isPaymentStage(page))) throw new Error("CGV_PAYMENT_STAGE_NOT_REACHED");
+  }
+
+  private async isPaymentStage(page: Page) {
+    const url = page.url().toLowerCase();
+    if (url.includes("payment") || url.includes("pay")) return true;
+    const body = await page.locator("body").innerText().catch(() => "");
+    return /최종결제금액|결제수단|결제하기|결제 정보/.test(body);
+  }
+
+  private async clickSafeNext(page: Page) {
+    const candidates = [
+      page.getByRole("button", { name: SAFE_NEXT_WORDS }).first(),
+      page.getByRole("link", { name: SAFE_NEXT_WORDS }).first(),
+    ];
+    for (const candidate of candidates) {
+      if (!(await candidate.count())) continue;
+      const name = await candidate.getAttribute("aria-label").catch(() => null);
+      const text = (await candidate.innerText().catch(() => "")) || name || "";
+      if (FINAL_PAYMENT_WORDS.test(text)) continue;
+      await candidate.click();
+      return true;
+    }
+    return false;
+  }
+
   private async selectDate(page: Page, date: string) {
     const candidates = [
+      page.locator(`[data-date="${escapeCssAttribute(date)}"]`).first(),
+      page.locator(`[data-play-date="${escapeCssAttribute(date)}"]`).first(),
       page.getByText(date, { exact: true }).first(),
-      page.locator(`[data-date="${CSS.escape(date)}"]`).first(),
-      page.locator(`[data-play-date="${CSS.escape(date)}"]`).first(),
     ];
     for (const candidate of candidates) {
       if (await candidate.count()) {
@@ -148,18 +189,12 @@ export class CgvBookingAgent {
     }
     throw new Error(`CGV_TARGET_NOT_FOUND:${text}`);
   }
-
-  private async clickIfPresent(page: Page, pattern: RegExp) {
-    const button = page.getByRole("button", { name: pattern }).first();
-    if (await button.count()) {
-      await button.click();
-      return;
-    }
-    const link = page.getByRole("link", { name: pattern }).first();
-    if (await link.count()) await link.click();
-  }
 }
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeCssAttribute(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
