@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { runBooking } from "./run-booking";
+import type { BookingState } from "../../src/lib/booking/types";
 
 function loadEnv(path = "config.env") {
   try {
@@ -73,6 +74,27 @@ async function createSession(input: {
   return data.session.id;
 }
 
+async function updateState(input: {
+  openbellUrl: string;
+  workerToken: string;
+  sessionId: string;
+  state: BookingState;
+}) {
+  const response = await fetch(`${input.openbellUrl}/api/booking/state`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${input.workerToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id: input.sessionId, state: input.state }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`OPENBELL_STATE_UPDATE_FAILED:${response.status}:${text.slice(0, 500)}`);
+  }
+}
+
 loadEnv(process.env.OPENBELL_AGENT_CONFIG || "config.env");
 
 const requestedSeatCount = Number(process.env.BOOKING_SEAT_COUNT || "2");
@@ -106,6 +128,7 @@ const storageStatePath = process.env.CGV_STORAGE_STATE?.trim() || undefined;
 const openbellUrl = process.env.OPENBELL_URL?.trim().replace(/\/$/, "");
 const workerToken = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim();
 let bookingSessionId = process.env.BOOKING_SESSION_ID?.trim();
+const autoCreatedSession = !bookingSessionId;
 
 const bookingInfo: Record<string, string> = {};
 for (const [key, value] of Object.entries(process.env)) {
@@ -129,11 +152,22 @@ if (!bookingSessionId) {
   console.log(`OpenBell booking session created: ${bookingSessionId}`);
 }
 
+const stateCallback =
+  autoCreatedSession && openbellUrl && workerToken && bookingSessionId
+    ? async (state: BookingState) => {
+        await updateState({ openbellUrl, workerToken, sessionId: bookingSessionId as string, state });
+        console.log(`OpenBell booking state: ${state}`);
+      }
+    : undefined;
+
+if (stateCallback) await stateCallback("WATCHING");
+
 const result = await runBooking({
   ...target,
   storageStatePath,
   headless,
   bookingInfo: Object.keys(bookingInfo).length ? bookingInfo : undefined,
+  onStateChange: stateCallback,
   onPaymentReady: async ({ url, seats }) => {
     console.log("\n========================================");
     console.log("PAYMENT_READY - AUTOMATION HARD STOP");
