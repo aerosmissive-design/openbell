@@ -508,3 +508,24 @@ export const provisionGasScript = createServerFn({ method: "POST" })
     const { provisionGasProject } = await import("./gas-provision.server");
     return provisionGasProject(data);
   });
+
+const BoardInput = z.object({
+  theaters: z
+    .array(
+      z.enum([
+        "cgv_yongsan",
+        "cgv_yeongdeungpo",
+        "megabox_coex",
+        "megabox_namyangju",
+      ]),
+    )
+    .optional(),
+});
+
+/** 전광판: PC/NAS seat-report 취합. .server 파일은 핸들러 안에서만 dynamic import */
+export const loadBoardData = createServerFn({ method: "POST" })
+  .validator(BoardInput)
+  .handler(async ({ data }) => {
+    const { loadBoardDataImpl } = await import("./board-data.server");
+    return loadBoardDataImpl(data);
+  });
