@@ -181,6 +181,7 @@ export function CinemaApp() {
         ),
       ),
       catalogNote: catalogQuery.data?.catalogNote || scan?.catalogNote,
+      seatSourceTimes: scan?.seatSourceTimes,
       theaters,
     };
   }, [scan, catalogQuery.data, seatMap, overlayShows]);
@@ -327,7 +328,7 @@ export function CinemaApp() {
             <h1 className="mt-1 text-[28px] font-bold leading-none text-fg">
               오픈벨
               <span className="ml-2 align-middle text-xs font-medium tracking-normal text-muted">
-                v3.9.31
+                v3.9.35
               </span>
             </h1>
           </div>
