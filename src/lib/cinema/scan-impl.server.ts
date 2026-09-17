@@ -6,7 +6,7 @@ import {
 } from "./cgv.server";
 import { fetchCgvKtSeatmap } from "./kt.server";
 import { fetchMegaboxSeatmap } from "./megabox.server";
-import { readNasSeatmap } from "./nas.server";
+import { readNasSeatmap, readNasReporterTimes } from "./nas.server";
 import { putSeatHit, type SeatHitMap } from "./seats";
 import { THEATERS } from "./theaters";
 import type { ScanResult, Showtime, TheaterId } from "./types";
@@ -192,19 +192,21 @@ export async function runScan(input: {
     };
   });
 
+  const reporterTimes = await readNasReporterTimes([...wanted], { maxAgeMs: 30 * 60 * 1000 }).catch(
+    () => ({} as Record<string, Record<string, string>>),
+  );
   const seatSourceTimes = Object.fromEntries(
-    wanted.map((theaterId) => [
-      theaterId,
-      latestSeatSourceTimes(theaterId, [
+    wanted.map((theaterId) => {
+      const fromMaps = latestSeatSourceTimes(theaterId, [
         { key: "official", map: officialMap },
-        { key: "g-pc", map: pcMap, source: "pc" },
-        { key: "g-nas225+", map: nas225Map, source: "nas225" },
-        { key: "g-nas423+", map: nas423Map, source: "nas423" },
         { key: "cgv-kt", map: kt.map },
         { key: "cgv-relay", map: relay.map },
         { key: "gas-cache", map: {} },
-      ]),
-    ]),
+      ]);
+      // PC/NAS 출처는 Redis 출처별 키의 at 을 직접 사용 (서로 덮어쓰지 않음)
+      const fromReporter = reporterTimes[theaterId] || {};
+      return [theaterId, { ...fromMaps, ...fromReporter }];
+    }),
   );
 
   return {
@@ -294,15 +296,17 @@ export async function pingSeatmap(input: {
     ...nas.showtimes,
   ];
   const keys = Object.keys(map);
+  const reporterTimes = await readNasReporterTimes(nasTheaters, { maxAgeMs: 30 * 60 * 1000 }).catch(
+    () => ({} as Record<string, Record<string, string>>),
+  );
   const seatSourceTimes: Record<string, Record<string, string>> = {};
   for (const theaterId of nasTheaters) {
-    seatSourceTimes[theaterId] = latestSeatSourceTimes(theaterId, [
+    const fromMaps = latestSeatSourceTimes(theaterId, [
       { key: "official", map: { ...officialCgv.map, ...mega.map } },
-      { key: "g-pc", map: pcMap, source: "pc" },
-      { key: "g-nas225+", map: nas225Map, source: "nas225" },
-      { key: "g-nas423+", map: nas423Map, source: "nas423" },
       { key: "cgv-relay", map: relay.map },
     ]);
+    const fromReporter = reporterTimes[theaterId] || {};
+    seatSourceTimes[theaterId] = { ...fromMaps, ...fromReporter };
   }
   return {
     status: keys.length || extraShows.length ? ("ok" as const) : ("empty" as const),
