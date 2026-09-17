@@ -220,7 +220,7 @@ export function BoardView() {
                   {block.showtimes.length === 0 ? (
                     <div className="px-3 py-8 text-center text-xs text-[#7b879e]">회차 없음</div>
                   ) : (
-                    block.showtimes.slice(0, 80).map((show) => {
+                    block.showtimes.slice(0, 500).map((show) => {
                       const tone = seatTone(show.restSeats);
                       const imax = isImax(show);
                       const ring =
