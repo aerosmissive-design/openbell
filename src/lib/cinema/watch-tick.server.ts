@@ -131,15 +131,26 @@ async function notifyRelayOutage(
   }
 }
 
-async function sendTelegram(token: string, chatId: string, text: string, html?: boolean) {
+async function sendTelegram(
+  token: string,
+  chatId: string,
+  text: string,
+  html?: boolean,
+  buttons?: { text: string; url: string }[],
+) {
+  const rows = (buttons ?? [])
+    .filter((b) => b.url.startsWith("https://"))
+    .slice(0, 8)
+    .map((b) => [{ text: b.text, url: b.url }]);
   const res = await fetch(`https://api.telegram.org/bot${token.trim()}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       chat_id: /^-?\d+$/.test(chatId.trim()) ? Number(chatId.trim()) : chatId.trim(),
       text,
-      parse_mode: html ? "HTML" : undefined,
+      parse_mode: html || /<(?:b|a|strong|i)\b/i.test(text) ? "HTML" : undefined,
       disable_web_page_preview: true,
+      reply_markup: rows.length ? { inline_keyboard: rows } : undefined,
     }),
     signal: AbortSignal.timeout(10000),
   });
@@ -193,11 +204,22 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
       (async () => {
         for (const part of batches) {
           const { telegramHtml } = notifyCopy(part, { total: items.length });
+          const buttons = part
+            .map((item) => {
+              const url = alertBookingUrl(item);
+              return url.startsWith("https://")
+                ? { text: "바로 예매", url }
+                : null;
+            })
+            .filter((row): row is { text: string; url: string } => Boolean(row))
+            .filter((row, i, all) => all.findIndex((x) => x.url === row.url) === i)
+            .slice(0, 4);
           await sendTelegram(
             config.telegramToken,
             config.telegramChatId,
             telegramHtml,
             true,
+            buttons,
           );
         }
       })()

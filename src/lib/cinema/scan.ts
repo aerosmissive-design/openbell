@@ -68,6 +68,11 @@ const TelegramInput = z.object({
   chatId: z.string().min(1),
   text: z.string().min(1).max(3500),
   html: z.boolean().optional(),
+  parseMode: z.string().optional(),
+  buttons: z
+    .array(z.object({ text: z.string().min(1), url: z.string().min(8) }))
+    .max(8)
+    .optional(),
 });
 
 type TgChat = {
@@ -199,11 +204,21 @@ export const sendTelegram = createServerFn({ method: "POST" })
       );
     }
     if (chatId.startsWith("@")) chatId = stripped;
+    const html =
+      data.html === true ||
+      String(data.parseMode || "").toUpperCase() === "HTML" ||
+      /<(?:b|a|strong|i)\b/i.test(data.text);
+    const buttons = (data.buttons ?? []).filter((b) =>
+      b.url.startsWith("https://"),
+    );
     const sent = await telegramCall(token, "sendMessage", {
       chat_id: /^-?\d+$/.test(chatId) ? Number(chatId) : chatId,
       text: data.text,
-      parse_mode: data.html ? "HTML" : undefined,
+      parse_mode: html ? "HTML" : undefined,
       disable_web_page_preview: true,
+      reply_markup: buttons.length
+        ? { inline_keyboard: buttons.map((b) => [{ text: b.text, url: b.url }]) }
+        : undefined,
     });
     if (!sent.ok) {
       throw new Error(koreanTelegramError(sent.description || "텔레그램 전송 실패"));
