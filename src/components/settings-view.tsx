@@ -397,6 +397,201 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           베셀 서버가 알림을 보냅니다. 구글스크립트는 예비이며, 없어도 극장·잔여석 조회는 돌아갑니다. 베셀은 깃허브가 5분마다 깨웁니다.
         </p>
         <AlertPathStatus health={notifyHealth} />
+
+        <ChannelCard
+          embedded
+          title="메일로 받기"
+          summary={!user ? "로그인 필요" : mailEnabled(config) ? `연결됨 · ${loginEmail || config.email}` : "꺼짐"}
+          detail={user && mailEnabled(config) ? channelWorkLine("mail", notifyHealth) : undefined}
+          open={showMail}
+          onToggle={() => setShowMail((v) => !v)}
+        >
+          {!user ? (
+            <Link
+              to="/login"
+              className="flex min-h-11 items-center justify-center rounded-md bg-pick text-sm text-fg ring-1 ring-border-strong"
+            >
+              로그인
+            </Link>
+          ) : (
+            <div>
+              <p className="text-sm leading-relaxed text-muted">이 계정 메일로 예매 오픈 알림을 받습니다.</p>
+              <p className="mt-3 text-sm font-medium text-fg">{loginEmail || config.email || "메일 없음"}</p>
+              <div className="mt-3">
+                <Switch
+                  checked={config.emailNotify}
+                  onCheckedChange={(on) => {
+                    if (on) {
+                      if (!loginEmail && !config.email.trim()) {
+                        toast.error("이 계정에 메일이 없습니다.");
+                        return;
+                      }
+                      setConfig({ emailNotify: true, email: loginEmail || config.email });
+                      return;
+                    }
+                    setConfig({ emailNotify: false });
+                  }}
+                  label={config.emailNotify ? "알림 켜짐" : "알림 꺼짐"}
+                />
+              </div>
+              <label className="mt-4 block text-xs text-muted">웹 메일용 앱 비밀번호</label>
+              <input
+                type="password"
+                autoComplete="off"
+                value={config.gmailAppPassword}
+                onChange={(e) => setConfig({ gmailAppPassword: e.target.value })}
+                placeholder="16자리 (띄어쓰기 없이)"
+                className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+              />
+              <p className="mt-2 text-xs leading-relaxed text-faint">구글 2단계 인증의 앱 비밀번호입니다. 스크립트로만 보낼 경우 비워도 됩니다.</p>
+              <Button
+                className="mt-3 w-full"
+                disabled={sendingTest || !mailEnabled(config)}
+                onClick={() => void sendTestMail()}
+              >
+                {sendingTest ? "보내는 중…" : "테스트 메일 보내기"}
+              </Button>
+            </div>
+          )}
+        </ChannelCard>
+
+        <ChannelCard
+          embedded
+          title="카톡으로 받기"
+          summary={config.kakaoRefreshToken ? "연결됨" : "꺼짐"}
+          detail={config.kakaoRefreshToken ? channelWorkLine("kakao", notifyHealth) : undefined}
+          open={showKakao}
+          onToggle={() => setShowKakao((v) => !v)}
+        >
+          <p className="text-sm leading-relaxed text-muted">카카오는 연결 후 내 카카오톡의 나와의 채팅으로 알림을 보냅니다.</p>
+          <label className="mt-3 block text-xs text-muted">REST API 키</label>
+          <input
+            value={config.kakaoRestKey}
+            onChange={(e) => setConfig({ kakaoRestKey: e.target.value })}
+            placeholder="카카오 앱 키"
+            className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+          />
+          <Button
+            variant="outline"
+            className="mt-3 w-full"
+            onClick={openKakaoAuth}
+          >
+            카카오 허용 열기
+            <ExternalLink className="size-3.5" />
+          </Button>
+          <label className="mt-4 block text-xs text-muted">인가 코드</label>
+          <input
+            value={kakaoCode}
+            onChange={(e) => setKakaoCode(e.target.value)}
+            placeholder="code= 뒤 또는 주소창 전체"
+            className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+          />
+          <Button
+            className="mt-3 w-full"
+            onClick={async () => {
+              try {
+                const pasted = kakaoCode;
+                const redirect = /localhost/i.test(pasted) ? "https://localhost" : kakaoRedirectUri() || redirectUri;
+                const result = await exchangeKakaoCode({
+                  data: {
+                    restKey: config.kakaoRestKey,
+                    code: extractKakaoCode(pasted),
+                    redirectUri: redirect,
+                  },
+                });
+                setConfig({ kakaoRefreshToken: result.refreshToken });
+                setKakaoCode("");
+                toast.success("카카오가 연결되었습니다.");
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "카카오 연결 실패");
+              }
+            }}
+          >
+            카카오 연결
+          </Button>
+          <Button
+            variant="outline"
+            className="mt-3 w-full"
+            disabled={!config.kakaoRefreshToken}
+            onClick={async () => {
+              try {
+                await sendKakaoMemo({
+                  data: {
+                    restKey: config.kakaoRestKey,
+                    refreshToken: config.kakaoRefreshToken,
+                    text: "오픈벨 카톡 연결 테스트입니다. 예매가 열리면 여기로 옵니다.",
+                  },
+                });
+                toast.success("나와의 채팅을 확인해 보세요.");
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "카톡 테스트 실패");
+              }
+            }}
+          >
+            카톡 테스트 보내기
+          </Button>
+        </ChannelCard>
+
+        <ChannelCard
+          embedded
+          title="텔레그램으로 받기"
+          summary={config.telegramToken && config.telegramChatId ? "연결됨" : "꺼짐"}
+          detail={config.telegramToken && config.telegramChatId ? channelWorkLine("telegram", notifyHealth) : undefined}
+          open={showTelegram}
+          onToggle={() => setShowTelegram((v) => !v)}
+        >
+          <p className="text-xs leading-relaxed text-muted">봇 토큰과 채팅 ID를 입력하면 예매 오픈 알림을 텔레그램으로 받습니다.</p>
+          <label className="mt-3 block text-xs text-muted">봇 토큰</label>
+          <input
+            value={config.telegramToken}
+            onChange={(e) => setConfig({ telegramToken: e.target.value })}
+            placeholder="123456:ABC..."
+            className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+          />
+          <label className="mt-3 block text-xs text-muted">채팅 ID (숫자)</label>
+          <input
+            value={config.telegramChatId}
+            onChange={(e) => setConfig({ telegramChatId: e.target.value })}
+            placeholder="123456789"
+            className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+          />
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const hit = await peekTelegramChat({ data: { token: config.telegramToken } });
+                  setConfig({ telegramChatId: hit.chatId });
+                  toast.success(hit.name ? `${hit.name} 채팅 ID를 넣었습니다.` : "채팅 ID를 넣었습니다.");
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "찾지 못했습니다.");
+                }
+              }}
+            >
+              채팅 ID 찾기
+            </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  await sendTelegram({
+                    data: {
+                      token: config.telegramToken,
+                      chatId: config.telegramChatId,
+                      text: "오픈벨 연결 테스트입니다.",
+                    },
+                  });
+                  toast.success("텔레그램 테스트 전송");
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "전송 실패");
+                }
+              }}
+            >
+              텔레그램 테스트
+            </Button>
+          </div>
+          {config.telegramToken && config.telegramChatId ? <WatchAlertHint lastScan={lastScan} /> : null}
+        </ChannelCard>
       </section>
       <section className="rounded-xl bg-surface p-4 shadow-border">
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">배경</h2>
