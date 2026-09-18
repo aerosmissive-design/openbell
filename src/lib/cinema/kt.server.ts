@@ -247,7 +247,7 @@ export async function fetchCgvKtSeatmap(input: {
           }
           for (const play of plays) {
             const row: Showtime = {
-              id: `kt-${theaterId}-${dateKey}-${play.startTime}-${movie.agnMovieGrpNo}`,
+              id: `kt-${theaterId}-${dateKey}-${play.startTime}-${play.screenCd || play.screenNm}-${movie.agnMovieGrpNo}`,
               theaterId,
               theaterName:
                 theaterId === "cgv_yongsan" ? "CGV 용산아이파크몰" : "CGV 영등포타임스퀘어",
