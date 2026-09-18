@@ -204,22 +204,11 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
       (async () => {
         for (const part of batches) {
           const { telegramHtml } = notifyCopy(part, { total: items.length });
-          const buttons = part
-            .map((item) => {
-              const url = alertBookingUrl(item);
-              return url.startsWith("https://")
-                ? { text: "바로 예매", url }
-                : null;
-            })
-            .filter((row): row is { text: string; url: string } => Boolean(row))
-            .filter((row, i, all) => all.findIndex((x) => x.url === row.url) === i)
-            .slice(0, 4);
           await sendTelegram(
             config.telegramToken,
             config.telegramChatId,
             telegramHtml,
             true,
-            buttons,
           );
         }
       })()

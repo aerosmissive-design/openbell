@@ -609,23 +609,12 @@ async function announce(items: AlertItem[], config: WatchConfig) {
       }).catch(() => null);
     }
     if (config.telegramToken.trim() && config.telegramChatId.trim()) {
-      const buttons = batch
-        .map((item) => {
-          const url = item.bookingUrl?.trim() || "";
-          return url.startsWith("https://")
-            ? { text: "바로 예매", url }
-            : null;
-        })
-        .filter((row): row is { text: string; url: string } => Boolean(row))
-        .filter((row, i, all) => all.findIndex((x) => x.url === row.url) === i)
-        .slice(0, 4);
       void sendTelegram({
         data: {
           token: config.telegramToken,
           chatId: config.telegramChatId,
           text: copy.telegramHtml,
           html: true,
-          buttons,
         },
       }).catch(() => null);
     }

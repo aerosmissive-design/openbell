@@ -175,15 +175,24 @@ export async function runScan(input: {
     for (const s of shows)
       byId.set(s.id || `${s.playDate}-${s.startTime}-${s.hallName}-${s.movieTitle}`, s);
     const showtimes = [...byId.values()];
+    const hasFor = (rows: Showtime[]) => rows.some((s) => s.theaterId === theaterId);
     const seatSource =
       showtimes[0]?.seatSource ||
       (nas.source === "nas423"
         ? "g-nas423+"
         : nas.source === "nas225"
           ? "g-nas225+"
-          : showtimes.length
+          : hasFor(nas.showtimes)
             ? "g-pc"
-            : "none");
+            : hasFor(officialCgv.showtimes) || hasFor(mega.showtimes)
+              ? "official"
+              : hasFor(relay.showtimes)
+                ? "cgv-relay"
+                : hasFor(kt.showtimes)
+                  ? "cgv-kt"
+                  : showtimes.length
+                    ? "official"
+                    : "none");
     return {
       theaterId,
       theaterName: meta?.name || theaterId,
