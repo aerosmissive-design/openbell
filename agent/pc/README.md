@@ -2,7 +2,9 @@
 
 ## 1. Install
 
-Run `설치.bat` once. It checks Node.js, installs npm dependencies, and installs the Playwright Chromium browser.
+On Windows, run `install.cmd` once. (Korean Windows: do not rely on `설치.bat` if it shows `'5001' is not recognized`.)
+
+It checks Node.js, installs npm dependencies, and installs the Playwright Chromium browser.
 
 Playwright officially supports Windows and provides `npx playwright install chromium` for the Chromium browser binary.
 
@@ -21,7 +23,7 @@ Do not commit real tokens, cookies, or Playwright `storageState` files.
 
 ## 3. Run
 
-Run `예매Agent.bat`.
+Run `run-agent.cmd`.
 
 The browser is headed by default (`PLAYWRIGHT_HEADLESS=false`). The flow opens the current CGV movie-booking entry page, selects the configured movie/date/time/seats, fills optional booking fields, advances only through safe non-payment buttons, and stops at `PAYMENT_READY`.
 
