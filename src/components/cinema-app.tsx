@@ -175,7 +175,10 @@ export function CinemaApp() {
         ),
       ),
       catalogNote: catalogQuery.data?.catalogNote || scan?.catalogNote,
-      seatSourceTimes: mergeSeatSourceTimes(scan?.seatSourceTimes, seatQuery.data?.seatSourceTimes),
+      seatSourceTimes: mergeSeatSourceTimes(
+        mergeSeatSourceTimes(scan?.seatSourceTimes, seatQuery.data?.seatSourceTimes),
+        timesFromShowtimes(theaters),
+      ),
       theaters,
     };
   }, [scan, catalogQuery.data, seatMap, overlayShows, seatQuery.data?.seatSourceTimes]);
@@ -411,6 +414,36 @@ export function CinemaApp() {
       </nav>
     </div>
   );
+}
+
+function columnOfSeatSource(source?: string): string | null {
+  const s = String(source || "").toLowerCase();
+  if (!s || s === "none" || s === "last-known") return null;
+  if (s === "official" || s === "megabox" || s === "cgv") return "official";
+  if (s === "g-pc" || s === "pc" || s === "nas-report") return "g-pc";
+  if (s === "g-nas225+" || s === "nas225" || s === "nas225+") return "g-nas225+";
+  if (s === "g-nas423+" || s === "nas423" || s === "nas423+") return "g-nas423+";
+  if (s === "cgv-kt" || s === "mega-mobile") return "cgv-kt";
+  if (s === "cgv-relay") return "cgv-relay";
+  if (s === "gas-cache" || s === "gas") return "gas-cache";
+  return null;
+}
+
+function timesFromShowtimes(
+  theaters: { theaterId: string; showtimes: Showtime[] }[],
+): ScanResult["seatSourceTimes"] {
+  const out: NonNullable<ScanResult["seatSourceTimes"]> = {};
+  for (const theater of theaters) {
+    const times: Record<string, string> = {};
+    for (const row of theater.showtimes) {
+      const col = columnOfSeatSource(row.seatSource);
+      const at = row.seatCheckedAt;
+      if (!col || !at) continue;
+      if (!times[col] || new Date(at).getTime() >= new Date(times[col]).getTime()) times[col] = at;
+    }
+    if (Object.keys(times).length) out[theater.theaterId] = times;
+  }
+  return out;
 }
 
 function mergeSeatSourceTimes(

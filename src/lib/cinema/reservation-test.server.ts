@@ -40,11 +40,21 @@ function kstNow() {
   return { date: `${get("year")}${get("month")}${get("day")}`, time: `${get("hour")}:${get("minute")}` };
 }
 
+function urlScore(url: string) {
+  const u = String(url || "");
+  if (/scnSseq=|scnsNo=|playSchdlNo=/i.test(u)) return 2;
+  if (/movNo=/i.test(u)) return 1;
+  return 0;
+}
+
 function pick(shows: any[], today: string, nowTime: string) {
   const usable = shows.filter((s) => s && s.bookable !== false && alertBookingUrl(s));
   const todayFuture = usable.filter((s) => s.playDate === today && String(s.startTime).slice(0, 5) >= nowTime);
   const pool = todayFuture.length ? todayFuture : usable;
-  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  if (!pool.length) return null;
+  const best = Math.max(...pool.map((s) => urlScore(alertBookingUrl(s))));
+  const ranked = pool.filter((s) => urlScore(alertBookingUrl(s)) === best);
+  return ranked[Math.floor(Math.random() * ranked.length)];
 }
 
 async function kakaoSend(restKey: string, refreshToken: string, text: string, bookingUrl: string) {

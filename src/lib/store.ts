@@ -123,7 +123,8 @@ export const useAppStore = create<AppState>()(
             const index = out.findIndex((candidate) => candidate.theaterId === row.theaterId && candidate.playDate === row.playDate && candidate.startTime === row.startTime && candidate.hallName === row.hallName && (candidate.movieNo && row.movieNo ? candidate.movieNo === row.movieNo : candidate.movieTitle.trim().toLowerCase() === row.movieTitle.trim().toLowerCase()));
             if (index < 0) out.push(row); else out[index] = { ...out[index], ...row, restSeats: row.restSeats ?? out[index].restSeats, totalSeats: row.totalSeats ?? out[index].totalSeats };
           }
-          return { overlayShows: { ...s.overlayShows, [theaterId]: out } };
+          const capped = out.length > 600 ? out.slice(-450) : out;
+          return { overlayShows: { ...s.overlayShows, [theaterId]: capped } };
         }),
       setConfig: (patch) =>
         set((s) => ({ config: { ...s.config, ...patch } })),
@@ -280,6 +281,7 @@ export const useAppStore = create<AppState>()(
         ownerId: s.ownerId,
         hold: s.hold,
         seatMap: s.seatMap,
+        overlayShows: s.overlayShows,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;

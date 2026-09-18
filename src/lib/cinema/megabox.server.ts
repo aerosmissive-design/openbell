@@ -373,6 +373,8 @@ function toShowtime(
   if (!start || !playDate || !title) return null;
   const movieNo = row.rpstMovieNo || row.movieNo || "";
   const id = `megabox:${brchNo}:${playDate}:${start}:${hall}`;
+  const restSeats = toSeatNumber(row.restSeatCnt);
+  const totalSeats = toSeatNumber(row.totSeatCnt);
   return {
     id,
     theaterId,
@@ -385,10 +387,13 @@ function toShowtime(
     endTime: row.playEndTime ?? null,
     hallName: hall,
     formats: megaboxFormats(row.theabKindCd, hall),
-    restSeats: toSeatNumber(row.restSeatCnt),
-    totalSeats: toSeatNumber(row.totSeatCnt),
+    restSeats,
+    totalSeats,
     bookingUrl: megaboxSeatUrl(brchNo, playDate, movieNo, row.playSchdlNo),
     bookable: row.bokdAbleAt !== "N",
+    seatLive: restSeats != null,
+    seatCheckedAt: restSeats != null ? new Date().toISOString() : null,
+    seatSource: restSeats != null ? "official" : undefined,
   };
 }
 

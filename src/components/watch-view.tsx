@@ -629,7 +629,7 @@ function TheaterBlock({
             </p>
           ) : null}
 
-          {error ? (
+          {error && allShows.length === 0 ? (
             <div className="mt-4 rounded-md bg-bg px-3 py-3">
               <p className="text-sm text-danger">시간표를 못 가져왔습니다.</p>
               <p className="mt-1 text-xs leading-relaxed text-muted">{error}</p>
