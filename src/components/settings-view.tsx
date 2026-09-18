@@ -590,7 +590,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               텔레그램 테스트
             </Button>
           </div>
-          {config.telegramToken && config.telegramChatId ? <WatchAlertHint lastScan={lastScan} /> : null}
         </ChannelCard>
       </section>
       <section className="rounded-xl bg-surface p-4 shadow-border">
