@@ -451,6 +451,14 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               >
                 {sendingTest ? "보내는 중…" : "테스트 메일 보내기"}
               </Button>
+              <Button
+                variant="outline"
+                className="mt-2 w-full"
+                disabled={sendingTest || !mailEnabled(config)}
+                onClick={() => void sendReservationChannelTest("mail")}
+              >
+                메일 예매 알림 테스트
+              </Button>
             </div>
           )}
         </ChannelCard>
@@ -530,6 +538,14 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           >
             카톡 테스트 보내기
           </Button>
+          <Button
+            variant="outline"
+            className="mt-2 w-full"
+            disabled={sendingTest || !config.kakaoRefreshToken}
+            onClick={() => void sendReservationChannelTest("kakao")}
+          >
+            카톡 예매 알림 테스트
+          </Button>
         </ChannelCard>
 
         <ChannelCard
@@ -590,6 +606,14 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               텔레그램 테스트
             </Button>
           </div>
+          <Button
+            variant="outline"
+            className="mt-2 w-full"
+            disabled={sendingTest || !config.telegramToken || !config.telegramChatId}
+            onClick={() => void sendReservationChannelTest("telegram")}
+          >
+            텔레그램 예매 알림 테스트
+          </Button>
         </ChannelCard>
       </section>
       <section className="rounded-xl bg-surface p-4 shadow-border">
