@@ -57,7 +57,7 @@ async function fetchKtMovieTitle(theaterCd: string): Promise<KtMovie[]> {
   return movies;
 }
 
-type KtPlay = { startTime: string; endTime: string | null; screenNm: string; seatQty: number; seatTot: number };
+type KtPlay = { startTime: string; endTime: string | null; screenNm: string; seatQty: number; seatTot: number; screenCd: string | null; playNum: string | null };
 
 async function fetchKtPlayTime(
   agnTheaterNo: string,
@@ -76,7 +76,15 @@ async function fetchKtPlayTime(
     const seatTot = Number(tag(block, "SeatTot") ?? "");
     const screenNm = tag(block, "ScreenNm") ?? "";
     if (startTime && Number.isFinite(seatQty) && Number.isFinite(seatTot)) {
-      out.push({ startTime, endTime: tag(block, "EndTime"), screenNm, seatQty, seatTot });
+      out.push({
+        startTime,
+        endTime: tag(block, "EndTime"),
+        screenNm,
+        seatQty,
+        seatTot,
+        screenCd: tag(block, "ScreenCd"),
+        playNum: tag(block, "PlayNum"),
+      });
     }
   }
   return out;
@@ -86,11 +94,25 @@ function ymd(dateKey: string): string {
   return dateKey.replace(/-/g, "");
 }
 
-function ktCgvBookingUrl(theaterId: TheaterId, playDate: string, movieNo: string): string {
+function ktCgvBookingUrl(
+  theaterId: TheaterId,
+  playDate: string,
+  movieNo: string,
+  screenCd?: string | null,
+  playNum?: string | null,
+): string {
   const siteNo = KT_AGN_THEATER_NO[theaterId] || "";
   const siteNm = theaterId === "cgv_yongsan" ? "용산아이파크몰" : "영등포타임스퀘어";
   if (!siteNo || !movieNo) return "";
   const params = new URLSearchParams({ movNo: movieNo, scnYmd: playDate, siteNo, siteNm });
+  // 2026-09-18 실사용자 클릭 검증(용산, 여러 회차)으로 확정:
+  // KT GetPlayTime의 ScreenCd(3자리 zero-padded) = CGV scnsNo,
+  // PlayNum(그날 몇 번째 회차, 1부터 시작, 패딩 없음) = CGV scnSseq.
+  // 이 둘이 있으면 회차 선택 완료(빨간 테두리) 지점까지 바로 들어가는 정밀 URL이 된다.
+  if (screenCd && playNum) {
+    params.set("scnsNo", screenCd);
+    params.set("scnSseq", playNum);
+  }
   return `https://cgv.co.kr/cnm/movieBook/movie?${params.toString()}`;
 }
 
@@ -239,7 +261,7 @@ export async function fetchCgvKtSeatmap(input: {
               formats: cgvFormats(play.screenNm),
               restSeats: play.seatQty,
               totalSeats: play.seatTot,
-              bookingUrl: ktCgvBookingUrl(theaterId, dateKey, movie.agnMovieGrpNo),
+              bookingUrl: ktCgvBookingUrl(theaterId, dateKey, movie.agnMovieGrpNo, play.screenCd, play.playNum),
               bookable: true,
               seatLive: true,
               seatCheckedAt: nowIso,
