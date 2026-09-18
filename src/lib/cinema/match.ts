@@ -19,17 +19,22 @@ type WatchSig = {
   d?: number;
 };
 
-export function primeIdsForWatchChange(
+function parseWatchSig(prevSig: string): WatchSig | null {
+  try {
+    return JSON.parse(prevSig || "{}") as WatchSig;
+  } catch {
+    return null;
+  }
+}
+
+export function describeWatchChange(
   prevSig: string,
   config: WatchConfig,
   ranking: RankingMovie[],
-  shows: Showtime[],
 ) {
-  let prev: WatchSig = {};
-  try {
-    prev = JSON.parse(prevSig || "{}") as WatchSig;
-  } catch {
-    return [];
+  const prev = parseWatchSig(prevSig);
+  if (!prev) {
+    return { addedTitles: [] as string[], muteAll: true };
   }
   const prevTitles = new Set(prev.t ?? []);
   const nextTitles = new Set(
@@ -37,23 +42,56 @@ export function primeIdsForWatchChange(
   );
   const addedClickTitles = [...nextTitles].filter((t) => !prevTitles.has(t));
   const prevRanks = new Set(prev.r ?? []);
-  const addedRankTitles = new Set(
-    ranking
-      .filter((m) => config.ranks.includes(m.rank) && !prevRanks.has(m.rank))
-      .map((m) => normalizeTitle(m.title)),
-  );
+  const addedRanks = config.ranks.filter((r) => !prevRanks.has(r));
+  const addedRankTitles = ranking
+    .filter((m) => addedRanks.includes(m.rank))
+    .map((m) => normalizeTitle(m.title))
+    .filter(Boolean);
   const addedTheaters = Object.keys(config.theaters).filter(
     (id) => config.theaters[id as TheaterId] && !prev.th?.[id],
   );
-  if ((prev.d ?? 0) !== config.daysAhead) {
+  const formatExpanded = Object.keys(config.formats).some((id) => {
+    const prevF = prev.f?.[id] ?? [];
+    const nextF = config.formats[id as TheaterId] ?? [];
+    return nextF.some((f) => !prevF.includes(f));
+  });
+  const daysChanged = (prev.d ?? 0) !== config.daysAhead;
+  const ranksUnmapped = addedRanks.length > 0 && addedRankTitles.length === 0;
+  const muteAll =
+    daysChanged ||
+    addedTheaters.length > 0 ||
+    formatExpanded ||
+    ranksUnmapped;
+  return {
+    addedTitles: [...addedClickTitles, ...addedRankTitles],
+    muteAll,
+  };
+}
+
+function showMatchesAddedTitle(show: Showtime, addedTitles: string[]) {
+  if (!addedTitles.length) return false;
+  const keys = new Set(addedTitles);
+  return titleInSet(show.movieTitle, keys);
+}
+
+export function primeIdsForWatchChange(
+  prevSig: string,
+  config: WatchConfig,
+  ranking: RankingMovie[],
+  shows: Showtime[],
+) {
+  const change = describeWatchChange(prevSig, config, ranking);
+  if (change.muteAll) {
     return shows.map((s) => s.id);
   }
+  const prev = parseWatchSig(prevSig);
+  if (!prev) return shows.map((s) => s.id);
+  const addedTheaters = Object.keys(config.theaters).filter(
+    (id) => config.theaters[id as TheaterId] && !prev.th?.[id],
+  );
   return shows
     .filter((s) => {
-      const title = normalizeTitle(s.movieTitle);
-      if (addedClickTitles.includes(title) || addedRankTitles.has(title)) {
-        return true;
-      }
+      if (showMatchesAddedTitle(s, change.addedTitles)) return true;
       if (addedTheaters.includes(s.theaterId)) return true;
       const prevF = prev.f?.[s.theaterId] ?? [];
       const nextF = config.formats[s.theaterId] ?? [];

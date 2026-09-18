@@ -3,7 +3,7 @@ import { Bell, ScanLine, Settings2, Star } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
-import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
+import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, describeWatchChange, titleInSet, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
 import { enqueueNasFromAlert } from "@/lib/cinema/nas-enqueue";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, type SeatHitMap } from "@/lib/cinema/seats";
@@ -39,6 +39,7 @@ export function CinemaApp() {
   const replaceQueue = useAppStore((s) => s.replaceQueue);
   const seenRef = useRef(seenIds);
   seenRef.current = seenIds;
+  const muteWatchRef = useRef<{ keys: Set<string>; all: boolean; until: number } | null>(null);
 
   const enabledTheaters = THEATERS.map((t) => t.id);
   const scanInterval = Math.max(config.intervalMin, 1) * 60 * 1000;
@@ -219,24 +220,41 @@ export function CinemaApp() {
   useEffect(() => {
     if (!alertScan) return;
     const sig = watchSignature(config);
+    const ranking = viewScan?.ranking?.length
+      ? viewScan.ranking
+      : (alertScan.ranking ?? []);
     if (!primed) {
       markPrimed(watchedShows.map((s) => s.id));
       setWatchSig(sig);
       return;
     }
     let extraSeen: string[] = [];
-    if (!watchSig) {
-      setWatchSig(sig);
-    } else if (sig !== watchSig) {
-      extraSeen = primeIdsForWatchChange(
-        watchSig,
-        config,
-        alertScan.ranking ?? [],
-        watchedShows,
-      );
+    if (!watchSig || sig !== watchSig) {
+      extraSeen = [
+        ...watchedShows.map((s) => s.id),
+        ...primeIdsForWatchChange(watchSig || "{}", config, ranking, watchedShows),
+      ];
+      const change = describeWatchChange(watchSig || "{}", config, ranking);
+      if (change.addedTitles.length || change.muteAll) {
+        muteWatchRef.current = {
+          keys: new Set(change.addedTitles),
+          all: change.muteAll,
+          until: Date.now() + 120_000,
+        };
+      }
       if (extraSeen.length) markPrimed(extraSeen);
       setWatchSig(sig);
     }
+    const mute = muteWatchRef.current;
+    if (mute && Date.now() >= mute.until) muteWatchRef.current = null;
+    const mutedIds =
+      mute && Date.now() < mute.until
+        ? watchedShows
+            .filter((s) => mute.all || titleInSet(s.movieTitle, mute.keys))
+            .map((s) => s.id)
+        : [];
+    extraSeen = [...new Set([...extraSeen, ...mutedIds])];
+    if (mutedIds.length) remember(mutedIds);
     const seen = new Set([...seenRef.current, ...extraSeen]);
     const fresh = watchedShows.filter((s) => !seen.has(s.id));
     if (!fresh.length) return;
@@ -246,7 +264,6 @@ export function CinemaApp() {
     );
     pushAlerts(items);
     announce(items, config);
-    setTab("alerts");
   }, [
     alertScan?.scannedAt,
     watchedShows,
@@ -258,7 +275,6 @@ export function CinemaApp() {
     setWatchSig,
     remember,
     pushAlerts,
-    setTab,
   ]);
 
   useEffect(() => {
@@ -568,7 +584,16 @@ async function announce(items: AlertItem[], config: WatchConfig) {
       Notification.permission === "granted"
     ) {
       try {
-        new Notification(copy.subject, { body: copy.text.slice(0, 180) });
+        const banner = new Notification(copy.subject, {
+          body: copy.text.slice(0, 180),
+          tag: "openbell-alert",
+        });
+        banner.onclick = () => {
+          try {
+            window.focus();
+          } catch {}
+          useAppStore.getState().setTab("alerts");
+        };
       } catch {}
     }
     if (mailEnabled(config)) {

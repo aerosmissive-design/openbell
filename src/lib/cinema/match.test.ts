@@ -4,8 +4,10 @@ import {
   filterWatched,
   mergeMovieCatalog,
   moviesFromShowtimes,
+  primeIdsForWatchChange,
   titlesMatch,
   watchedTitleSet,
+  watchSignature,
 } from "./match.ts";
 import type { RankingMovie, Showtime, WatchConfig } from "./types.ts";
 
@@ -84,6 +86,7 @@ const config: WatchConfig = {
     zone: "center",
     autoOpen: false,
     minutes: 10,
+    nasAuto: true,
   },
 };
 
@@ -116,5 +119,27 @@ describe("match", () => {
     const rows = moviesFromShowtimes([show("아이유 콘서트"), show("아이유 콘서트")]);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].title, "아이유 콘서트");
+  });
+
+  it("primes already-open shows when a chart poster rank is added", () => {
+    const prev = watchSignature({ ...config, ranks: [], watchTitles: [] });
+    const next = { ...config, ranks: [6], watchTitles: [] };
+    const ranking = [movie("아비정전 4K 리마스터링", 6)];
+    const shows = [show("아비정전"), show("오디세이")];
+    const primed = primeIdsForWatchChange(prev, next, ranking, shows);
+    assert.equal(primed.includes("cgv_yongsan:아비정전"), true);
+    assert.equal(primed.includes("cgv_yongsan:오디세이"), false);
+  });
+
+  it("primes every current show if a rank was added but ranking is empty", () => {
+    const prev = watchSignature({ ...config, ranks: [], watchTitles: [] });
+    const next = { ...config, ranks: [1], watchTitles: [] };
+    const primed = primeIdsForWatchChange(prev, next, [], [show("인턴"), show("오디세이")]);
+    assert.equal(primed.length, 2);
+  });
+
+  it("primes all shows when previous signature cannot be parsed", () => {
+    const primed = primeIdsForWatchChange("{not-json", config, [], [show("인턴")]);
+    assert.deepEqual(primed, ["cgv_yongsan:인턴"]);
   });
 });

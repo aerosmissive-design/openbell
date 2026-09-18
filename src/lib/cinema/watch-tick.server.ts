@@ -425,10 +425,11 @@ export async function runWatchTick() {
     }
     let extraSeen: string[] = [];
     let nextSig = snap.watchSig || sig;
-    if (!snap.watchSig) {
-      nextSig = sig;
-    } else if (snap.watchSig !== sig) {
-      extraSeen = primeIdsForWatchChange(snap.watchSig, config, scan.ranking, watched);
+    if (!snap.watchSig || snap.watchSig !== sig) {
+      extraSeen = [
+        ...watched.map((s) => s.id),
+        ...primeIdsForWatchChange(snap.watchSig || "{}", config, scan.ranking, watched),
+      ];
       nextSig = sig;
     }
     const seen = new Set([...hostSeen, ...extraSeen]);
