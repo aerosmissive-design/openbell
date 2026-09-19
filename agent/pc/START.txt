@@ -17,5 +17,6 @@ OpenBell PC Agent - START HERE
    Browser stays open. You click payment yourself.
    Agent never clicks payment. Never bypasses CAPTCHA.
 
+Korean steps: START-ko.txt
 Do not use Korean-named .bat files (they break on Windows).
 Do not merge until Windows headed dry-run B is confirmed.
