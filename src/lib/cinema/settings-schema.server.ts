@@ -1,4 +1,7 @@
+let schemaReady = false;
+
 export async function ensureUserSettingsSchema() {
+  if (schemaReady) return;
   const { getSql } = await import("@/lib/db");
   const sql = await getSql();
   await sql.query(
@@ -7,4 +10,5 @@ export async function ensureUserSettingsSchema() {
   await sql.query(
     `alter table user_settings add column if not exists prefs jsonb not null default '{}'::jsonb`,
   );
+  schemaReady = true;
 }

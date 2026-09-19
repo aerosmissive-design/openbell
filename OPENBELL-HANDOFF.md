@@ -1,29 +1,17 @@
-# 오픈벨 인수인계 — v3.9.61 (2026-09-19 18:03 KST)
+# 오픈벨 인수인계 — v3.9.62 (2026-09-19)
 
-시크릿은 넣지 않습니다.
+시크릿은 넣지 않습니다. 라이브: https://openbell-fawn.vercel.app
 
 ## 지금
 
-- 라이브 목표: https://openbell-fawn.vercel.app **v3.9.61**
-- GitHub `main`
-- 알림이 안 가는 **진짜 원인: Neon DB 쿼터 `53000`**. 코드 우회 불가. 로그인·user_settings·watch-tick 전부 Neon.
+Neon 무료 CU 쿼터 `53000`으로 로그인·알림 정지. 데이터는 살아 있음. 결제일(~10/1 또는 프로젝트 만든 9/10 기준 ~10/10)에 리셋.
 
-확인됨:
-```
-GET /api/watch-tick → 500 "Your account or project has exceeded the quota."
-Better Auth findSession → 같은 쿼터
-```
-
-v3.9.61: 설정 → 알림 경로에 「DB 쿼터」표시. tick은 쿼터면 500 대신 skipped+dbQuota.
-
-사용자가 해야 할 것: Neon 콘솔에서 컴퓨트 한도 상향 또는 월 쿼터 리셋 대기. 새 DB를 만들면 기존 계정·설정이 날아감.
-
-## 직전 세션 (v3.9.58~60)
-
-- 4개 UI/스캔 버그 + KT 정밀 URL mergeShowtimes
-- pingSeatmap에 KT 빠져 용산 「없음」 → 새로고침/fast에 KT
-- 배포 실패는 vite가 아니라 `db:migrate` Neon 쿼터. migrate fail-open.
+v3.9.62: 감시 주기(5분, 공홈/NAS/KT/릴레이/네이버 병렬)는 유지. Neon 절약:
+- watch-alive: create table·select 1·키별 조회 제거 → app_meta 한 방
+- 설정 폴링 20초 → 3분, 중복 fetch 제거
+- user_settings ALTER는 프로세스당 1회
+- 같은 app_meta 값은 재기록 안 함
 
 ## 하지 말 것
 
-KT 쿠키 저장, CAPTCHA 우회, 결제 자동 클릭, GAS 설치 UX, 큰 개편.
+KT 쿠키 저장, CAPTCHA 우회, 결제 자동, GAS 설치 UX, 큰 개편, 쿼터 중에 새 DB로 계정 이전(못 읽음).

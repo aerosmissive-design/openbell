@@ -3,7 +3,9 @@ import { snapshotFromRow, pingGasHeartbeat, type CloudSnapshot } from "./cloud";
 import { ensureUserSettingsSchema } from "./settings-schema.server";
 import {
   dbLabel,
-  readAppMeta,
+  isDbQuotaError,
+  lastMetaDbQuota,
+  readAppMetas,
   readLastNotify,
   readWatchLastRun,
   watchHost,
@@ -41,35 +43,45 @@ const THEATER_IDS = THEATERS.map((t) => t.id);
 let lastRunAt = 0;
 
 function isDbQuota(err: unknown) {
-  const e = err as { code?: string; message?: string };
-  return e?.code === "53000" || /exceeded the quota/i.test(String(e?.message || err));
-}
-
-async function probeDbLabel(): Promise<"neon" | "pglite" | "neon-quota"> {
-  if (dbLabel() !== "neon") return "pglite";
-  try {
-    const sql = await getSql();
-    await sql.query("select 1 as ok");
-    return "neon";
-  } catch (err) {
-    if (isDbQuota(err)) return "neon-quota";
-    return "neon";
-  }
+  return isDbQuotaError(err);
 }
 
 export async function watchTickHealth() {
-  const stored = await readWatchLastRun();
-  const last = Math.max(lastRunAt, stored);
-  const notify = await readLastNotify();
-  const githubRaw = await readAppMeta("github_watch_at");
-  const githubAt = Number(githubRaw);
+  const host = watchHost();
+  const bag = await readAppMetas([
+    `watch_last_run_${host}`,
+    `last_notify_${host}`,
+    "github_watch_at",
+    "external_watch_at",
+    "cgv_relay_watch",
+  ]);
+  const stored = Number(bag[`watch_last_run_${host}`]);
+  const last = Math.max(lastRunAt, Number.isFinite(stored) && stored > 0 ? stored : 0);
+  let notify: ChannelSendLog | null = null;
+  try {
+    notify = bag[`last_notify_${host}`]
+      ? (JSON.parse(bag[`last_notify_${host}`]) as ChannelSendLog)
+      : null;
+  } catch {
+    notify = await readLastNotify();
+  }
+  const githubAt = Number(bag.github_watch_at);
   const githubWakeAt = Number.isFinite(githubAt) && githubAt > 0 ? githubAt : 0;
-  const externalRaw = await readAppMeta("external_watch_at");
-  const externalAt = Number(externalRaw);
+  const externalAt = Number(bag.external_watch_at);
   const externalWakeAt =
     Number.isFinite(externalAt) && externalAt > 0 ? externalAt : 0;
-  const { readCgvRelayWatch } = await import("./relay-watch.server");
-  const db = await probeDbLabel();
+  const { cgvRelayWatchPublic, parseCgvRelayWatch } = await import("./relay-watch");
+  let relayRaw: unknown = null;
+  try {
+    relayRaw = bag.cgv_relay_watch ? JSON.parse(bag.cgv_relay_watch) : null;
+  } catch {
+    relayRaw = null;
+  }
+  const db = lastMetaDbQuota()
+    ? "neon-quota"
+    : dbLabel() !== "neon"
+      ? "pglite"
+      : "neon";
   return {
     lastRunAt: last,
     ageMs: last ? Date.now() - last : null,
@@ -84,7 +96,7 @@ export async function watchTickHealth() {
     externalWakeAgeMs: externalWakeAt ? Date.now() - externalWakeAt : null,
     externalWakeAlive:
       externalWakeAt > 0 && Date.now() - externalWakeAt < 15 * 60 * 1000,
-    cgvRelay: await readCgvRelayWatch(),
+    cgvRelay: cgvRelayWatchPublic(parseCgvRelayWatch(relayRaw)),
   };
 }
 

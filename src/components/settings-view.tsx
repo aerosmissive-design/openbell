@@ -805,23 +805,25 @@ function channelWorkLine(key: "mail" | "telegram" | "kakao", health: NotifyHealt
   ].join(" · ");
 }
 
-type AliveProbe = {
-  reachable: boolean;
-  alive: boolean;
-  ageMs: number | null;
-  dbQuota?: boolean;
-  githubWakeAlive?: boolean;
-  githubWakeAgeMs?: number | null;
-  externalWakeAlive?: boolean;
-  externalWakeAgeMs?: number | null;
-  lastNotify: { at?: number; mail?: string; telegram?: string; kakao?: string; x?: string } | null;
-};
 type CgvRelayHealth = {
   empty: boolean;
   since: number | null;
   durationMs: number;
   theaters: string[];
   stale: boolean;
+};
+type AliveProbe = {
+  reachable: boolean;
+  alive: boolean;
+  ageMs: number | null;
+  dbQuota?: boolean;
+  dbLine?: string;
+  githubWakeAlive?: boolean;
+  githubWakeAgeMs?: number | null;
+  externalWakeAlive?: boolean;
+  externalWakeAgeMs?: number | null;
+  lastNotify: { at?: number; mail?: string; telegram?: string; kakao?: string; x?: string } | null;
+  cgvRelay?: CgvRelayHealth | null;
 };
 type NotifyHealth = {
   vercel: AliveProbe;
@@ -861,16 +863,26 @@ async function probeWatchAlive(url: string): Promise<AliveProbe> {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return { ...emptyProbe };
     const json = (await res.json()) as any;
+    const dbLine =
+      json.db === "neon-quota"
+        ? "neon-quota"
+        : json.db === "neon"
+          ? "neon"
+          : json.db === "pglite"
+            ? "pglite"
+            : "";
     return {
       reachable: true,
       alive: Boolean(json.alive),
       ageMs: typeof json.ageMs === "number" ? json.ageMs : null,
       dbQuota: json.db === "neon-quota" || Boolean(json.dbQuota),
+      dbLine,
       githubWakeAlive: Boolean(json.githubWakeAlive),
       githubWakeAgeMs: typeof json.githubWakeAgeMs === "number" ? json.githubWakeAgeMs : null,
       externalWakeAlive: Boolean(json.externalWakeAlive),
       externalWakeAgeMs: typeof json.externalWakeAgeMs === "number" ? json.externalWakeAgeMs : null,
       lastNotify: json.lastNotify ?? null,
+      cgvRelay: json.cgvRelay ?? null,
     };
   } catch {
     return { ...emptyProbe };
@@ -895,23 +907,8 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
       const vercel = here
         ? local
         : await probeWatchAlive("https://openbell-fawn.vercel.app/api/watch-alive");
-      let dbLine = "";
-      let relay: CgvRelayHealth | null = null;
-      try {
-        const res = await fetch("/api/watch-alive", { signal: AbortSignal.timeout(8000) });
-        const json = (await res.json()) as any;
-        dbLine =
-          json.db === "neon-quota"
-            ? "neon-quota"
-            : json.db === "neon"
-              ? "neon"
-              : json.db === "pglite"
-                ? "pglite"
-                : "";
-        relay = json.cgvRelay ?? null;
-      } catch {
-        dbLine = "pending";
-      }
+      const dbLine = vercel.dbLine || local.dbLine || "";
+      const relay = vercel.cgvRelay ?? local.cgvRelay ?? null;
       const gas = url ? await probeGasHealth(url) : null;
       if (cancelled) return;
       setHealth({
@@ -927,7 +924,7 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
     void load();
     const timer = window.setInterval(() => {
       void load();
-    }, 20000);
+    }, 3 * 60 * 1000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

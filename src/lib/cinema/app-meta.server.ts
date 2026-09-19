@@ -9,33 +9,73 @@ export type ChannelSendLog = {
   webhook?: string;
 };
 
+type Sql = Awaited<ReturnType<(typeof import("@/lib/db"))["getSql"]>>;
+
+let metaSql: Sql | null = null;
+let metaReady = false;
+const mem = new Map<string, string>();
+let lastDbQuota = false;
+
+export function isDbQuotaError(err: unknown) {
+  const e = err as { code?: string; message?: string };
+  return e?.code === "53000" || /exceeded the quota/i.test(String(e?.message || err));
+}
+
+export function lastMetaDbQuota() {
+  return lastDbQuota;
+}
+
 async function ensureMeta() {
+  if (metaReady && metaSql) return metaSql;
   const { getSql } = await import("@/lib/db");
   const sql = await getSql();
-  await sql.query(
-    `create table if not exists app_meta (
-      key text primary key,
-      value text not null,
-      updated_at timestamptz not null default now()
-    )`,
-  );
+  if (!metaReady) {
+    await sql.query(
+      `create table if not exists app_meta (
+        key text primary key,
+        value text not null,
+        updated_at timestamptz not null default now()
+      )`,
+    );
+    metaReady = true;
+  }
+  metaSql = sql;
+  lastDbQuota = false;
   return sql;
 }
 
-export async function readAppMeta(key: string) {
+export async function readAppMetas(keys: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (!keys.length) return out;
   try {
     const sql = await ensureMeta();
-    const rows = await sql.query<{ value: string }>(
-      "select value from app_meta where key = $1 limit 1",
-      [key],
+    const rows = await sql.query<{ key: string; value: string }>(
+      "select key, value from app_meta where key = any($1::text[])",
+      [keys],
     );
-    return rows[0]?.value ?? "";
-  } catch {
-    return "";
+    lastDbQuota = false;
+    for (const row of rows) {
+      out[row.key] = row.value;
+      mem.set(row.key, row.value);
+    }
+    for (const key of keys) {
+      if (!(key in out)) out[key] = mem.get(key) ?? "";
+    }
+    return out;
+  } catch (err) {
+    if (isDbQuotaError(err)) lastDbQuota = true;
+    for (const key of keys) out[key] = mem.get(key) ?? "";
+    return out;
   }
 }
 
+export async function readAppMeta(key: string) {
+  const bag = await readAppMetas([key]);
+  return bag[key] ?? "";
+}
+
 export async function writeAppMeta(key: string, value: string) {
+  if (mem.get(key) === value) return;
   try {
     const sql = await ensureMeta();
     await sql.query(
@@ -44,8 +84,10 @@ export async function writeAppMeta(key: string, value: string) {
        on conflict (key) do update set value = excluded.value, updated_at = now()`,
       [key, value],
     );
-  } catch {
-    /* preview without db */
+    mem.set(key, value);
+    lastDbQuota = false;
+  } catch (err) {
+    if (isDbQuotaError(err)) lastDbQuota = true;
   }
 }
 
