@@ -250,9 +250,62 @@ export class CgvBookingAgent {
     await this.assertNoCaptcha(page);
   }
 
+
+  /**
+   * Best-effort person/audience count before the seat map (DOM not E2E-verified).
+   * If no control matches, warn and continue.
+   */
+  async selectAudienceCount(count: number) {
+    const page = this.getPage();
+    await this.assertNoCaptcha(page);
+    const countStr = String(count);
+    const roots: SeatRoot[] = [page, ...page.frames()];
+
+    for (const root of roots) {
+      const candidates: Locator[] = [
+        root.getByRole("button", { name: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) }).first(),
+        root.getByRole("spinbutton").first(),
+        root.locator(`[data-count="${escapeCssAttribute(countStr)}"]`).first(),
+        root.locator(`[data-seat-count="${escapeCssAttribute(countStr)}"]`).first(),
+        root.locator(`button, [role='button'], a`).filter({ hasText: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) }).first(),
+        root.getByLabel(/일반|성인|인원/i).first(),
+      ];
+      for (const candidate of candidates) {
+        try {
+          if (!(await candidate.count())) continue;
+          const label = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
+          if (isForbiddenClickLabel(label) || FORBIDDEN_CLICK_WORDS.test(label)) {
+            console.warn(`[audience] refusing payment-like control: ${label.trim().slice(0, 60)}`);
+            continue;
+          }
+          const tag = await candidate.evaluate((el) => el.tagName.toLowerCase()).catch(() => "");
+          const role = await candidate.getAttribute("role").catch(() => "");
+          if (tag === "input" || role === "spinbutton") {
+            await candidate.fill(countStr);
+          } else {
+            await candidate.click();
+          }
+          console.log(`[audience] selected count=${count} via hypothesized control (DOM not E2E-verified)`);
+          await this.waitForProgress(page);
+          await this.assertNoCaptcha(page);
+          return true;
+        } catch {
+          /* try next */
+        }
+      }
+    }
+    console.warn(
+      `[audience] no person-count control matched for count=${count}; continuing (DOM not E2E-verified)`,
+    );
+    return false;
+  }
+
+
   async selectSeats(target: BookingTarget) {
     const page = this.getPage();
     await this.assertNoCaptcha(page);
+
+    await this.selectAudienceCount(target.requestedSeatCount);
 
     const explicit = target.seatIds?.filter(Boolean) ?? [];
     const seatIds = explicit.length

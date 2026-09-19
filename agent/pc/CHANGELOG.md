@@ -20,6 +20,8 @@ Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READ
 
 ### Improvements
 
+- Restored `selectAudienceCount` + CAPTCHA_STOP state callback on tip after safety-helper wiring.
+- `npm run doctor` + `url.test.ts` back in package scripts.
 - CGV seat-map: search **same-origin iframes** (`page.frames()`) when waiting / reading / finding seats; prefer the frame with `SEAT_MAP_SELECTOR` count > 0. On failure, log safe diagnostics (URL, frame count, sample data-seat*/data-row/aria-label attrs, payment-stage word note) — no secrets.
 - Seat ranker: if `preferredRow` + `preferredRowDistance` hard filter yields zero blocks, **fall back** without the hard cutoff (row distance remains a score penalty). `autoSelectSeats` logs a one-line warning when fallback is used. Unit tests cover fallback + aisle/edge still respected.
 - `payment-ready`: retry up to 3 times with backoff (~500ms, ~1500ms) on network errors / 5xx; **never** retry 401. Log brief `hardStop` / `telegram` from response JSON when present.
@@ -49,7 +51,7 @@ Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READ
 - `agent/pc` 를 **독립 npm 패키지**로 재작성. 웹앱 루트 `npm install` 불필요.
 - 엔트리: `1-install.cmd` / `2-run.cmd` (ASCII only). 한글 `설치.bat` 폐기 권고 (Windows 5001).
 - 구 `install.cmd` / `run-agent.cmd` 는 thin wrapper.
-- 소스: `src/cgv-agent.ts`, `src/run.ts`, `src/seat-ranker.ts` (인라인 랭커).
+- 소스: `src/cgv-agent.ts`, `src/run.ts`, `src/seat-ranker.ts` (인라인 랭커 import).
 - 실행: `npx tsx src/run.ts`.
 
 ### Safety (인수인계)

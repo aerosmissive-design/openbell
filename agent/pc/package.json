@@ -7,7 +7,8 @@
   "scripts": {
     "start": "tsx src/run.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/seat-ranker.test.ts src/safety.test.ts"
+    "doctor": "tsx src/doctor.ts",
+    "test": "tsx --test src/seat-ranker.test.ts src/safety.test.ts src/url.test.ts"
   },
   "dependencies": {
     "playwright": "^1.62.0"
