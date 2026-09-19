@@ -1,5 +1,17 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.1 — 2026-09-19
+
+### Improvements
+
+- `preferredRowDistance` now filters out rows farther than the configured distance (was loaded but unused).
+- CGV seat-map locators: broader data-*/role/seatmap fallbacks (still **not** Windows E2E verified).
+- `1-install.cmd`: refresh PATH for Program Files and LocalAppData Node installs; clearer retry messaging.
+- `npm test` unit tests for seat-ranker (node:test via tsx).
+- BOOKING_URL: `siteNo` optional; still requires movNo,scnYmd,scnsNo,scnSseq.
+
+Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READY.
+
 ## 2.0.0 — 2026-09-19
 
 인수인계서(2026-09-18) 기준 재작성.
