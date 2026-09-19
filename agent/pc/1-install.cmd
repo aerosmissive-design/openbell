@@ -1,0 +1,76 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+title OpenBell PC Agent - Install
+
+echo ============================================
+echo   OpenBell PC Agent - Install (local only)
+echo ============================================
+echo.
+
+echo [1/4] Checking Node.js...
+where node >nul 2>&1
+if errorlevel 1 (
+  echo Node.js LTS is not installed. Installing with winget...
+  where winget >nul 2>&1
+  if errorlevel 1 (
+    echo winget is not available. Install Node.js LTS from https://nodejs.org/ then re-run.
+    start https://nodejs.org/
+    pause
+    exit /b 1
+  )
+  winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements
+  if errorlevel 1 (
+    echo Node.js installation failed.
+    pause
+    exit /b 1
+  )
+  set "PATH=%ProgramFiles%\nodejs;%PATH%"
+)
+
+where node >nul 2>&1
+if errorlevel 1 (
+  echo Node.js was not found after install. Reboot, then run 1-install.cmd again.
+  pause
+  exit /b 1
+)
+
+echo Node.js OK:
+call node -v
+call npm -v
+
+echo.
+echo [2/4] npm install LOCAL to agent\pc only...
+call npm install
+if errorlevel 1 (
+  echo npm install failed.
+  pause
+  exit /b 1
+)
+
+echo.
+echo [3/4] Installing Playwright Chromium...
+call npx playwright install chromium
+if errorlevel 1 (
+  echo Playwright Chromium install failed.
+  pause
+  exit /b 1
+)
+
+echo.
+echo [4/4] Checking config.env...
+if not exist "%~dp0config.env" (
+  copy /y "%~dp0config.env.example" "%~dp0config.env" >nul
+  echo config.env created from config.env.example
+  echo Edit config.env, then run 2-run.cmd
+) else (
+  echo config.env already exists.
+)
+
+echo.
+echo ============================================
+echo Install complete.
+echo Next: edit config.env, then run 2-run.cmd
+echo ============================================
+echo.
+pause
