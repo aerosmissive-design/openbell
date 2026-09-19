@@ -2,16 +2,19 @@
 
 ## 2.0.3 — 2026-09-19
 
-### Improvements
+### Fixes (no E2E claim)
 
-- Safe next / CAPTCHA / payment-stage checks now also scan **same-origin iframes** (seat map already did). Cross-origin frames are skipped safely. Forbidden payment controls still never clicked.
-- Best-effort **person/audience count** step before seats (`selectAudienceCount`). Hypothesized controls only — if nothing matches, warns and continues. **Not Windows E2E verified.**
-- Operator **doctor**: `3-doctor.cmd` / `npm run doctor` checks Node, node_modules, playwright, config.env required keys, BOOKING_URL shape; prints OPENBELL_URL / NAS_WORKER_TOKEN only as set/unset (never secret values).
-- `1-install.cmd` post-install checklist; `2-run.cmd` points at doctor.
-- On CAPTCHA with callbacks enabled: best-effort OpenBell state `CAPTCHA_STOP` before result code **C**.
-- Unit tests for `isExactCgvBookingUrl`.
+- CAPTCHA: scan **visible text + captcha iframe URL only**. Do not grep full HTML for `cloudflare` / `recaptcha` (CDN false positive → bogus result C).
+- Payment STAGE: require `/payment` URL or form words (`최종결제금액`, `결제수단`, …). A lone `결제하기` or English `order`/`border` is **not** a payment page. Forbidden-click blacklist unchanged (`결제하기` still never clicked).
+- After HARD STOP, a failed OpenBell callback **does not close** the headed browser (manual payment window preserved).
+- `launch()` no longer loads the generic movie-book page before `BOOKING_URL`.
+- `clickSafeNext` also searches same-origin frames.
+- Seat-map failure saves `logs/seat-map-*.png` (no secrets).
+- `config.env`, `logs/`, storageState gitignored (root + `agent/pc`).
+- Preflight warns when `BOOKING_URL` is empty.
+- Unit tests for URL / captcha / payment-stage helpers.
 
-Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READY.
+Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READY. **Windows headed E2E still unverified.**
 
 ## 2.0.2 — 2026-09-19
 

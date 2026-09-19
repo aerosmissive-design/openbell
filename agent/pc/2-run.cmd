@@ -31,12 +31,14 @@ if not exist "%~dp0config.env" (
   exit /b 1
 )
 
-echo Tip: run 3-doctor.cmd anytime to check config without printing secrets.
+if not exist "%~dp0logs" mkdir "%~dp0logs"
+
 set "OPENBELL_AGENT_CONFIG=%~dp0config.env"
 echo Starting OpenBell PC Agent...
 call npx tsx "%~dp0src\run.ts"
 if errorlevel 1 (
   echo.
   echo Agent stopped with an error.
+  echo If a screenshot was saved, look in the logs folder.
   pause
 )

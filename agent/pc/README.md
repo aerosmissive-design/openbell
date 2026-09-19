@@ -5,18 +5,25 @@ Windows PC 전용 **독립 패키지**입니다. 웹앱 루트의 `npm install` 
 결제(결제하기 / 최종결제 / purchase / order)는 **절대 클릭하지 않습니다**.  
 `PAYMENT_READY` 에서 HARD STOP 하며, 세션 TTL은 서버 기준 **10분**입니다.
 
-CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중단하고 보고합니다.
+CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중단·보고합니다.
 
 > **미완료 / 주의:** CGV DOM 셀렉터는 실제 E2E로 검증되지 않았습니다.  
 > 무인 운영 전에 headed 모드로 회차·좌석 맵을 직접 확인하세요. “검증 완료”를 주장하지 않습니다.
 
 ### v2.0.3 notes
 
-- Safe next / CAPTCHA / payment-stage: also scan **same-origin iframes** (no payment clicks).
-- Best-effort **person/audience count** before seats — hypothesized controls only; **not E2E verified**.
-- Doctor: `3-doctor.cmd` / `npm run doctor` (secrets only as set/unset).
-- CAPTCHA → best-effort OpenBell state `CAPTCHA_STOP` then result **C**.
-- Still includes v2.0.2: iframe seat-map, ranker distance fallback, payment-ready retries, preflight.
+- CAPTCHA: visible text + captcha iframe URL only (no full-HTML `cloudflare` false positive).
+- Payment STAGE tightened; `결제하기` still never clicked.
+- HARD STOP 이후 OpenBell 콜백 실패해도 headed 브라우저를 닫지 않음.
+- Seat-map 실패 시 `logs/seat-map-*.png`. `config.env` gitignore.
+- **Windows headed E2E still unverified.**
+
+### v2.0.2 notes
+
+- Seat map: same-origin **iframe** search + failure diagnostics (no secrets).
+- Ranker: `preferredRowDistance` hard-filter empty → fallback (distance as score only); aisle/edge still apply.
+- `payment-ready` retries (network/5xx, not 401) + preflight banner (no tokens).
+- `2-run.cmd` refreshes Node PATH like `1-install.cmd`.
 
 ---
 
@@ -33,8 +40,6 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 
 구버전 호환: `install.cmd` → `1-install.cmd` 래퍼.
 
-설치 후 선택: `3-doctor.cmd` (또는 `npm run doctor`) — Node/의존성/`config.env` 필수 키/`BOOKING_URL` 형식을 점검합니다. 토큰 값은 출력하지 않습니다.
-
 ---
 
 ## STEP 2 — 설정
@@ -45,7 +50,7 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 |------|------|
 | `BOOKING_MOVIE` / `BOOKING_DATE` / `BOOKING_SHOWTIME` | 예매 대상 (필수) |
 | `BOOKING_SEAT_COUNT` | 좌석 수 |
-| `BOOKING_URL` | CGV **정확 회차** URL. 설정 시 영화/날짜/시간 클릭을 건너뛰고 바로 연다 |
+| `BOOKING_URL` | CGV **정확 회차** URL. 설정 시 영화/날짜/시간 클릭을 건너뛰고 바로 열다 |
 | `BOOKING_SEAT_IDS` | 지정 좌석 (예: `E5,E6`). 비우면 연속 좌석 자동 선택 |
 | `OPENBELL_URL` + `NAS_WORKER_TOKEN` | 둘 다 있으면 OpenBell API 콜백. **없으면 dry-run** |
 | `BOOKING_SESSION_ID` | 기존 세션 ID. 비우고 콜백 ON이면 `POST /api/booking/create` 로 생성 |
@@ -118,7 +123,7 @@ Authorization: `Bearer <NAS_WORKER_TOKEN>` (서버: `NAS_WORKER_TOKEN` / `NAS_RE
 | `GET` | `/api/booking/session?id=` | — | `{ ok, session }` |
 | `POST` | `/api/booking/session` | create와 유사 (레거시) | `{ ok, session }` |
 
-`routeTree.gen.ts` 에 booking 이 안 보이면 서버 라우트 재생성/재배포가 필요할 수 있습니다. 소스 파일은 존재합니다.
+`routeTree.gen.ts` 에 booking 경로가 안 보여도, 프로덕션 `https://openbell-fawn.vercel.app/api/booking/create|state|payment-ready` 는 **인증 없이 401**로 살아 있음 (2026-09-19 확인). 무단 머지/재배포하지 말 것.
 
 ---
 
@@ -137,17 +142,17 @@ Authorization: `Bearer <NAS_WORKER_TOKEN>` (서버: `NAS_WORKER_TOKEN` / `NAS_RE
 agent/pc/
   1-install.cmd      # ASCII 설치
   2-run.cmd          # 실행
-  3-doctor.cmd       # 설치/설정 점검 (시크릿 미출력)
   install.cmd        # → 1-install.cmd
   run-agent.cmd      # → 2-run.cmd
   package.json       # 로컬 전용
   tsconfig.json
   config.env.example
   src/
+    safety.ts
+    safety.test.ts
     seat-ranker.ts   # 인라인 연속좌석 랭커 (../../src 비의존)
     cgv-agent.ts
     run.ts
-    doctor.ts
   README.md
   CHANGELOG.md
 ```
@@ -155,7 +160,6 @@ agent/pc/
 ```bat
 npm run typecheck
 npm test
-npm run doctor
 npm start
 ```
 
