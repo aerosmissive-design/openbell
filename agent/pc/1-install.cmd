@@ -69,16 +69,18 @@ echo [4/4] Checking config.env...
 if not exist "%~dp0config.env" (
   copy /y "%~dp0config.env.example" "%~dp0config.env" >nul
   echo config.env created from config.env.example
-  echo Edit config.env, then run 2-run.cmd
+  echo Opening config.env in Notepad so you can edit movie/date/showtime...
+  start "" notepad "%~dp0config.env"
 ) else (
   echo config.env already exists.
 )
 
 echo.
 echo ============================================
-echo Install complete. Read START.txt
+echo Install complete. Read START.txt or START-ko.txt
 echo Checklist:
 echo   1. Edit config.env (movie/date/showtime; optional BOOKING_URL)
+echo      (opened in Notepad on first install)
 echo   2. Optional: 4-save-login.cmd  (manual CGV login, then save session)
 echo   3. Optional: 3-doctor.cmd
 echo   4. Run 2-run.cmd
