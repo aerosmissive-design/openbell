@@ -132,6 +132,24 @@ export class CgvBookingAgent {
     return best;
   }
 
+  /** Main page + same-origin frames that can be evaluated (for next/captcha/payment checks). */
+  private async interactiveRoots(): Promise<SeatRoot[]> {
+    const page = this.getPage();
+    const roots: SeatRoot[] = [page];
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      try {
+        // Touch document to detect same-origin; skip cross-origin.
+        await frame.evaluate(() => document.readyState);
+        roots.push(frame);
+      } catch {
+        // cross-origin / detached
+      }
+    }
+    return roots;
+  }
+
+
   private async waitForSeatMap(): Promise<SeatRoot> {
     const page = this.getPage();
     const deadline = Date.now() + this.options.timeoutMs;
@@ -232,9 +250,67 @@ export class CgvBookingAgent {
     await this.assertNoCaptcha(page);
   }
 
+
+  /**
+   * Best-effort person/audience count selection before the seat map.
+   * CGV often requires picking 일반/성인 count = BOOKING_SEAT_COUNT.
+   * DOM is NOT Windows-E2E verified — if no control matches, warn and continue.
+   */
+  async selectAudienceCount(count: number) {
+    const page = this.getPage();
+    await this.assertNoCaptcha(page);
+
+    const roots = await this.interactiveRoots();
+    const countStr = String(count);
+
+    for (const root of roots) {
+      // Exact count button / spin (common patterns; unverified)
+      const candidates: Locator[] = [
+        root.getByRole("button", { name: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) }).first(),
+        root.getByRole("spinbutton").first(),
+        root.locator(`[data-count="${escapeCssAttribute(countStr)}"]`).first(),
+        root.locator(`[data-seat-count="${escapeCssAttribute(countStr)}"]`).first(),
+        root.locator(`button, [role='button'], a`).filter({ hasText: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) }).first(),
+        root.getByLabel(/일반|성인|인원/i).first(),
+      ];
+
+      for (const candidate of candidates) {
+        try {
+          if (!(await candidate.count())) continue;
+          const text = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
+          if (FORBIDDEN_CLICK_WORDS.test(text) || PAYMENT_STAGE_WORDS.test(text)) {
+            console.warn(`[audience] refusing payment-like control: ${text.trim().slice(0, 60)}`);
+            continue;
+          }
+          const tag = await candidate.evaluate((el) => el.tagName.toLowerCase()).catch(() => "");
+          const role = await candidate.getAttribute("role").catch(() => "");
+          if (tag === "input" || role === "spinbutton") {
+            await candidate.fill(countStr);
+          } else {
+            await candidate.click();
+          }
+          console.log(`[audience] selected count=${count} via hypothesized control (DOM not E2E-verified)`);
+          await this.waitForProgress(page);
+          await this.assertNoCaptcha(page);
+          return true;
+        } catch {
+          // try next candidate
+        }
+      }
+    }
+
+    console.warn(
+      `[audience] no person-count control matched for count=${count}; continuing (DOM not E2E-verified)`,
+    );
+    return false;
+  }
+
+
   async selectSeats(target: BookingTarget) {
     const page = this.getPage();
     await this.assertNoCaptcha(page);
+
+    await this.selectAudienceCount(target.requestedSeatCount);
 
     const explicit = target.seatIds?.filter(Boolean) ?? [];
     const seatIds = explicit.length
@@ -451,7 +527,22 @@ export class CgvBookingAgent {
     const url = page.url().toLowerCase();
     if (url.includes("payment") || url.includes("/pay") || url.includes("order")) return true;
     const body = await page.locator("body").innerText().catch(() => "");
-    return PAYMENT_STAGE_WORDS.test(body);
+    if (PAYMENT_STAGE_WORDS.test(body)) return true;
+
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      try {
+        const frameUrl = frame.url().toLowerCase();
+        if (frameUrl.includes("payment") || frameUrl.includes("/pay") || frameUrl.includes("order")) {
+          return true;
+        }
+        const frameBody = await frame.locator("body").innerText().catch(() => "");
+        if (PAYMENT_STAGE_WORDS.test(frameBody)) return true;
+      } catch {
+        // cross-origin / detached
+      }
+    }
+    return false;
   }
 
   /**
@@ -460,30 +551,46 @@ export class CgvBookingAgent {
   private async clickSafeNext(page: Page) {
     if (await this.isPaymentStage(page)) return false;
 
-    const candidates: Locator[] = [
-      page.getByRole("button", { name: SAFE_NEXT_WORDS }).first(),
-      page.getByRole("link", { name: SAFE_NEXT_WORDS }).first(),
-      page.locator("button, a, [role='button']").filter({ hasText: SAFE_NEXT_WORDS }).first(),
-    ];
+    const roots = await this.interactiveRoots();
+    for (const root of roots) {
+      const candidates: Locator[] = [
+        root.getByRole("button", { name: SAFE_NEXT_WORDS }).first(),
+        root.getByRole("link", { name: SAFE_NEXT_WORDS }).first(),
+        root.locator("button, a, [role='button']").filter({ hasText: SAFE_NEXT_WORDS }).first(),
+      ];
 
-    for (const candidate of candidates) {
-      if (!(await candidate.count())) continue;
-      const text = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
-      if (FORBIDDEN_CLICK_WORDS.test(text)) {
-        console.warn(`[HARD_STOP] Refusing forbidden control: ${text.trim().slice(0, 80)}`);
-        continue;
+      for (const candidate of candidates) {
+        if (!(await candidate.count())) continue;
+        const text = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
+        if (FORBIDDEN_CLICK_WORDS.test(text)) {
+          console.warn(`[HARD_STOP] Refusing forbidden control: ${text.trim().slice(0, 80)}`);
+          continue;
+        }
+        if (!SAFE_NEXT_WORDS.test(text)) continue;
+        await candidate.click();
+        return true;
       }
-      if (!SAFE_NEXT_WORDS.test(text)) continue;
-      await candidate.click();
-      return true;
     }
     return false;
   }
 
   private async assertNoCaptcha(page: Page) {
+    const chunks: string[] = [];
     const body = await page.locator("body").innerText().catch(() => "");
     const html = await page.content().catch(() => "");
-    const blob = `${body}\n${html}`;
+    chunks.push(body, html);
+
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      try {
+        const frameBody = await frame.locator("body").innerText().catch(() => "");
+        if (frameBody) chunks.push(frameBody);
+      } catch {
+        // cross-origin / detached
+      }
+    }
+
+    const blob = chunks.join("\n");
     if (CAPTCHA_WORDS.test(blob)) {
       this.stopped = true;
       throw new Error("CAPTCHA_DETECTED: agent will not bypass CAPTCHA. Solve manually or stop.");

@@ -13,7 +13,7 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 ### v2.0.3 notes
 
 - Safe next / CAPTCHA / payment-stage: also scan **same-origin iframes** (no payment clicks).
-- Best-effort **person/audience count** before seats — hypothesized only; **not E2E verified**.
+- Best-effort **person/audience count** before seats — hypothesized controls only; **not E2E verified**.
 - Doctor: `3-doctor.cmd` / `npm run doctor` (secrets only as set/unset).
 - CAPTCHA → best-effort OpenBell state `CAPTCHA_STOP` then result **C**.
 - Still includes v2.0.2: iframe seat-map, ranker distance fallback, payment-ready retries, preflight.
@@ -138,7 +138,7 @@ agent/pc/
   1-install.cmd      # ASCII 설치
   2-run.cmd          # 실행
   3-doctor.cmd       # 설치/설정 점검 (시크릿 미출력)
-  install.cmd        # → 1-install.cmd 래퍼.
+  install.cmd        # → 1-install.cmd
   run-agent.cmd      # → 2-run.cmd
   package.json       # 로컬 전용
   tsconfig.json

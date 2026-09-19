@@ -43,7 +43,7 @@ Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READ
 
 ### Breaking / rebuild
 
-- `agent/pc` 를 **독립 npm 패키지로 재작성. 웹앱 루트 `npm install` 불필요.
+- `agent/pc` 를 **독립 npm 패키지**로 재작성. 웹앱 루트 `npm install` 불필요.
 - 엔트리: `1-install.cmd` / `2-run.cmd` (ASCII only). 한글 `설치.bat` 폐기 권고 (Windows 5001).
 - 구 `install.cmd` / `run-agent.cmd` 는 thin wrapper.
 - 소스: `src/cgv-agent.ts`, `src/run.ts`, `src/seat-ranker.ts` (인라인 랭커).

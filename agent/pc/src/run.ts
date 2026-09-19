@@ -325,6 +325,8 @@ console.log(`Date: ${target.playDate}`);
 console.log(`Showtime: ${target.showtime}`);
 console.log(`Seat count: ${requestedSeatCount}`);
 console.log(`BOOKING_URL: ${exactBookingUrl ? "yes" : "no"}`);
+console.log(`Headless: ${headless}`);
+console.log(`Hold browser: ${holdAtPayment}`);
 console.log("========================================");
 
 if (dryRun) {
@@ -412,6 +414,20 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (message.startsWith("CAPTCHA_DETECTED")) {
+    if (callbacksEnabled && bookingSessionId) {
+      try {
+        await updateState({
+          openbellUrl: openbellUrl!,
+          workerToken: workerToken!,
+          sessionId: bookingSessionId,
+          state: "CAPTCHA_STOP",
+        });
+        console.log("OpenBell booking state: CAPTCHA_STOP");
+      } catch (stateError) {
+        const detail = stateError instanceof Error ? stateError.message : String(stateError);
+        console.warn(`[captcha] failed to report CAPTCHA_STOP: ${detail.slice(0, 200)}`);
+      }
+    }
     printResultCode("C", message);
   } else if (
     message.startsWith("OPENBELL_") ||
