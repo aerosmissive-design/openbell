@@ -1,6 +1,6 @@
 import { readAppMeta, writeAppMeta } from "@/lib/cinema/app-meta.server";
 import { transition } from "./state-machine";
-import type { BookingSession, BookingState } from "./types";
+import { PAYMENT_READY_TTL_MS, type BookingSession, type BookingState } from "./types";
 
 const PREFIX = "booking_session:";
 
@@ -36,7 +36,7 @@ export async function updateBookingState(id: string, next: BookingState) {
   const updated = { ...session, state };
   if (state === "PAYMENT_READY") {
     updated.paymentReadyAt = new Date().toISOString();
-    updated.expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    updated.expiresAt = new Date(Date.now() + PAYMENT_READY_TTL_MS).toISOString();
   }
   return saveBookingSession(updated);
 }
