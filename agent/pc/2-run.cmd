@@ -35,7 +35,7 @@ if not exist "%~dp0logs" mkdir "%~dp0logs"
 
 set "OPENBELL_AGENT_CONFIG=%~dp0config.env"
 echo Starting OpenBell PC Agent...
-call npx tsx "%~dp0src\run.ts"
+call npx tsx "%~dp0src\cli.ts"
 if errorlevel 1 (
   echo.
   echo Agent stopped with an error.
