@@ -61,3 +61,43 @@ export function isForbiddenClickLabel(text: string) {
 export function isCaptchaFrameUrl(url: string) {
   return /recaptcha|hcaptcha|h-captcha|\/captcha/i.test(url);
 }
+
+/** Login URL + password form. Header "로그인" alone is not enough. */
+export function looksLikeLoginPage(url: string, visibleText: string) {
+  const u = url.toLowerCase();
+  const pathHit = /\/(?:user\/)?login(?:\/|$|\?)|\/member\/login|\/signin/i.test(u);
+  if (!pathHit) return false;
+  return /비밀번호/.test(visibleText) && /아이디|이메일|휴대전화/.test(visibleText);
+}
+
+/**
+ * Age-gate / cookie / 닫기 dialogs. Never if the label mentions 결제.
+ */
+export function isSafeDialogLabel(text: string) {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t || isForbiddenClickLabel(t) || /결제/.test(t)) return false;
+  if (/^(닫기|확인|동의|동의합니다|다시\s*보지\s*않기)$/i.test(t)) return true;
+  if (/관람등급/.test(t) && /확인|동의/.test(t)) return true;
+  if (/만\s*\d+\s*세/.test(t) && /확인|동의/.test(t)) return true;
+  return false;
+}
+
+export const OFFICIAL_OPENBELL_HOST = "openbell-fawn.vercel.app";
+
+export function isOfficialOpenBellUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname.toLowerCase() === OFFICIAL_OPENBELL_HOST;
+  } catch {
+    return false;
+  }
+}
+
+export function isBookingDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+}
+
+export function isBookingShowtime(value: string) {
+  return /^\d{1,2}:\d{2}$/.test(value.trim());
+}
+

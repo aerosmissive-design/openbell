@@ -1,5 +1,15 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.5 — 2026-09-19
+
+### Improvements (no E2E claim)
+
+- Detect CGV **login page** (login path + 비밀번호 form). Stop with `LOGIN_REQUIRED` / result D. Does not fill credentials.
+- Dismiss **관람등급/동의/닫기** dialogs only (never if label contains 결제). Max 3.
+- Result-code classifier unit-tested. Doctor checks `BOOKING_DATE` YYYY-MM-DD, showtime `HH:MM`, warns if OPENBELL_URL is not `openbell-fawn.vercel.app`.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.4 — 2026-09-19
 
 ### Fixes

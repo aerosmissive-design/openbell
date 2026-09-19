@@ -7,6 +7,7 @@ import {
   type BookingTarget,
   isExactCgvBookingUrl,
 } from "./cgv-agent.js";
+import { classifyAgentError } from "./result-code.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PC_ROOT = resolve(__dirname, "..");
@@ -427,17 +428,7 @@ try {
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  if (message.startsWith("CAPTCHA_DETECTED")) {
-    printResultCode("C", message);
-  } else if (
-    message.startsWith("OPENBELL_") ||
-    message.includes("unauthorized") ||
-    message.includes("OPENBELL")
-  ) {
-    printResultCode("E", message);
-  } else {
-    printResultCode("D", message);
-  }
+  printResultCode(classifyAgentError(message), message);
   // Server has no CAPTCHA_STOP state — report FAILED so the session is not left WATCHING.
   if (callbacksEnabled && bookingSessionId && !message.startsWith("OPENBELL_")) {
     try {

@@ -9,7 +9,9 @@ import {
   isExactCgvBookingUrl,
   isForbiddenClickLabel,
   isPaymentStageSignal,
+  isSafeDialogLabel,
   looksLikeCaptchaChallenge,
+  looksLikeLoginPage,
 } from "./safety.js";
 
 export type BookingTarget = {
@@ -243,6 +245,7 @@ export class CgvBookingAgent {
     }
 
     await page.goto(this.options.baseUrl ?? CGV_BOOKING_URL, { waitUntil: "domcontentloaded" });
+    await this.waitForProgress(page);
     await this.assertNoCaptcha(page);
     await this.clickTextOrRole(page, target.movieTitle);
     await this.assertNoCaptcha(page);
@@ -552,6 +555,43 @@ export class CgvBookingAgent {
   private async waitForProgress(page: Page) {
     await page.waitForLoadState("domcontentloaded").catch(() => undefined);
     await page.locator("body").waitFor({ state: "visible", timeout: this.options.timeoutMs }).catch(() => undefined);
+    await this.dismissSafeDialogs(page);
+    await this.assertNoLogin(page);
+  }
+
+  /**
+   * Click age-gate / 닫기 only. Never payment. At most 3 clicks.
+   */
+  private async dismissSafeDialogs(page: Page) {
+    for (let i = 0; i < 3; i += 1) {
+      if (await this.isPaymentStage(page)) return;
+      let clicked = false;
+      for (const root of await this.interactiveRoots()) {
+        const buttons = root.locator("button, [role='button'], a");
+        const n = Math.min(await buttons.count().catch(() => 0), 24);
+        for (let j = 0; j < n; j += 1) {
+          const btn = buttons.nth(j);
+          const text = `${await btn.innerText().catch(() => "")} ${await btn.getAttribute("aria-label").catch(() => "")}`;
+          if (!isSafeDialogLabel(text)) continue;
+          if (isForbiddenClickLabel(text)) continue;
+          await btn.click().catch(() => undefined);
+          clicked = true;
+          await new Promise((r) => setTimeout(r, 200));
+          break;
+        }
+        if (clicked) break;
+      }
+      if (!clicked) return;
+    }
+  }
+
+  private async assertNoLogin(page: Page) {
+    const body = await page.locator("body").innerText().catch(() => "");
+    if (looksLikeLoginPage(page.url(), body)) {
+      this.stopped = true;
+      await this.saveFailureShot(page, "login");
+      throw new Error("LOGIN_REQUIRED: CGV login page detected. Save storageState after a manual login; agent will not enter credentials.");
+    }
   }
 
   private async isPaymentStage(page: Page) {

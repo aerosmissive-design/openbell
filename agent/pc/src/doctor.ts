@@ -5,7 +5,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isExactCgvBookingUrl } from "./safety.js";
+import {
+  isBookingDate,
+  isBookingShowtime,
+  isExactCgvBookingUrl,
+  isOfficialOpenBellUrl,
+} from "./safety.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PC_ROOT = resolve(__dirname, "..");
@@ -74,6 +79,15 @@ if (present(seatCountRaw)) {
   check("BOOKING_SEAT_COUNT range", Number.isInteger(n) && n >= 1 && n <= 10, `value is ${seatCountRaw}`);
 }
 
+const playDate = env.BOOKING_DATE ?? process.env.BOOKING_DATE;
+if (present(playDate)) {
+  check("BOOKING_DATE YYYY-MM-DD", isBookingDate(playDate!), playDate);
+}
+const showtime = env.BOOKING_SHOWTIME ?? process.env.BOOKING_SHOWTIME;
+if (present(showtime)) {
+  check("BOOKING_SHOWTIME HH:MM", isBookingShowtime(showtime!), showtime);
+}
+
 const bookingUrl = (env.BOOKING_URL ?? process.env.BOOKING_URL)?.trim();
 if (present(bookingUrl)) {
   check("BOOKING_URL format", isExactCgvBookingUrl(bookingUrl!), "needs movNo,scnYmd,scnsNo,scnSseq");
@@ -84,6 +98,9 @@ if (present(bookingUrl)) {
 const openbell = env.OPENBELL_URL ?? process.env.OPENBELL_URL;
 const token = env.NAS_WORKER_TOKEN ?? process.env.NAS_WORKER_TOKEN ?? process.env.NAS_REPORT_TOKEN;
 console.log(`[INFO] OPENBELL_URL: ${maskStatus(openbell)}`);
+if (present(openbell) && !isOfficialOpenBellUrl(openbell!.trim())) {
+  lines.push("[WARN] OPENBELL_URL is not https://openbell-fawn.vercel.app — production alias must not change");
+}
 console.log(`[INFO] NAS_WORKER_TOKEN: ${maskStatus(token)}`);
 console.log(
   `[INFO] Mode: ${present(openbell) && present(token) ? "linked (callbacks on)" : "dry-run (no callbacks)"}`,
