@@ -1,5 +1,16 @@
 import { chromium, type Browser, type BrowserContext, type Page, type Frame, type Locator } from "playwright";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { rankSeatBlocks, type SeatPoint, type SeatPreference } from "./seat-ranker.js";
+import {
+  FORBIDDEN_CLICK_WORDS,
+  SAFE_NEXT_WORDS,
+  isCaptchaFrameUrl,
+  isExactCgvBookingUrl,
+  isForbiddenClickLabel,
+  isPaymentStageSignal,
+  looksLikeCaptchaChallenge,
+} from "./safety.js";
 
 export type BookingTarget = {
   movieTitle: string;
@@ -41,18 +52,6 @@ type SeatRoot = Page | Frame;
 
 const CGV_BOOKING_URL = "https://cgv.co.kr/cnm/movieBook/movie";
 
-/** Detect payment / order stage (hard stop). */
-const PAYMENT_STAGE_WORDS = /결제수단|최종결제금액|결제\s*정보|결제하기|최종결제|주문서|payment|purchase|order/i;
-
-/** Labels that must NEVER be clicked. */
-const FORBIDDEN_CLICK_WORDS =
-  /결제하기|최종결제|결제\s*완료|바로결제|구매하기|purchase|buy\s*now|place\s*order|complete\s*order|pay\s*now|checkout/i;
-
-/** Safe advance buttons only (non-payment). */
-const SAFE_NEXT_WORDS = /다음|선택완료|좌석선택완료|인원선택완료|예매정보입력|확인(?!\s*결제)/i;
-
-const CAPTCHA_WORDS = /captcha|캡차|자동입력|보안문자|로봇이\s*아닙니다|recaptcha|hcaptcha|cloudflare/i;
-
 /**
  * Seat-map locator fallbacks (DOM not E2E-verified on real CGV Windows).
  * Prefer data-* / role / seatmap containers; never used for payment controls.
@@ -82,6 +81,8 @@ const SEAT_MAP_SELECTOR = [
   "[aria-label*='seat']",
 ].join(", ");
 
+export { isExactCgvBookingUrl };
+
 export class CgvBookingAgent {
   private browser?: Browser;
   private context?: BrowserContext;
@@ -94,6 +95,10 @@ export class CgvBookingAgent {
     this.options = { headless: false, timeoutMs: 15_000, ...options };
   }
 
+  hasHardStopped() {
+    return this.stopped;
+  }
+
   async launch() {
     this.browser = await chromium.launch({ headless: this.options.headless });
     this.context = await this.browser.newContext(
@@ -101,7 +106,7 @@ export class CgvBookingAgent {
     );
     this.context.setDefaultTimeout(this.options.timeoutMs);
     this.page = await this.context.newPage();
-    await this.page.goto(this.options.baseUrl ?? CGV_BOOKING_URL, { waitUntil: "domcontentloaded" });
+    // Do not navigate here. openMovie / openShowtime own the first URL (avoids a wasted generic load).
   }
 
   private getPage() {
@@ -132,24 +137,6 @@ export class CgvBookingAgent {
     return best;
   }
 
-  /** Main page + same-origin frames that can be evaluated (for next/captcha/payment checks). */
-  private async interactiveRoots(): Promise<SeatRoot[]> {
-    const page = this.getPage();
-    const roots: SeatRoot[] = [page];
-    for (const frame of page.frames()) {
-      if (frame === page.mainFrame()) continue;
-      try {
-        // Touch document to detect same-origin; skip cross-origin.
-        await frame.evaluate(() => document.readyState);
-        roots.push(frame);
-      } catch {
-        // cross-origin / detached
-      }
-    }
-    return roots;
-  }
-
-
   private async waitForSeatMap(): Promise<SeatRoot> {
     const page = this.getPage();
     const deadline = Date.now() + this.options.timeoutMs;
@@ -173,8 +160,21 @@ export class CgvBookingAgent {
     throw new Error("CGV_SEAT_MAP_NOT_FOUND");
   }
 
+  private async saveFailureShot(page: Page, tag: string) {
+    try {
+      const dir = join(process.cwd(), "logs");
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `${tag}-${Date.now()}.png`);
+      await page.screenshot({ path: file, fullPage: true });
+      console.warn(`[screenshot] saved ${file}`);
+    } catch {
+      console.warn("[screenshot] failed (non-fatal)");
+    }
+  }
+
   /** Safe diagnostics only — no cookies, tokens, or storageState. */
   private async logSeatMapDiagnostics(page: Page) {
+    await this.saveFailureShot(page, "seat-map");
     const frames = page.frames();
     console.warn(
       `[seat-map diagnostics] url=${page.url()} frames=${frames.length} (incl. main)`,
@@ -206,7 +206,7 @@ export class CgvBookingAgent {
       }
     }
     const body = await page.locator("body").innerText().catch(() => "");
-    if (PAYMENT_STAGE_WORDS.test(body)) {
+    if (isPaymentStageSignal(page.url(), body)) {
       console.warn("[seat-map diagnostics] payment-stage words appear in main body (HARD STOP region?)");
     } else {
       console.warn("[seat-map diagnostics] payment-stage words: not detected in main body");
@@ -215,7 +215,6 @@ export class CgvBookingAgent {
 
   async openMovie(target: BookingTarget) {
     const page = this.getPage();
-    await this.assertNoCaptcha(page);
 
     if (target.bookingUrl) {
       if (!isExactCgvBookingUrl(target.bookingUrl)) {
@@ -228,6 +227,7 @@ export class CgvBookingAgent {
     }
 
     await page.goto(this.options.baseUrl ?? CGV_BOOKING_URL, { waitUntil: "domcontentloaded" });
+    await this.assertNoCaptcha(page);
     await this.clickTextOrRole(page, target.movieTitle);
     await this.assertNoCaptcha(page);
   }
@@ -250,67 +250,9 @@ export class CgvBookingAgent {
     await this.assertNoCaptcha(page);
   }
 
-
-  /**
-   * Best-effort person/audience count selection before the seat map.
-   * CGV often requires picking 일반/성인 count = BOOKING_SEAT_COUNT.
-   * DOM is NOT Windows-E2E verified — if no control matches, warn and continue.
-   */
-  async selectAudienceCount(count: number) {
-    const page = this.getPage();
-    await this.assertNoCaptcha(page);
-
-    const roots = await this.interactiveRoots();
-    const countStr = String(count);
-
-    for (const root of roots) {
-      // Exact count button / spin (common patterns; unverified)
-      const candidates: Locator[] = [
-        root.getByRole("button", { name: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) }).first(),
-        root.getByRole("spinbutton").first(),
-        root.locator(`[data-count="${escapeCssAttribute(countStr)}"]`).first(),
-        root.locator(`[data-seat-count="${escapeCssAttribute(countStr)}"]`).first(),
-        root.locator(`button, [role='button'], a`).filter({ hasText: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) }).first(),
-        root.getByLabel(/일반|성인|인원/i).first(),
-      ];
-
-      for (const candidate of candidates) {
-        try {
-          if (!(await candidate.count())) continue;
-          const text = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
-          if (FORBIDDEN_CLICK_WORDS.test(text) || PAYMENT_STAGE_WORDS.test(text)) {
-            console.warn(`[audience] refusing payment-like control: ${text.trim().slice(0, 60)}`);
-            continue;
-          }
-          const tag = await candidate.evaluate((el) => el.tagName.toLowerCase()).catch(() => "");
-          const role = await candidate.getAttribute("role").catch(() => "");
-          if (tag === "input" || role === "spinbutton") {
-            await candidate.fill(countStr);
-          } else {
-            await candidate.click();
-          }
-          console.log(`[audience] selected count=${count} via hypothesized control (DOM not E2E-verified)`);
-          await this.waitForProgress(page);
-          await this.assertNoCaptcha(page);
-          return true;
-        } catch {
-          // try next candidate
-        }
-      }
-    }
-
-    console.warn(
-      `[audience] no person-count control matched for count=${count}; continuing (DOM not E2E-verified)`,
-    );
-    return false;
-  }
-
-
   async selectSeats(target: BookingTarget) {
     const page = this.getPage();
     await this.assertNoCaptcha(page);
-
-    await this.selectAudienceCount(target.requestedSeatCount);
 
     const explicit = target.seatIds?.filter(Boolean) ?? [];
     const seatIds = explicit.length
@@ -330,12 +272,7 @@ export class CgvBookingAgent {
   }
 
   async autoSelectSeats(count: number, preference: Omit<SeatPreference, "count"> = {}) {
-    let root: SeatRoot;
-    try {
-      root = await this.waitForSeatMap();
-    } catch (error) {
-      throw error;
-    }
+    const root = await this.waitForSeatMap();
     const seats = await this.readSeatMap(root);
     let usedDistanceFallback = false;
     const blocks = rankSeatBlocks(
@@ -524,34 +461,18 @@ export class CgvBookingAgent {
   }
 
   private async isPaymentStage(page: Page) {
-    const url = page.url().toLowerCase();
-    if (url.includes("payment") || url.includes("/pay") || url.includes("order")) return true;
     const body = await page.locator("body").innerText().catch(() => "");
-    if (PAYMENT_STAGE_WORDS.test(body)) return true;
-
-    for (const frame of page.frames()) {
-      if (frame === page.mainFrame()) continue;
-      try {
-        const frameUrl = frame.url().toLowerCase();
-        if (frameUrl.includes("payment") || frameUrl.includes("/pay") || frameUrl.includes("order")) {
-          return true;
-        }
-        const frameBody = await frame.locator("body").innerText().catch(() => "");
-        if (PAYMENT_STAGE_WORDS.test(frameBody)) return true;
-      } catch {
-        // cross-origin / detached
-      }
-    }
-    return false;
+    return isPaymentStageSignal(page.url(), body);
   }
 
   /**
    * Click only safe "next" controls. Never click payment/purchase/order buttons.
+   * Search main page and same-origin frames (seat confirm often lives in an iframe).
    */
   private async clickSafeNext(page: Page) {
     if (await this.isPaymentStage(page)) return false;
 
-    const roots = await this.interactiveRoots();
+    const roots: SeatRoot[] = [page, ...page.frames()];
     for (const root of roots) {
       const candidates: Locator[] = [
         root.getByRole("button", { name: SAFE_NEXT_WORDS }).first(),
@@ -560,40 +481,39 @@ export class CgvBookingAgent {
       ];
 
       for (const candidate of candidates) {
-        if (!(await candidate.count())) continue;
-        const text = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
-        if (FORBIDDEN_CLICK_WORDS.test(text)) {
-          console.warn(`[HARD_STOP] Refusing forbidden control: ${text.trim().slice(0, 80)}`);
-          continue;
+        try {
+          if (!(await candidate.count())) continue;
+          const text = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
+          if (isForbiddenClickLabel(text) || FORBIDDEN_CLICK_WORDS.test(text)) {
+            console.warn(`[HARD_STOP] Refusing forbidden control: ${text.trim().slice(0, 80)}`);
+            continue;
+          }
+          if (!SAFE_NEXT_WORDS.test(text)) continue;
+          await candidate.click();
+          return true;
+        } catch {
+          // cross-origin / detached frame
         }
-        if (!SAFE_NEXT_WORDS.test(text)) continue;
-        await candidate.click();
-        return true;
       }
     }
     return false;
   }
 
   private async assertNoCaptcha(page: Page) {
-    const chunks: string[] = [];
     const body = await page.locator("body").innerText().catch(() => "");
-    const html = await page.content().catch(() => "");
-    chunks.push(body, html);
-
-    for (const frame of page.frames()) {
-      if (frame === page.mainFrame()) continue;
-      try {
-        const frameBody = await frame.locator("body").innerText().catch(() => "");
-        if (frameBody) chunks.push(frameBody);
-      } catch {
-        // cross-origin / detached
-      }
-    }
-
-    const blob = chunks.join("\n");
-    if (CAPTCHA_WORDS.test(blob)) {
+    if (looksLikeCaptchaChallenge(body)) {
       this.stopped = true;
       throw new Error("CAPTCHA_DETECTED: agent will not bypass CAPTCHA. Solve manually or stop.");
+    }
+    for (const frame of page.frames()) {
+      try {
+        if (isCaptchaFrameUrl(frame.url())) {
+          this.stopped = true;
+          throw new Error("CAPTCHA_DETECTED: agent will not bypass CAPTCHA. Solve manually or stop.");
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("CAPTCHA_DETECTED")) throw error;
+      }
     }
   }
 
@@ -614,7 +534,7 @@ export class CgvBookingAgent {
 
   private async clickTextOrRole(page: Page, text: string) {
     if (await this.isPaymentStage(page)) throw new Error("AUTOMATION_HARD_STOP");
-    if (FORBIDDEN_CLICK_WORDS.test(text)) throw new Error(`FORBIDDEN_CLICK_TARGET:${text}`);
+    if (isForbiddenClickLabel(text)) throw new Error(`FORBIDDEN_CLICK_TARGET:${text}`);
 
     const exact = page.getByText(text, { exact: true }).first();
     if (await exact.count()) {
@@ -627,25 +547,6 @@ export class CgvBookingAgent {
       return;
     }
     throw new Error(`CGV_TARGET_NOT_FOUND:${text}`);
-  }
-}
-
-/** Require movNo, scnYmd, scnsNo, scnSseq. siteNo is optional if present. */
-export function isExactCgvBookingUrl(value: string) {
-  try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase();
-    const pathname = url.pathname.replace(/\/+$/, "");
-    const required = ["movNo", "scnYmd", "scnsNo", "scnSseq"];
-    // siteNo may be present; do not require it
-    return (
-      url.protocol === "https:" &&
-      (host === "cgv.co.kr" || host === "www.cgv.co.kr") &&
-      pathname === "/cnm/movieBook/movie" &&
-      required.every((key) => url.searchParams.get(key))
-    );
-  } catch {
-    return false;
   }
 }
 

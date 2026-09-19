@@ -220,6 +220,7 @@ export type RunBookingInput = BookingTarget & {
 /** Runs the full non-payment portion of a CGV booking. */
 export async function runBooking(input: RunBookingInput) {
   const headless = input.headless ?? false;
+  const holdAtPayment = input.holdAtPayment ?? !headless;
   const agent = new CgvBookingAgent({
     storageStatePath: input.storageStatePath,
     headless,
@@ -246,7 +247,6 @@ export async function runBooking(input: RunBookingInput) {
     await input.onStateChange?.("BOOKING_INFO");
 
     const result = await agent.goToPaymentPage(input);
-    const holdAtPayment = input.holdAtPayment ?? !headless;
     if (holdAtPayment) {
       await input.onStateChange?.("WAITING_USER");
       console.log("Payment hard stop reached. Browser remains open for manual completion.");
@@ -256,6 +256,18 @@ export async function runBooking(input: RunBookingInput) {
     }
     return result;
   } catch (error) {
+    // If we already hit PAYMENT_READY, never close the browser on a later API/callback error.
+    if (agent.hasHardStopped() && holdAtPayment) {
+      console.error("[HARD_STOP] Error after payment page. Browser stays open for manual payment.");
+      console.error(error instanceof Error ? error.message : error);
+      try {
+        await input.onStateChange?.("WAITING_USER");
+      } catch {
+        /* ignore */
+      }
+      await agent.waitForBrowserClose();
+      throw error;
+    }
     await agent.close();
     throw error;
   }
@@ -325,8 +337,9 @@ console.log(`Date: ${target.playDate}`);
 console.log(`Showtime: ${target.showtime}`);
 console.log(`Seat count: ${requestedSeatCount}`);
 console.log(`BOOKING_URL: ${exactBookingUrl ? "yes" : "no"}`);
-console.log(`Headless: ${headless}`);
-console.log(`Hold browser: ${holdAtPayment}`);
+if (!exactBookingUrl) {
+  console.log("WARNING: BOOKING_URL is empty. Agent will try movie/date/showtime clicks (DOM unverified).");
+}
 console.log("========================================");
 
 if (dryRun) {
@@ -361,8 +374,7 @@ const stateCallback =
         console.log(`[local] booking state: ${state}`);
       };
 
-if (callbacksEnabled) await stateCallback("WATCHING");
-else await stateCallback("WATCHING");
+await stateCallback("WATCHING");
 
 function printResultCode(code: "A" | "B" | "C" | "D" | "E", detail: string) {
   console.log(`\n[RESULT_CODE=${code}] ${detail}`);
@@ -414,20 +426,6 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (message.startsWith("CAPTCHA_DETECTED")) {
-    if (callbacksEnabled && bookingSessionId) {
-      try {
-        await updateState({
-          openbellUrl: openbellUrl!,
-          workerToken: workerToken!,
-          sessionId: bookingSessionId,
-          state: "CAPTCHA_STOP",
-        });
-        console.log("OpenBell booking state: CAPTCHA_STOP");
-      } catch (stateError) {
-        const detail = stateError instanceof Error ? stateError.message : String(stateError);
-        console.warn(`[captcha] failed to report CAPTCHA_STOP: ${detail.slice(0, 200)}`);
-      }
-    }
     printResultCode("C", message);
   } else if (
     message.startsWith("OPENBELL_") ||
