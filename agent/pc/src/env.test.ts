@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isFalseyFlag, isPaymentAutomationLocked, parseEnvFile, paymentReadyTtlMinutes } from "./env.js";
+import { resolve } from "node:path";
+import { isFalseyFlag, isPaymentAutomationLocked, parseEnvFile, paymentReadyTtlMinutes, resolveExistingStorageState } from "./env.js";
 
 test("parseEnvFile skips comments, handles CRLF and quotes", () => {
   const parsed = parseEnvFile("# comment\r\nBOOKING_MOVIE=영화\r\nTOKEN='abc'\nEMPTY=\nNOEQ\n=novalue\n");
@@ -24,4 +25,14 @@ test("paymentReadyTtlMinutes is display-only and defaults to 10", () => {
   assert.equal(paymentReadyTtlMinutes("not-a-number"), 10);
   assert.equal(paymentReadyTtlMinutes("600000"), 10);
   assert.equal(paymentReadyTtlMinutes("1200000"), 20);
+});
+
+test("resolveExistingStorageState skips missing files so Playwright does not crash", () => {
+  assert.equal(resolveExistingStorageState("/r", undefined, () => true), undefined);
+  assert.equal(resolveExistingStorageState("/r", "  ", () => true), undefined);
+  assert.equal(
+    resolveExistingStorageState("/r", "cgv-storage.json", (p) => p.endsWith("cgv-storage.json")),
+    resolve("/r", "cgv-storage.json"),
+  );
+  assert.equal(resolveExistingStorageState("/r", "missing.json", () => false), undefined);
 });

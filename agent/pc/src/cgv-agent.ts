@@ -1,5 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page, type Frame, type Locator } from "playwright";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { rankSeatBlocks, type SeatPoint, type SeatPreference } from "./seat-ranker.js";
 import {
@@ -105,9 +105,19 @@ export class CgvBookingAgent {
 
   async launch() {
     this.browser = await chromium.launch({ headless: this.options.headless });
-    this.context = await this.browser.newContext(
-      this.options.storageStatePath ? { storageState: this.options.storageStatePath } : undefined,
-    );
+    const storagePath = this.options.storageStatePath?.trim();
+    const storage =
+      storagePath && existsSync(storagePath)
+        ? { storageState: storagePath }
+        : undefined;
+    if (storagePath && !storage) {
+      console.warn("[storage] CGV_STORAGE_STATE file missing; launching without saved login");
+    }
+    this.context = await this.browser.newContext({
+      locale: "ko-KR",
+      timezoneId: "Asia/Seoul",
+      ...storage,
+    });
     this.context.setDefaultTimeout(this.options.timeoutMs);
     this.page = await this.context.newPage();
     // Do not navigate here. openMovie / openShowtime own the first URL (avoids a wasted generic load).

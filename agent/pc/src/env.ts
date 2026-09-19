@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,5 +53,16 @@ export function paymentReadyTtlMinutes(raw = process.env.PAYMENT_READY_TTL_MS) {
   const ms = Number(raw);
   if (!Number.isFinite(ms) || ms < 60_000) return Math.round(SERVER_PAYMENT_READY_TTL_MS / 60_000);
   return Math.round(ms / 60_000);
+}
+
+/** Absolute path if the storageState file exists; otherwise undefined (do not crash Playwright). */
+export function resolveExistingStorageState(
+  root: string,
+  value: string | undefined,
+  existsFn: (path: string) => boolean = existsSync,
+) {
+  if (!value?.trim()) return undefined;
+  const resolved = resolve(root, value.trim());
+  return existsFn(resolved) ? resolved : undefined;
 }
 

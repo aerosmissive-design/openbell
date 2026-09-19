@@ -1,5 +1,14 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.13 — 2026-09-19
+
+### Fix
+
+- If `CGV_STORAGE_STATE=cgv-storage.json` is set but the file is missing (example default before `4-save-login.cmd`), the agent **continues without crashing** Playwright. Warns and runs unauthenticated.
+- Chromium context uses `ko-KR` / `Asia/Seoul` (calendar labels).
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.12 — 2026-09-19
 
 ### Operator

@@ -2,12 +2,11 @@
  * Windows CLI entry. Importing this file starts the agent.
  * Library code lives in run.ts / openbell-api.ts (safe to import from tests).
  */
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { type BookingState, type BookingTarget, isExactCgvBookingUrl } from "./cgv-agent.js";
 import { classifyAgentError } from "./result-code.js";
 import { isBookingDate, isBookingShowtime } from "./safety.js";
-import { PC_ROOT, applyEnvFile, isFalseyFlag, paymentReadyTtlMinutes } from "./env.js";
+import { PC_ROOT, applyEnvFile, isFalseyFlag, paymentReadyTtlMinutes, resolveExistingStorageState } from "./env.js";
 import { createSession, notifyPaymentReady, updateState } from "./openbell-api.js";
 import { runBooking } from "./run.js";
 
@@ -77,7 +76,7 @@ if (!isBookingShowtime(target.showtime)) {
 
 const headless = bool("PLAYWRIGHT_HEADLESS", false);
 const holdAtPayment = bool("PAYMENT_HOLD_BROWSER", true);
-const storageStatePath = process.env.CGV_STORAGE_STATE?.trim() || undefined;
+const storageStatePath = resolveExistingStorageState(PC_ROOT, process.env.CGV_STORAGE_STATE);
 const openbellUrl = process.env.OPENBELL_URL?.trim().replace(/\/$/, "");
 const workerToken = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim();
 const callbacksEnabled = Boolean(openbellUrl && workerToken);
@@ -104,11 +103,11 @@ console.log("PAYMENT_HARD_STOP: locked (final payment is never clicked)");
 if (isFalseyFlag(process.env.PAYMENT_HARD_STOP)) {
   console.warn("[safety] PAYMENT_HARD_STOP=false is ignored. Final payment is never automated.");
 }
-const storageResolved = storageStatePath ? resolve(PC_ROOT, storageStatePath) : undefined;
-if (storageResolved && existsSync(storageResolved)) {
+const storageConfigured = process.env.CGV_STORAGE_STATE?.trim();
+if (storageStatePath) {
   console.log("CGV_STORAGE_STATE: file found");
-} else if (storageStatePath) {
-  console.log("WARNING: CGV_STORAGE_STATE file missing. Run 4-save-login.cmd after a manual CGV login.");
+} else if (storageConfigured) {
+  console.log("WARNING: CGV_STORAGE_STATE file missing. Continuing without it. Run 4-save-login.cmd after a manual CGV login.");
 } else {
   console.log("CGV_STORAGE_STATE: unset. If CGV shows login, run 4-save-login.cmd.");
 }
