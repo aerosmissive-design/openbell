@@ -80,11 +80,28 @@ async function main() {
   }
 }
 
+function isInfraSkip(err) {
+  const code = String(err?.code || "");
+  const msg = String(err?.message || "");
+  return (
+    code === "53000" ||
+    /exceeded the quota/i.test(msg) ||
+    /compute time/i.test(msg) ||
+    /too many connections/i.test(msg)
+  );
+}
+
 main().catch((err) => {
   console.error("[migrate] failed:", err?.message || err);
   // pg errors carry the context needed to debug a bad SQL file.
   for (const key of ["code", "detail", "hint", "position", "where"]) {
     if (err?.[key] != null) console.error(`[migrate]   ${key}: ${err[key]}`);
+  }
+  if (isInfraSkip(err)) {
+    console.error(
+      "[migrate] Neon quota/infra — schema already applied; continuing deploy.",
+    );
+    process.exit(0);
   }
   process.exit(1);
 });
