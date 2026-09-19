@@ -22,7 +22,15 @@ test("looksLikeLoginPage requires login path AND password form", () => {
     true,
   );
   assert.equal(
+    looksLikeLoginPage("https://www.cgv.co.kr/user/login/", "아이디 비밀번호 로그인"),
+    true,
+  );
+  assert.equal(
     looksLikeLoginPage("https://cgv.co.kr/cnm/movieBook/movie", "로그인 예매하기"),
+    false,
+  );
+  assert.equal(
+    looksLikeLoginPage("https://www.cgv.co.kr/user/login/", "상단 로그인 메뉴"),
     false,
   );
 });
@@ -31,8 +39,10 @@ test("isSafeDialogLabel allows age-gate, refuses payment", () => {
   assert.equal(isSafeDialogLabel("동의합니다"), true);
   assert.equal(isSafeDialogLabel("닫기"), true);
   assert.equal(isSafeDialogLabel("관람등급 확인"), true);
+  assert.equal(isSafeDialogLabel("만 15세 이상 동의"), true);
   assert.equal(isSafeDialogLabel("결제하기"), false);
   assert.equal(isSafeDialogLabel("결제 동의"), false);
+  assert.equal(isSafeDialogLabel(""), false);
 });
 
 test("date/showtime/official host helpers", () => {
@@ -41,5 +51,7 @@ test("date/showtime/official host helpers", () => {
   assert.equal(isBookingShowtime("20:10"), true);
   assert.equal(isBookingShowtime("8pm"), false);
   assert.equal(isOfficialOpenBellUrl("https://openbell-fawn.vercel.app"), true);
+  assert.equal(isOfficialOpenBellUrl("https://openbell-fawn.vercel.app/"), true);
   assert.equal(isOfficialOpenBellUrl("https://example.vercel.app"), false);
+  assert.equal(isOfficialOpenBellUrl("http://openbell-fawn.vercel.app"), false);
 });

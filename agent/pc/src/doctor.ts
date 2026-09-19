@@ -40,6 +40,22 @@ check("node_modules present", nodeModules, nodeModules ? "found" : "run 1-instal
 const playwright = existsSync(resolve(PC_ROOT, "node_modules/playwright"));
 check("playwright package", playwright, playwright ? "found" : "run 1-install.cmd");
 
+if (playwright) {
+  try {
+    const { chromium } = await import("playwright");
+    const exe = chromium.executablePath();
+    const chromiumOk = Boolean(exe && existsSync(exe));
+    check(
+      "Playwright Chromium binary",
+      chromiumOk,
+      chromiumOk ? "found" : "run npx playwright install chromium (or 1-install.cmd)",
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    check("Playwright Chromium binary", false, detail.slice(0, 120));
+  }
+}
+
 const configPath = resolve(PC_ROOT, "config.env");
 const hasConfig = existsSync(configPath);
 check("config.env exists", hasConfig, hasConfig ? "found" : "run 1-install.cmd then edit config.env");
