@@ -101,3 +101,35 @@ export function isBookingShowtime(value: string) {
   return /^\d{1,2}:\d{2}$/.test(value.trim());
 }
 
+/** Calendar labels to try for BOOKING_DATE=YYYY-MM-DD. DOM not E2E-verified. */
+export function dateClickLabels(iso: string): string[] {
+  const m = iso.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return [iso.trim()];
+  const [, y, mo, d] = m;
+  const mon = String(Number(mo));
+  const day = String(Number(d));
+  return Array.from(
+    new Set([
+      iso.trim(),
+      `${y}${mo}${d}`,
+      `${y}.${mo}.${d}`,
+      `${mo}/${d}`,
+      `${mon}/${day}`,
+      `${mon}월 ${day}일`,
+      `${mon}월${day}일`,
+    ]),
+  );
+}
+
+/** Showtime labels to try for BOOKING_SHOWTIME=HH:MM. */
+export function showtimeClickLabels(hhmm: string): string[] {
+  const m = hhmm.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return [hhmm.trim()];
+  const hour = String(Number(m[1]));
+  const min = m[2];
+  const padded = `${hour.padStart(2, "0")}:${min}`;
+  return Array.from(
+    new Set([hhmm.trim(), padded, `${hour}:${min}`, `${hour}시 ${min}분`, `${hour}시${min}분`]),
+  );
+}
+

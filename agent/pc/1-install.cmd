@@ -76,7 +76,7 @@ if not exist "%~dp0config.env" (
 
 echo.
 echo ============================================
-echo Install complete.
+echo Install complete. Read START.txt
 echo Checklist:
 echo   1. Edit config.env (movie/date/showtime; optional BOOKING_URL)
 echo   2. Optional: 4-save-login.cmd  (manual CGV login, then save session)

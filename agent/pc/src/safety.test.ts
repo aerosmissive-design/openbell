@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  dateClickLabels,
   isCaptchaFrameUrl,
   isExactCgvBookingUrl,
   isForbiddenClickLabel,
   isPaymentStageSignal,
   looksLikeCaptchaChallenge,
+  showtimeClickLabels,
 } from "./safety.js";
 
 test("isExactCgvBookingUrl requires https + path + four query keys", () => {
@@ -57,4 +59,19 @@ test("forbidden click labels include 결제하기 but not 좌석선택완료", (
 test("captcha frame URLs", () => {
   assert.equal(isCaptchaFrameUrl("https://www.google.com/recaptcha/api2/anchor"), true);
   assert.equal(isCaptchaFrameUrl("https://cgv.co.kr/cnm/movieBook/movie"), false);
+});
+
+test("dateClickLabels includes compact and Korean calendar forms", () => {
+  const labels = dateClickLabels("2026-09-20");
+  assert.ok(labels.includes("2026-09-20"));
+  assert.ok(labels.includes("20260920"));
+  assert.ok(labels.includes("2026.09.20"));
+  assert.ok(labels.includes("9월 20일"));
+  assert.equal(dateClickLabels("not-a-date")[0], "not-a-date");
+});
+
+test("showtimeClickLabels includes 시/분 form", () => {
+  const labels = showtimeClickLabels("20:10");
+  assert.ok(labels.includes("20:10"));
+  assert.ok(labels.includes("20시 10분"));
 });

@@ -1,5 +1,15 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.9 — 2026-09-19
+
+### Operator UX
+
+- `START.txt` one-page English steps.
+- `2-run.cmd` **always pauses** so a double-click window does not vanish after result A/B.
+- Date/showtime clicks try CGV calendar aliases (`20260920`, `9월 20일`, `20시 10분`) — DOM still not E2E-verified.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.8 — 2026-09-19
 
 ### Internals (no behavior change for operators)

@@ -1,0 +1,21 @@
+OpenBell PC Agent - START HERE
+================================
+
+1. Double-click 1-install.cmd
+2. Edit config.env
+     BOOKING_MOVIE=movie name
+     BOOKING_DATE=2026-09-20
+     BOOKING_SHOWTIME=20:10
+     BOOKING_SEAT_COUNT=2
+   Optional BOOKING_URL must include movNo, scnYmd, scnsNo, scnSseq
+3. Optional: double-click 4-save-login.cmd
+   Log in to CGV yourself, then press Enter in the black window
+4. Optional: double-click 3-doctor.cmd
+5. Double-click 2-run.cmd
+   No token  = result B (dry-run)
+   With token = result A
+   Browser stays open. You click payment yourself.
+   Agent never clicks payment. Never bypasses CAPTCHA.
+
+Do not use Korean-named .bat files (they break on Windows).
+Do not merge until Windows headed dry-run B is confirmed.

@@ -5,6 +5,7 @@ import { rankSeatBlocks, type SeatPoint, type SeatPreference } from "./seat-rank
 import {
   FORBIDDEN_CLICK_WORDS,
   SAFE_NEXT_WORDS,
+  dateClickLabels,
   isCaptchaFrameUrl,
   isExactCgvBookingUrl,
   isForbiddenClickLabel,
@@ -12,6 +13,7 @@ import {
   isSafeDialogLabel,
   looksLikeCaptchaChallenge,
   looksLikeLoginPage,
+  showtimeClickLabels,
 } from "./safety.js";
 
 export type BookingTarget = {
@@ -265,7 +267,7 @@ export class CgvBookingAgent {
     }
 
     await this.selectDate(page, target.playDate);
-    await this.clickTextOrRole(page, target.showtime);
+    await this.clickTextOrRole(page, target.showtime, showtimeClickLabels(target.showtime));
     await this.assertNoCaptcha(page);
   }
 
@@ -679,33 +681,41 @@ export class CgvBookingAgent {
   }
 
   private async selectDate(page: Page, date: string) {
-    const candidates = [
-      page.locator(`[data-date="${escapeCssAttribute(date)}"]`).first(),
-      page.locator(`[data-play-date="${escapeCssAttribute(date)}"]`).first(),
-      page.getByText(date, { exact: true }).first(),
-    ];
-    for (const candidate of candidates) {
-      if (await candidate.count()) {
-        await candidate.click();
-        return;
+    const labels = dateClickLabels(date);
+    for (const label of labels) {
+      const candidates = [
+        page.locator(`[data-date="${escapeCssAttribute(label)}"]`).first(),
+        page.locator(`[data-play-date="${escapeCssAttribute(label)}"]`).first(),
+        page.locator(`[data-ymd="${escapeCssAttribute(label)}"]`).first(),
+        page.getByText(label, { exact: true }).first(),
+      ];
+      for (const candidate of candidates) {
+        if (await candidate.count()) {
+          const text = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
+          if (isForbiddenClickLabel(text)) continue;
+          await candidate.click();
+          return;
+        }
       }
     }
     throw new Error(`SHOW_DATE_NOT_FOUND:${date}`);
   }
 
-  private async clickTextOrRole(page: Page, text: string) {
+  private async clickTextOrRole(page: Page, text: string, aliases: string[] = [text]) {
     if (await this.isPaymentStage(page)) throw new Error("AUTOMATION_HARD_STOP");
-    if (isForbiddenClickLabel(text)) throw new Error(`FORBIDDEN_CLICK_TARGET:${text}`);
+    if (aliases.some((item) => isForbiddenClickLabel(item))) throw new Error(`FORBIDDEN_CLICK_TARGET:${text}`);
 
-    const exact = page.getByText(text, { exact: true }).first();
-    if (await exact.count()) {
-      await exact.click();
-      return;
-    }
-    const role = page.getByRole("button", { name: new RegExp(escapeRegExp(text), "i") }).first();
-    if (await role.count()) {
-      await role.click();
-      return;
+    for (const label of aliases) {
+      const exact = page.getByText(label, { exact: true }).first();
+      if (await exact.count()) {
+        await exact.click();
+        return;
+      }
+      const role = page.getByRole("button", { name: new RegExp(escapeRegExp(label), "i") }).first();
+      if (await role.count()) {
+        await role.click();
+        return;
+      }
     }
     throw new Error(`CGV_TARGET_NOT_FOUND:${text}`);
   }

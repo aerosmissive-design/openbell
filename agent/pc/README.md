@@ -1,6 +1,6 @@
-# OpenBell PC CGV Booking Agent (v2.0.8)
+# OpenBell PC CGV Booking Agent (v2.0.9)
 
-Windows PC 전용 **독립 패키지**입니다. 웹앱 루트의 `npm install` 없이 `agent/pc` 안에서만 설치·실행합니다.
+Windows PC 전용 **독립 패키지**입니다. **먼저 `START.txt` 를 읽으세요.** 웹앱 루트의 `npm install` 없이 `agent/pc` 안에서만 설치·실행합니다.
 
 결제(결제하기 / 최종결제 / purchase / order)는 **절대 클릭하지 않습니다**.  
 `PAYMENT_READY` 에서 HARD STOP 하며, 세션 TTL은 서버 기준 **10분**입니다.
@@ -9,6 +9,10 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 
 > **미완료 / 주의:** CGV DOM 셀렉터는 실제 E2E로 검증되지 않았습니다.  
 > 무인 운영 전에 headed 모드로 회차·좌석 맵을 직접 확인하세요. “검증 완료”를 주장하지 않습니다.
+
+### v2.0.9 notes
+
+- `START.txt` one-pager. `2-run.cmd` always pauses. Date/showtime calendar aliases.
 
 ### v2.0.8 notes
 
