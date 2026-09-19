@@ -127,8 +127,8 @@ Authorization: `Bearer <NAS_WORKER_TOKEN>` (서버: `NAS_WORKER_TOKEN` / `NAS_RE
 agent/pc/
   1-install.cmd      # ASCII 설치
   2-run.cmd          # 실행
-  install.cmd        # → 1-install.cmd 래퍼
-  run-agent.cmd      # → 2-run.cmd 래퍼
+  install.cmd        # → 1-install.cmd
+  run-agent.cmd      # → 2-run.cmd
   package.json       # 로컬 전용
   tsconfig.json
   config.env.example
