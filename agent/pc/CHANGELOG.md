@@ -1,5 +1,17 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.2 — 2026-09-19
+
+### Improvements
+
+- CGV seat-map: search **same-origin iframes** (`page.frames()`) when waiting / reading / finding seats; prefer the frame with `SEAT_MAP_SELECTOR` count > 0. On failure, log safe diagnostics (URL, frame count, sample data-seat*/data-row/aria-label attrs, payment-stage word note) — no secrets.
+- Seat ranker: if `preferredRow` + `preferredRowDistance` hard filter yields zero blocks, **fall back** without the hard cutoff (row distance remains a score penalty). `autoSelectSeats` logs a one-line warning when fallback is used. Unit tests cover fallback + aisle/edge still respected.
+- `payment-ready`: retry up to 3 times with backoff (~500ms, ~1500ms) on network errors / 5xx; **never** retry 401. Log brief `hardStop` / `telegram` from response JSON when present.
+- Preflight banner before browser launch: dry-run vs linked, movie/date/showtime, seat count, BOOKING_URL yes/no (never prints tokens).
+- `2-run.cmd`: same Program Files / LocalAppData nodejs PATH refresh as `1-install.cmd` before `where node`.
+
+Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READY.
+
 ## 2.0.1 — 2026-09-19
 
 ### Improvements
