@@ -218,13 +218,13 @@ export async function runScan(input: {
       ? deadline(fetchCgvRelaySeatmap({ days }), SCAN_DEADLINES.relay, emptyMap())
       : Promise.resolve(emptyMap());
   const ktPromise =
-    !fast && (hasCgv || hasMega)
+    hasCgv || hasMega
       ? deadline(
           fetchCgvKtSeatmap({
             theaters: wanted.filter((id) => isCgvId(id) || id.startsWith("megabox")),
-            dates: playDates.slice(0, 3),
+            dates: playDates.slice(0, fast ? 2 : 3),
           }),
-          SCAN_DEADLINES.kt,
+          fast ? 5000 : SCAN_DEADLINES.kt,
           emptyMap(),
         )
       : Promise.resolve(emptyMap());
@@ -362,8 +362,27 @@ export async function pingSeatmap(input: {
         fresh,
       }).catch(() => emptyMap())
     : Promise.resolve(emptyMap());
+  const nasTheaters = (
+    ["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"] as TheaterId[]
+  ).filter((id) => !input.theaterId || input.theaterId === id);
+  const ktPromise = nasTheaters.length
+    ? deadline(
+        fetchCgvKtSeatmap({
+          theaters: nasTheaters.filter((id) => isCgvId(id) || id.startsWith("megabox")),
+          dates: kstDateKeys(Math.min(days, 2)),
+        }),
+        8000,
+        emptyMap(),
+      )
+    : Promise.resolve(emptyMap());
+  const naverPromise = deadline(fetchNaverShowtimes(nasTheaters), 4000, [] as Showtime[]);
 
-  const [mega, officialCgv] = await Promise.all([megaPromise, officialCgvPromise]);
+  const [mega, officialCgv, kt, naver] = await Promise.all([
+    megaPromise,
+    officialCgvPromise,
+    ktPromise,
+    naverPromise,
+  ]);
   const cgvOfficialHit =
     Object.keys(officialCgv.map).length > 0 ||
     officialCgv.showtimes.some((row) => typeof row.restSeats === "number");
@@ -380,18 +399,17 @@ export async function pingSeatmap(input: {
         }).catch(() => emptyMap())
       : emptyMap();
 
-  const nasTheaters = (
-    ["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"] as TheaterId[]
-  ).filter((id) => !input.theaterId || input.theaterId === id);
   const nas = await readNasSeatmap(nasTheaters, { maxAgeMs: 30 * 60 * 1000 }).catch(() => ({
     map: {} as SeatHitMap,
     showtimes: [] as Showtime[],
     source: "pc" as const,
   }));
 
-  const map = { ...relay.map, ...officialCgv.map, ...mega.map, ...nas.map };
+  const map = { ...relay.map, ...kt.map, ...officialCgv.map, ...mega.map, ...nas.map };
   const extraShows = [
+    ...naver,
     ...relay.showtimes,
+    ...kt.showtimes,
     ...officialCgv.showtimes,
     ...mega.showtimes,
     ...nas.showtimes,
@@ -404,6 +422,7 @@ export async function pingSeatmap(input: {
   for (const theaterId of nasTheaters) {
     const fromMaps = latestSeatSourceTimes(theaterId, [
       { key: "official", map: { ...officialCgv.map, ...mega.map } },
+      { key: "cgv-kt", map: kt.map },
       { key: "cgv-relay", map: relay.map },
     ]);
     const fromReporter = reporterTimes[theaterId] || {};

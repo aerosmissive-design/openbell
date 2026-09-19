@@ -600,7 +600,11 @@ async function loadNaverCgv(theaterId: CgvId): Promise<Map<string, Showtime[]>> 
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) return byDate;
-  const text = (await res.text()).split("\\u002F").join("/");
+  const text = (await res.text())
+    .split("\\u002F")
+    .join("/")
+    .split('\\"')
+    .join('"');
   const parts = text.split('"__typename":"MovieTime"');
   for (let i = 1; i < parts.length; i++) {
     const block = parts[i].slice(0, 100000);
