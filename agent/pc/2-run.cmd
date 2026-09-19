@@ -3,6 +3,15 @@ setlocal
 cd /d "%~dp0"
 title OpenBell PC Agent
 
+rem Refresh PATH for this session (common Node install locations) — same as 1-install.cmd.
+where node >nul 2>&1
+if errorlevel 1 (
+  set "PATH=%ProgramFiles%\nodejs;%LocalAppData%\Programs\nodejs;%PATH%"
+)
+where node >nul 2>&1
+if errorlevel 1 (
+  set "PATH=%ProgramFiles%\nodejs;%LocalAppData%\Programs\nodejs;%PATH%"
+)
 where node >nul 2>&1
 if errorlevel 1 (
   echo Node.js is not installed. Run 1-install.cmd first.
