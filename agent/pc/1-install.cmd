@@ -25,12 +25,19 @@ if errorlevel 1 (
     pause
     exit /b 1
   )
-  set "PATH=%ProgramFiles%\nodejs;%PATH%"
+  rem Refresh PATH for this session (common Node install locations).
+  set "PATH=%ProgramFiles%\nodejs;%LocalAppData%\Programs\nodejs;%PATH%"
 )
 
 where node >nul 2>&1
 if errorlevel 1 (
-  echo Node.js was not found after install. Reboot, then run 1-install.cmd again.
+  set "PATH=%ProgramFiles%\nodejs;%LocalAppData%\Programs\nodejs;%PATH%"
+)
+where node >nul 2>&1
+if errorlevel 1 (
+  echo Node.js was not found after install.
+  echo Close this window, open a NEW Command Prompt, then run 1-install.cmd again.
+  echo If it still fails, reboot once so PATH updates, then re-run.
   pause
   exit /b 1
 )
