@@ -1,5 +1,18 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.3 — 2026-09-19
+
+### Improvements
+
+- Safe next / CAPTCHA / payment-stage checks now also scan **same-origin iframes** (seat map already did). Cross-origin frames are skipped safely. Forbidden payment controls still never clicked.
+- Best-effort **person/audience count** step before seats (`selectAudienceCount`). Hypothesized controls only — if nothing matches, warns and continues. **Not Windows E2E verified.**
+- Operator **doctor**: `3-doctor.cmd` / `npm run doctor` checks Node, node_modules, playwright, config.env required keys, BOOKING_URL shape; prints OPENBELL_URL / NAS_WORKER_TOKEN only as set/unset (never secret values).
+- `1-install.cmd` post-install checklist; `2-run.cmd` points at doctor.
+- On CAPTCHA with callbacks enabled: best-effort OpenBell state `CAPTCHA_STOP` before result code **C**.
+- Unit tests for `isExactCgvBookingUrl`.
+
+Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READY.
+
 ## 2.0.2 — 2026-09-19
 
 ### Improvements
@@ -30,7 +43,7 @@ Safety unchanged: no payment click, no CAPTCHA bypass, HARD STOP at PAYMENT_READ
 
 ### Breaking / rebuild
 
-- `agent/pc` 를 **독립 npm 패키지**로 재작성. 웹앱 루트 `npm install` 불필요.
+- `agent/pc` 를 **독립 npm 패키지로 재작성. 웹앱 루트 `npm install` 불필요.
 - 엔트리: `1-install.cmd` / `2-run.cmd` (ASCII only). 한글 `설치.bat` 폐기 권고 (Windows 5001).
 - 구 `install.cmd` / `run-agent.cmd` 는 thin wrapper.
 - 소스: `src/cgv-agent.ts`, `src/run.ts`, `src/seat-ranker.ts` (인라인 랭커).

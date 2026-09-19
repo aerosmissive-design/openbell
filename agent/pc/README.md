@@ -1,4 +1,4 @@
-# OpenBell PC CGV Booking Agent (v2.0.2)
+# OpenBell PC CGV Booking Agent (v2.0.3)
 
 Windows PC 전용 **독립 패키지**입니다. 웹앱 루트의 `npm install` 없이 `agent/pc` 안에서만 설치·실행합니다.
 
@@ -10,12 +10,13 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 > **미완료 / 주의:** CGV DOM 셀렉터는 실제 E2E로 검증되지 않았습니다.  
 > 무인 운영 전에 headed 모드로 회차·좌석 맵을 직접 확인하세요. “검증 완료”를 주장하지 않습니다.
 
-### v2.0.2 notes
+### v2.0.3 notes
 
-- Seat map: same-origin **iframe** search + failure diagnostics (no secrets).
-- Ranker: `preferredRowDistance` hard-filter empty → fallback (distance as score only); aisle/edge still apply.
-- `payment-ready` retries (network/5xx, not 401) + preflight banner (no tokens).
-- `2-run.cmd` refreshes Node PATH like `1-install.cmd`.
+- Safe next / CAPTCHA / payment-stage: also scan **same-origin iframes** (no payment clicks).
+- Best-effort **person/audience count** before seats — hypothesized only; **not E2E verified**.
+- Doctor: `3-doctor.cmd` / `npm run doctor` (secrets only as set/unset).
+- CAPTCHA → best-effort OpenBell state `CAPTCHA_STOP` then result **C**.
+- Still includes v2.0.2: iframe seat-map, ranker distance fallback, payment-ready retries, preflight.
 
 ---
 
@@ -31,6 +32,8 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 4. `config.env.example` → `config.env` 복사 (없을 때)
 
 구버전 호환: `install.cmd` → `1-install.cmd` 래퍼.
+
+설치 후 선택: `3-doctor.cmd` (또는 `npm run doctor`) — Node/의존성/`config.env` 필수 키/`BOOKING_URL` 형식을 점검합니다. 토큰 값은 출력하지 않습니다.
 
 ---
 
@@ -134,7 +137,8 @@ Authorization: `Bearer <NAS_WORKER_TOKEN>` (서버: `NAS_WORKER_TOKEN` / `NAS_RE
 agent/pc/
   1-install.cmd      # ASCII 설치
   2-run.cmd          # 실행
-  install.cmd        # → 1-install.cmd
+  3-doctor.cmd       # 설치/설정 점검 (시크릿 미출력)
+  install.cmd        # → 1-install.cmd 래퍼.
   run-agent.cmd      # → 2-run.cmd
   package.json       # 로컬 전용
   tsconfig.json
@@ -143,6 +147,7 @@ agent/pc/
     seat-ranker.ts   # 인라인 연속좌석 랭커 (../../src 비의존)
     cgv-agent.ts
     run.ts
+    doctor.ts
   README.md
   CHANGELOG.md
 ```
@@ -150,7 +155,8 @@ agent/pc/
 ```bat
 npm run typecheck
 npm test
+npm run doctor
 npm start
 ```
 
-CGV 진입점: `https://cgv.co.kr/cnm/movieBook/movie
+CGV 진입점: `https://cgv.co.kr/cnm/movieBook/movie`
