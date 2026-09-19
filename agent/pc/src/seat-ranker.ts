@@ -27,7 +27,7 @@ export type SeatPreference = {
   allowEdge?: boolean;
 };
 
-function rowDistance(row: string, preferred?: string): number {
+export function rowDistance(row: string, preferred?: string): number {
   if (!preferred || row === preferred) return 0;
   const a = row.charCodeAt(0);
   const b = preferred.charCodeAt(0);
@@ -43,8 +43,19 @@ export function rankSeatBlocks(seats: SeatPoint[], preference: SeatPreference): 
     groups.set(seat.row, list);
   }
 
+  const maxRowDistance =
+    preference.preferredRow &&
+    preference.preferredRowDistance != null &&
+    Number.isFinite(preference.preferredRowDistance)
+      ? preference.preferredRowDistance
+      : undefined;
+
   const blocks: SeatBlock[] = [];
   for (const [row, rowSeats] of groups) {
+    if (maxRowDistance != null && rowDistance(row, preference.preferredRow) > maxRowDistance) {
+      continue;
+    }
+
     rowSeats.sort((a, b) => a.number - b.number);
     for (let i = 0; i <= rowSeats.length - preference.count; i++) {
       const block = rowSeats.slice(i, i + preference.count);
