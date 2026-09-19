@@ -1,4 +1,4 @@
-# OpenBell PC CGV Booking Agent (v2.0.1)
+# OpenBell PC CGV Booking Agent (v2.0.2)
 
 Windows PC 전용 **독립 패키지**입니다. 웹앱 루트의 `npm install` 없이 `agent/pc` 안에서만 설치·실행합니다.
 
@@ -9,6 +9,13 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 
 > **미완료 / 주의:** CGV DOM 셀렉터는 실제 E2E로 검증되지 않았습니다.  
 > 무인 운영 전에 headed 모드로 회차·좌석 맵을 직접 확인하세요. “검증 완료”를 주장하지 않습니다.
+
+### v2.0.2 notes
+
+- Seat map: same-origin **iframe** search + failure diagnostics (no secrets).
+- Ranker: `preferredRowDistance` hard-filter empty → fallback (distance as score only); aisle/edge still apply.
+- `payment-ready` retries (network/5xx, not 401) + preflight banner (no tokens).
+- `2-run.cmd` refreshes Node PATH like `1-install.cmd`.
 
 ---
 
@@ -40,7 +47,7 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 | `OPENBELL_URL` + `NAS_WORKER_TOKEN` | 둘 다 있으면 OpenBell API 콜백. **없으면 dry-run** |
 | `BOOKING_SESSION_ID` | 기존 세션 ID. 비우고 콜백 ON이면 `POST /api/booking/create` 로 생성 |
 | `PAYMENT_HOLD_BROWSER` | `true`(기본): 결제 직전 브라우저를 열어 두고 수동 결제 대기 |
-| `SEAT_PREFERRED_ROW` / `SEAT_PREFERRED_ROW_DISTANCE` | 선호 열과 허용 거리 (거리 밖 열은 자동 선택에서 제외) |
+| `SEAT_PREFERRED_ROW` / `SEAT_PREFERRED_ROW_DISTANCE` | 선호 열과 허용 거리 (하드 필터 결과가 0이면 거리 페널티만 남기고 fallback) |
 | `PAYMENT_HARD_STOP` | 항상 true로 취급 — 최종결제 자동화 없음 |
 
 ### BOOKING_URL 규칙 (필수 쿼리)
@@ -115,7 +122,7 @@ Authorization: `Bearer <NAS_WORKER_TOKEN>` (서버: `NAS_WORKER_TOKEN` / `NAS_RE
 ## Dry-run vs 연동
 
 | 모드 | 조건 | 동작 |
-|---|---|---|
+|------|------|------|
 | **Dry-run (B)** | `OPENBELL_URL` 또는 `NAS_WORKER_TOKEN` 미설정 | 브라우저만. API 없음 |
 | **연동 (A)** | 둘 다 설정 | create / state / payment-ready |
 
@@ -146,4 +153,4 @@ npm test
 npm start
 ```
 
-CGV 진입점: `https://cgv.co.kr/cnm/movieBook/movie`
+CGV 진입점: `https://cgv.co.kr/cnm/movieBook/movie
