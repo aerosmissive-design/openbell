@@ -1,5 +1,17 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.11 — 2026-09-19
+
+### Operator UX / doctor
+
+- First-time `1-install.cmd` opens `config.env` in Notepad.
+- `START-ko.txt` Korean one-pager (plus English `START.txt`).
+- Doctor verifies Playwright **Chromium binary** is installed (not only the npm package).
+- `PAYMENT_READY_TTL_MS` in config (display only; default 10 minutes). Does not close the browser early.
+- Stronger unit cases for login-page / safe-dialog / official host helpers.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.10 — 2026-09-19
 
 ### Safety
