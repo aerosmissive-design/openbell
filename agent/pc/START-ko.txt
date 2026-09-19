@@ -1,0 +1,21 @@
+OpenBell PC Agent - 시작 안내
+================================
+
+1. 1-install.cmd 더블클릭
+2. config.env 편집
+     BOOKING_MOVIE=영화명
+     BOOKING_DATE=2026-09-20
+     BOOKING_SHOWTIME=20:10
+     BOOKING_SEAT_COUNT=2
+   선택: BOOKING_URL 에는 movNo, scnYmd, scnsNo, scnSseq 포함
+3. 선택: 4-save-login.cmd
+   CGV에 직접 로그인한 뒤, 검은 창에서 Enter
+4. 선택: 3-doctor.cmd
+5. 2-run.cmd 더블클릭
+   토큰 없음 = 결과 B (dry-run)
+   토큰 있음 = 결과 A
+   브라우저는 열린 채로 유지됩니다. 결제는 직접 누르세요.
+   에이전트는 결제를 클릭하지 않습니다. CAPTCHA를 우회하지 않습니다.
+
+한글 파일명의 .bat 은 쓰지 마세요 (Windows에서 깨집니다).
+Windows headed dry-run 결과 B 확인 전에는 머지하지 마세요.
