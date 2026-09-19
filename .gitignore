@@ -14,3 +14,9 @@ attachments/
 .grok/preview.log
 .grok/og-pending
 .pglite/
+
+# PC booking agent local secrets / artifacts (never commit)
+agent/pc/config.env
+agent/pc/logs/
+agent/pc/storage-state*.json
+*.storageState.json

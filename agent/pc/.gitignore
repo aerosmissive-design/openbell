@@ -1,0 +1,5 @@
+config.env
+logs/
+storage-state*.json
+*.storageState.json
+node_modules/
