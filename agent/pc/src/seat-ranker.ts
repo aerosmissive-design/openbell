@@ -27,6 +27,13 @@ export type SeatPreference = {
   allowEdge?: boolean;
 };
 
+export type RankSeatBlocksOptions = {
+  /** When true (default), if the hard distance filter yields zero blocks, retry without it. */
+  allowDistanceFallback?: boolean;
+  /** Fired once when the hard distance filter emptied results and fallback ranking is used. */
+  onDistanceFallback?: () => void;
+};
+
 export function rowDistance(row: string, preferred?: string): number {
   if (!preferred || row === preferred) return 0;
   const a = row.charCodeAt(0);
@@ -34,7 +41,19 @@ export function rowDistance(row: string, preferred?: string): number {
   return Math.abs(a - b);
 }
 
-export function rankSeatBlocks(seats: SeatPoint[], preference: SeatPreference): SeatBlock[] {
+function hasHardDistanceFilter(preference: SeatPreference): boolean {
+  return Boolean(
+    preference.preferredRow &&
+      preference.preferredRowDistance != null &&
+      Number.isFinite(preference.preferredRowDistance),
+  );
+}
+
+function rankSeatBlocksOnce(
+  seats: SeatPoint[],
+  preference: SeatPreference,
+  applyHardDistanceFilter: boolean,
+): SeatBlock[] {
   const groups = new Map<string, SeatPoint[]>();
   for (const seat of seats) {
     if (!seat.available) continue;
@@ -44,10 +63,8 @@ export function rankSeatBlocks(seats: SeatPoint[], preference: SeatPreference): 
   }
 
   const maxRowDistance =
-    preference.preferredRow &&
-    preference.preferredRowDistance != null &&
-    Number.isFinite(preference.preferredRowDistance)
-      ? preference.preferredRowDistance
+    applyHardDistanceFilter && hasHardDistanceFilter(preference)
+      ? preference.preferredRowDistance!
       : undefined;
 
   const blocks: SeatBlock[] = [];
@@ -81,4 +98,20 @@ export function rankSeatBlocks(seats: SeatPoint[], preference: SeatPreference): 
   }
 
   return blocks.sort((a, b) => a.score - b.score);
+}
+
+export function rankSeatBlocks(
+  seats: SeatPoint[],
+  preference: SeatPreference,
+  options: RankSeatBlocksOptions = {},
+): SeatBlock[] {
+  const allowFallback = options.allowDistanceFallback !== false;
+  const filtered = rankSeatBlocksOnce(seats, preference, true);
+  if (filtered.length > 0 || !allowFallback || !hasHardDistanceFilter(preference)) {
+    return filtered;
+  }
+
+  options.onDistanceFallback?.();
+  // Row distance remains a score penalty; only the hard cutoff is removed.
+  return rankSeatBlocksOnce(seats, preference, false);
 }
