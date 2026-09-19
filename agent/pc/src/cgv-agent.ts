@@ -446,8 +446,15 @@ export class CgvBookingAgent {
     const page = this.page;
     const browser = this.browser;
     if (!page || page.isClosed()) return;
+    console.log("[hold] Pay in this browser, then close the window. Agent will wait.");
     await new Promise<void>((resolve) => {
-      const done = () => resolve();
+      const done = () => {
+        clearInterval(tick);
+        resolve();
+      };
+      const tick = setInterval(() => {
+        console.log("[hold] Browser still open. Pay yourself. Agent will not click payment.");
+      }, 30_000);
       page.once("close", done);
       browser?.once("disconnected", done);
     });

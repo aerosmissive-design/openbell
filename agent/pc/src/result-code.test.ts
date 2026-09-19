@@ -34,6 +34,10 @@ test("looksLikeLoginPage requires login path AND password form", () => {
     looksLikeLoginPage("https://www.cgv.co.kr/user/login/", "상단 로그인 메뉴"),
     false,
   );
+  assert.equal(
+    looksLikeLoginPage("https://cgv.co.kr/cnm/movieBook/movie", "아이디 비밀번호 로그인 회원가입"),
+    true,
+  );
 });
 
 test("looksLoggedInCgv requires logout/MY CGV, not a home-page 로그인 link", () => {

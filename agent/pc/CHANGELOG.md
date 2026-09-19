@@ -1,5 +1,14 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.15 — 2026-09-19
+
+### Fix
+
+- Login **overlay** on the booking URL (아이디+비밀번호+로그인, not only `/user/login`) now stops with `LOGIN_REQUIRED`. Agent still does not type credentials.
+- After HARD STOP, the black window prints a hold reminder every 30s so it does not look frozen.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.14 — 2026-09-19
 
 ### Fix

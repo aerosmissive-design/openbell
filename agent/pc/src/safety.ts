@@ -62,12 +62,14 @@ export function isCaptchaFrameUrl(url: string) {
   return /recaptcha|hcaptcha|h-captcha|\/captcha/i.test(url);
 }
 
-/** Login URL + password form. Header "로그인" alone is not enough. */
+/** Login URL + password form, or a password login overlay on another CGV page. Header "로그인" alone is not enough. */
 export function looksLikeLoginPage(url: string, visibleText: string) {
+  const formHit = /비밀번호/.test(visibleText) && /아이디|이메일|휴대전화/.test(visibleText);
+  if (!formHit) return false;
   const u = url.toLowerCase();
   const pathHit = /\/(?:user\/)?login(?:\/|$|\?)|\/member\/login|\/signin/i.test(u);
-  if (!pathHit) return false;
-  return /비밀번호/.test(visibleText) && /아이디|이메일|휴대전화/.test(visibleText);
+  if (pathHit) return true;
+  return /로그인/.test(visibleText);
 }
 
 /** Header cues after a real CGV login. Do not treat a home-page "로그인" link as success. */
