@@ -106,6 +106,13 @@ console.log(
   `[INFO] Mode: ${present(openbell) && present(token) ? "linked (callbacks on)" : "dry-run (no callbacks)"}`,
 );
 console.log(`[INFO] CGV_STORAGE_STATE: ${maskStatus(env.CGV_STORAGE_STATE ?? process.env.CGV_STORAGE_STATE)}`);
+const storageRaw = env.CGV_STORAGE_STATE ?? process.env.CGV_STORAGE_STATE;
+if (present(storageRaw)) {
+  const storagePath = resolve(PC_ROOT, storageRaw!.trim());
+  check("CGV_STORAGE_STATE file", existsSync(storagePath), existsSync(storagePath) ? "found" : "missing — run 4-save-login.cmd");
+} else {
+  lines.push("[INFO] CGV_STORAGE_STATE unset — if CGV shows login, run 4-save-login.cmd");
+}
 
 for (const line of lines) console.log(line);
 

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -8,6 +8,7 @@ import {
   isExactCgvBookingUrl,
 } from "./cgv-agent.js";
 import { classifyAgentError } from "./result-code.js";
+import { isBookingDate, isBookingShowtime } from "./safety.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PC_ROOT = resolve(__dirname, "..");
@@ -314,6 +315,13 @@ const target: BookingTarget = {
   },
 };
 
+if (!isBookingDate(target.playDate)) {
+  throw new Error("INVALID_BOOKING_DATE: use YYYY-MM-DD");
+}
+if (!isBookingShowtime(target.showtime)) {
+  throw new Error("INVALID_BOOKING_SHOWTIME: use HH:MM (e.g. 20:10)");
+}
+
 const headless = bool("PLAYWRIGHT_HEADLESS", false);
 const holdAtPayment = bool("PAYMENT_HOLD_BROWSER", true);
 const storageStatePath = process.env.CGV_STORAGE_STATE?.trim() || undefined;
@@ -340,6 +348,14 @@ console.log(`Seat count: ${requestedSeatCount}`);
 console.log(`BOOKING_URL: ${exactBookingUrl ? "yes" : "no"}`);
 console.log(`Headless: ${headless}`);
 console.log(`Hold browser: ${holdAtPayment}`);
+const storageResolved = storageStatePath ? resolve(PC_ROOT, storageStatePath) : undefined;
+if (storageResolved && existsSync(storageResolved)) {
+  console.log("CGV_STORAGE_STATE: file found");
+} else if (storageStatePath) {
+  console.log("WARNING: CGV_STORAGE_STATE file missing. Run 4-save-login.cmd after a manual CGV login.");
+} else {
+  console.log("CGV_STORAGE_STATE: unset. If CGV shows login, run 4-save-login.cmd.");
+}
 if (!exactBookingUrl) {
   console.log("WARNING: BOOKING_URL is empty. Agent will try movie/date/showtime clicks (DOM unverified).");
 }

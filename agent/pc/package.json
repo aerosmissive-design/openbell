@@ -1,12 +1,13 @@
 {
   "name": "openbell-pc-agent",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "private": true,
   "type": "module",
   "description": "Standalone Windows PC CGV booking agent for OpenBell (hard-stop before payment)",
   "scripts": {
     "start": "tsx src/run.ts",
     "doctor": "tsx src/doctor.ts",
+    "login": "tsx src/save-login.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/seat-ranker.test.ts src/safety.test.ts src/url.test.ts src/result-code.test.ts"
   },

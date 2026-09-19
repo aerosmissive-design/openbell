@@ -1,5 +1,15 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.6 — 2026-09-19
+
+### Operator helper (no credential automation)
+
+- `4-save-login.cmd` / `npm run login`: open headed Chromium, user logs in **manually**, then save `cgv-storage.json`. Does not type passwords. Does not click payment. Refuses to save if still on a login page.
+- Preflight + doctor warn when `CGV_STORAGE_STATE` file is missing. Date/showtime fail-fast in `run.ts`.
+- `cgv-storage.json` gitignored.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.5 — 2026-09-19
 
 ### Improvements (no E2E claim)

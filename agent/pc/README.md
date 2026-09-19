@@ -1,4 +1,4 @@
-# OpenBell PC CGV Booking Agent (v2.0.5)
+# OpenBell PC CGV Booking Agent (v2.0.6)
 
 Windows PC 전용 **독립 패키지**입니다. 웹앱 루트의 `npm install` 없이 `agent/pc` 안에서만 설치·실행합니다.
 
@@ -9,6 +9,11 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 
 > **미완료 / 주의:** CGV DOM 셀렉터는 실제 E2E로 검증되지 않았습니다.  
 > 무인 운영 전에 headed 모드로 회차·좌석 맵을 직접 확인하세요. “검증 완료”를 주장하지 않습니다.
+
+### v2.0.6 notes
+
+- `4-save-login.cmd`: 사용자가 CGV에 **직접** 로그인한 뒤 세션만 저장. 비밀번호 입력 없음. 결제 클릭 없음.
+- `CGV_STORAGE_STATE=cgv-storage.json` (gitignore). 파일이 없으면 doctor/preflight가 경고.
 
 ### v2.0.5 notes
 
@@ -74,6 +79,18 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 - 쿼리 **전부** 존재: `movNo`, `scnYmd`, `scnsNo`, `scnSseq`
 
 토큰·쿠키·`storageState` 파일은 Git에 커밋하지 마세요. 시크릿을 문서에 넣지 마세요.
+
+---
+
+## STEP 2.5 — CGV 로그인 세션 (선택)
+
+CGV가 로그인 화면을 띄우면 에이전트는 중단합니다 (`LOGIN_REQUIRED`). 비밀번호를 넣지 않습니다.
+
+1. `4-save-login.cmd` 실행
+2. 열린 창에서 **직접** 로그인
+3. 이 검은 창으로 돌아와 Enter → `cgv-storage.json` 저장
+4. `config.env` 의 `CGV_STORAGE_STATE=cgv-storage.json` (example 기본값)
+5. `3-doctor.cmd` 로 파일 존재 확인 후 `2-run.cmd`
 
 ---
 
