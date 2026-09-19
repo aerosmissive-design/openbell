@@ -171,6 +171,7 @@ try {
       console.log("Final payment was NOT clicked.");
       console.log("TTL: server PAYMENT_READY window is 10 minutes.");
       console.log("Telegram: sent by OpenBell server after payment-ready (not by this PC agent).");
+      console.log("Pay in this PC browser. Do not open the payment page on a phone.");
       if (!headless && holdAtPayment) {
         console.log("Browser is being kept open for manual completion (PAYMENT_HOLD_BROWSER).");
       }
@@ -181,11 +182,14 @@ try {
         return;
       }
 
+      const callbackUrl =
+        (exactBookingUrl && isExactCgvBookingUrl(exactBookingUrl) && exactBookingUrl) ||
+        (isExactCgvBookingUrl(url) ? url : "");
       await notifyPaymentReady({
         openbellUrl: openbellUrl!,
         workerToken: workerToken!,
         sessionId: bookingSessionId,
-        url,
+        url: callbackUrl,
         seats,
       });
       console.log("OpenBell PAYMENT_READY callback sent successfully.");

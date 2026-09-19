@@ -1,5 +1,14 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.10 — 2026-09-19
+
+### Safety
+
+- OpenBell `payment-ready` callback no longer sends a live payment-page URL. Telegram may only get an exact CGV movie-book URL (`movNo`…). Pay on the **PC browser** that is already open.
+- Server Telegram text: do not open payment on a phone.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.9 — 2026-09-19
 
 ### Operator UX

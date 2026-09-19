@@ -23,6 +23,12 @@ test("isExactCgvBookingUrl requires https + path + four query keys", () => {
   assert.equal(isExactCgvBookingUrl("https://cgv.co.kr/cnm/movieBook/movie?movNo=1"), false);
   assert.equal(isExactCgvBookingUrl("http://cgv.co.kr/cnm/movieBook/movie?movNo=1&scnYmd=1&scnsNo=2&scnSseq=3"), false);
   assert.equal(isExactCgvBookingUrl("https://ticket.cgv.co.kr/cnm/movieBook/movie?movNo=1&scnYmd=1&scnsNo=2&scnSseq=3"), false);
+  assert.equal(
+    isExactCgvBookingUrl(
+      "https://cgv.co.kr/cnm/movieBook/payment?movNo=1&scnYmd=20260920&scnsNo=2&scnSseq=3",
+    ),
+    false,
+  );
 });
 
 test("isPaymentStageSignal ignores lone 결제하기 and English order/border", () => {
