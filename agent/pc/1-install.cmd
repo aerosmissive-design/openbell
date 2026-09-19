@@ -80,12 +80,12 @@ echo ============================================
 echo Install complete. Read START.txt or START-ko.txt
 echo Checklist:
 echo   1. Edit config.env (movie/date/showtime; optional BOOKING_URL)
-echo      (opened in Notepad on first install)
+echo      (opened in Notepad on first install; later use 5-open-config.cmd)
 echo   2. Optional: 4-save-login.cmd  (manual CGV login, then save session)
 echo   3. Optional: 3-doctor.cmd
 echo   4. Run 2-run.cmd
-echo Dry-run: leave NAS_WORKER_TOKEN empty → result code B
-echo Linked: set OPENBELL_URL + NAS_WORKER_TOKEN → result code A
+echo Dry-run: leave NAS_WORKER_TOKEN empty -> result code B
+echo Linked: set OPENBELL_URL + NAS_WORKER_TOKEN -> result code A
 echo Safety: no payment click, no CAPTCHA bypass.
 echo ============================================
 echo.

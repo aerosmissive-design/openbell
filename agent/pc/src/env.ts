@@ -44,3 +44,14 @@ export function isPaymentAutomationLocked(value: string | undefined) {
 export function isFalseyFlag(value: string | undefined) {
   return Boolean(value && /^(0|false|no|off)$/i.test(value.trim()));
 }
+
+/** Server PAYMENT_READY TTL. Agent env PAYMENT_READY_TTL_MS is display-only. */
+export const SERVER_PAYMENT_READY_TTL_MS = 10 * 60 * 1000;
+
+export function paymentReadyTtlMinutes(raw = process.env.PAYMENT_READY_TTL_MS) {
+  if (!raw?.trim()) return Math.round(SERVER_PAYMENT_READY_TTL_MS / 60_000);
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms < 60_000) return Math.round(SERVER_PAYMENT_READY_TTL_MS / 60_000);
+  return Math.round(ms / 60_000);
+}
+

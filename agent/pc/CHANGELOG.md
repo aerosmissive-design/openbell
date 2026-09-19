@@ -1,5 +1,15 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.12 — 2026-09-19
+
+### Operator
+
+- `1-install.cmd` ASCII arrows only (no UTF-8 `→` in batch).
+- `5-open-config.cmd` reopens `config.env` in Notepad.
+- Doctor: `PAYMENT_READY_TTL_MS` is **display-only**; server TTL is 10 minutes until merge.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.11 — 2026-09-19
 
 ### Operator UX / doctor

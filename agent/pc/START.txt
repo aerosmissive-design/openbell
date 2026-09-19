@@ -2,7 +2,7 @@ OpenBell PC Agent - START HERE
 ================================
 
 1. Double-click 1-install.cmd
-2. Edit config.env
+2. Edit config.env (or double-click 5-open-config.cmd to open Notepad)
      BOOKING_MOVIE=movie name
      BOOKING_DATE=2026-09-20
      BOOKING_SHOWTIME=20:10

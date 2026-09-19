@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 import { type BookingState, type BookingTarget, isExactCgvBookingUrl } from "./cgv-agent.js";
 import { classifyAgentError } from "./result-code.js";
 import { isBookingDate, isBookingShowtime } from "./safety.js";
-import { PC_ROOT, applyEnvFile, isFalseyFlag } from "./env.js";
+import { PC_ROOT, applyEnvFile, isFalseyFlag, paymentReadyTtlMinutes } from "./env.js";
 import { createSession, notifyPaymentReady, updateState } from "./openbell-api.js";
 import { runBooking } from "./run.js";
 
@@ -28,14 +28,6 @@ function optionalNumber(name: string) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`INVALID_ENV:${name}`);
   return parsed;
-}
-
-function paymentReadyTtlMinutes() {
-  const raw = process.env.PAYMENT_READY_TTL_MS?.trim();
-  if (!raw) return 10;
-  const ms = Number(raw);
-  if (!Number.isFinite(ms) || ms < 60_000) return 10;
-  return Math.round(ms / 60_000);
 }
 
 applyEnvFile(process.env.OPENBELL_AGENT_CONFIG || resolve(PC_ROOT, "config.env"));
@@ -177,7 +169,7 @@ try {
       console.log(`URL: ${url}`);
       console.log(`SEATS: ${seats.join(", ")}`);
       console.log("Final payment was NOT clicked.");
-      console.log(`TTL: server PAYMENT_READY window is about ${paymentReadyTtlMinutes()} minutes.`);
+      console.log(`TTL: server PAYMENT_READY window is about ${paymentReadyTtlMinutes()} minutes (display; server default is 10).`);
       console.log("Telegram: sent by OpenBell server after payment-ready (not by this PC agent).");
       console.log("Pay in this PC browser. Do not open the payment page on a phone.");
       if (!headless && holdAtPayment) {

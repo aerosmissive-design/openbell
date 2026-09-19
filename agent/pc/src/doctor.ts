@@ -115,6 +115,8 @@ if (isFalseyFlag(hardStop)) {
   lines.push("[OK] PAYMENT_HARD_STOP locked (payment is never clicked)");
 }
 
+lines.push("[INFO] PAYMENT_READY_TTL_MS is display-only; server TTL is 10 minutes until this PR is merged");
+
 for (const line of lines) console.log(line);
 
 console.log("========================================");

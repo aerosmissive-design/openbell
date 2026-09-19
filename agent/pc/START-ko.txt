@@ -2,7 +2,7 @@ OpenBell PC Agent - 시작 안내
 ================================
 
 1. 1-install.cmd 더블클릭
-2. config.env 편집
+2. config.env 편집 (또는 5-open-config.cmd 로 메모장 열기)
      BOOKING_MOVIE=영화명
      BOOKING_DATE=2026-09-20
      BOOKING_SHOWTIME=20:10
