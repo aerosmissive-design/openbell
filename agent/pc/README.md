@@ -115,7 +115,7 @@ Authorization: `Bearer <NAS_WORKER_TOKEN>` (서버: `NAS_WORKER_TOKEN` / `NAS_RE
 ## Dry-run vs 연동
 
 | 모드 | 조건 | 동작 |
-|------|------|------|
+|---|---|---|
 | **Dry-run (B)** | `OPENBELL_URL` 또는 `NAS_WORKER_TOKEN` 미설정 | 브라우저만. API 없음 |
 | **연동 (A)** | 둘 다 설정 | create / state / payment-ready |
 
