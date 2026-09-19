@@ -1,5 +1,14 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.14 — 2026-09-19
+
+### Fix
+
+- `4-save-login.cmd` will **not save** a session unless the page shows `로그아웃` / `MY CGV`. A home-page "로그인" link is not treated as logged in.
+- Save-login browser uses `ko-KR` / `Asia/Seoul`.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.13 — 2026-09-19
 
 ### Fix

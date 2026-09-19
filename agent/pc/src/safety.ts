@@ -70,6 +70,13 @@ export function looksLikeLoginPage(url: string, visibleText: string) {
   return /비밀번호/.test(visibleText) && /아이디|이메일|휴대전화/.test(visibleText);
 }
 
+/** Header cues after a real CGV login. Do not treat a home-page "로그인" link as success. */
+export function looksLoggedInCgv(url: string, visibleText: string) {
+  if (looksLikeLoginPage(url, visibleText)) return false;
+  const t = visibleText.replace(/\s+/g, " ");
+  return /로그아웃/.test(t) || /MY\s*CGV/i.test(t) || /마이\s*CGV/.test(t);
+}
+
 /**
  * Age-gate / cookie / 닫기 dialogs. Never if the label mentions 결제.
  */

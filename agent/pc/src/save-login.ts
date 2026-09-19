@@ -8,7 +8,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
-import { looksLikeLoginPage } from "./safety.js";
+import { looksLikeLoginPage, looksLoggedInCgv } from "./safety.js";
 import { PC_ROOT, applyEnvFile } from "./env.js";
 
 const CGV_HOME = "https://www.cgv.co.kr/";
@@ -26,7 +26,7 @@ console.log(`Will save session to: ${outPath}`);
 console.log("========================================");
 
 const browser = await chromium.launch({ headless: false });
-const context = await browser.newContext();
+const context = await browser.newContext({ locale: "ko-KR", timezoneId: "Asia/Seoul" });
 const page = await context.newPage();
 await page.goto(CGV_HOME, { waitUntil: "domcontentloaded" });
 
@@ -35,9 +35,10 @@ await rl.question("After you are logged in, press Enter here to save (or Ctrl+C 
 rl.close();
 
 const body = await page.locator("body").innerText().catch(() => "");
-if (looksLikeLoginPage(page.url(), body)) {
+if (looksLikeLoginPage(page.url(), body) || !looksLoggedInCgv(page.url(), body)) {
   await browser.close().catch(() => undefined);
-  console.error("LOGIN_NOT_COMPLETED: still on a login page. Session was NOT saved.");
+  console.error("LOGIN_NOT_COMPLETED: logout / MY CGV not found. Session was NOT saved.");
+  console.error("Log in on the CGV window, then run 4-save-login.cmd again.");
   process.exit(1);
 }
 

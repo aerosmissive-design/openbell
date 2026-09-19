@@ -7,6 +7,7 @@ import {
   isOfficialOpenBellUrl,
   isSafeDialogLabel,
   looksLikeLoginPage,
+  looksLoggedInCgv,
 } from "./safety.js";
 
 test("classifyAgentError maps captcha / API / DOM", () => {
@@ -31,6 +32,15 @@ test("looksLikeLoginPage requires login path AND password form", () => {
   );
   assert.equal(
     looksLikeLoginPage("https://www.cgv.co.kr/user/login/", "상단 로그인 메뉴"),
+    false,
+  );
+});
+
+test("looksLoggedInCgv requires logout/MY CGV, not a home-page 로그인 link", () => {
+  assert.equal(looksLoggedInCgv("https://www.cgv.co.kr/", "로그인 예매 영화"), false);
+  assert.equal(looksLoggedInCgv("https://www.cgv.co.kr/", "홍길동님 MY CGV 로그아웃"), true);
+  assert.equal(
+    looksLoggedInCgv("https://www.cgv.co.kr/user/login", "아이디 비밀번호 로그인"),
     false,
   );
 });
