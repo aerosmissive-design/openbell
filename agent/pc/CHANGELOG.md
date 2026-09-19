@@ -1,5 +1,16 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.4 — 2026-09-19
+
+### Fixes
+
+- Restored **인원/일반/성인** best-effort count (was dropped in the v2.0.3 agent rewrite). Does **not** click a bare number on the whole page (that can hit a seat). Skips if a seat map is already visible.
+- Payment STAGE also checked in same-origin iframes.
+- CAPTCHA failure saves `logs/captcha-*.png`. Linked mode reports server state `FAILED` (there is no `CAPTCHA_STOP` on the API).
+- `doctor` imports `safety.ts` (no Playwright load). `npm test` includes `url.test.ts`. `npm run doctor` restored.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.3 — 2026-09-19
 
 ### Fixes (no E2E claim)

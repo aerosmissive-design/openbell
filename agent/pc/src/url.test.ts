@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isExactCgvBookingUrl } from "./cgv-agent.js";
+import { isExactCgvBookingUrl } from "./safety.js";
 
 test("accepts exact CGV booking URL with required query params", () => {
   const url =

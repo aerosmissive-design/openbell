@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isExactCgvBookingUrl } from "./cgv-agent.js";
+import { isExactCgvBookingUrl } from "./safety.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PC_ROOT = resolve(__dirname, "..");
@@ -66,6 +66,12 @@ const requiredKeys = ["BOOKING_MOVIE", "BOOKING_DATE", "BOOKING_SHOWTIME", "BOOK
 for (const key of requiredKeys) {
   const value = env[key] ?? process.env[key];
   check(`${key}`, present(value), present(value) ? "set" : "missing");
+}
+
+const seatCountRaw = env.BOOKING_SEAT_COUNT ?? process.env.BOOKING_SEAT_COUNT;
+if (present(seatCountRaw)) {
+  const n = Number(seatCountRaw);
+  check("BOOKING_SEAT_COUNT range", Number.isInteger(n) && n >= 1 && n <= 10, `value is ${seatCountRaw}`);
 }
 
 const bookingUrl = (env.BOOKING_URL ?? process.env.BOOKING_URL)?.trim();

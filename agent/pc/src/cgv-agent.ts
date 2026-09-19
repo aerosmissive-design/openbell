@@ -137,6 +137,22 @@ export class CgvBookingAgent {
     return best;
   }
 
+  /** Main page + same-origin frames (next / 인원 / captcha / payment checks). */
+  private async interactiveRoots(): Promise<SeatRoot[]> {
+    const page = this.getPage();
+    const roots: SeatRoot[] = [page];
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      try {
+        await frame.evaluate(() => document.readyState);
+        roots.push(frame);
+      } catch {
+        // cross-origin / detached
+      }
+    }
+    return roots;
+  }
+
   private async waitForSeatMap(): Promise<SeatRoot> {
     const page = this.getPage();
     const deadline = Date.now() + this.options.timeoutMs;
@@ -250,61 +266,86 @@ export class CgvBookingAgent {
     await this.assertNoCaptcha(page);
   }
 
-
   /**
-   * Best-effort person/audience count before the seat map (DOM not E2E-verified).
-   * If no control matches, warn and continue.
+   * Best-effort 인원/일반/성인 count before the seat map.
+   * Never click a bare number on the whole page (that can hit a seat).
+   * Skip if a seat map is already visible. DOM not E2E-verified.
    */
   async selectAudienceCount(count: number) {
     const page = this.getPage();
     await this.assertNoCaptcha(page);
-    const countStr = String(count);
-    const roots: SeatRoot[] = [page, ...page.frames()];
+    if (count < 1 || count > 10) return false;
 
-    for (const root of roots) {
-      const candidates: Locator[] = [
-        root.getByRole("button", { name: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) }).first(),
-        root.getByRole("spinbutton").first(),
-        root.locator(`[data-count="${escapeCssAttribute(countStr)}"]`).first(),
-        root.locator(`[data-seat-count="${escapeCssAttribute(countStr)}"]`).first(),
-        root.locator(`button, [role='button'], a`).filter({ hasText: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) }).first(),
-        root.getByLabel(/일반|성인|인원/i).first(),
-      ];
-      for (const candidate of candidates) {
-        try {
-          if (!(await candidate.count())) continue;
-          const label = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
-          if (isForbiddenClickLabel(label) || FORBIDDEN_CLICK_WORDS.test(label)) {
-            console.warn(`[audience] refusing payment-like control: ${label.trim().slice(0, 60)}`);
-            continue;
-          }
-          const tag = await candidate.evaluate((el) => el.tagName.toLowerCase()).catch(() => "");
-          const role = await candidate.getAttribute("role").catch(() => "");
-          if (tag === "input" || role === "spinbutton") {
-            await candidate.fill(countStr);
-          } else {
-            await candidate.click();
-          }
-          console.log(`[audience] selected count=${count} via hypothesized control (DOM not E2E-verified)`);
-          await this.waitForProgress(page);
-          await this.assertNoCaptcha(page);
-          return true;
-        } catch {
-          /* try next */
-        }
+    try {
+      const map = await this.seatRoots();
+      if ((await map.locator(SEAT_MAP_SELECTOR).count()) > 0) {
+        console.log("[audience] seat map already visible; skipping person-count step");
+        return false;
       }
+    } catch {
+      /* continue */
     }
+
+    const countStr = String(count);
+    const roots = await this.interactiveRoots();
+    for (const root of roots) {
+      const labeled: Locator[] = [
+        root.getByLabel(/일반|성인|인원/).first(),
+        root.getByRole("spinbutton", { name: /일반|성인|인원/ }).first(),
+        root.getByRole("combobox", { name: /일반|성인|인원/ }).first(),
+        root.locator("[data-seat-count], [name*='person' i], [name*='cntPerson' i], [id*='person' i]").first(),
+      ];
+      for (const candidate of labeled) {
+        if (await this.trySetAudienceControl(candidate, countStr)) return true;
+      }
+
+      const scoped = root.locator(
+        "[class*='person' i], [class*='audience' i], [class*='cnt' i], [id*='person' i], [class*='인원']",
+      );
+      const numberBtn = scoped
+        .getByRole("button", { name: new RegExp(`^\\s*${escapeRegExp(countStr)}\\s*$`) })
+        .first();
+      if (await this.trySetAudienceControl(numberBtn, countStr, { clickOnly: true })) return true;
+    }
+
     console.warn(
       `[audience] no person-count control matched for count=${count}; continuing (DOM not E2E-verified)`,
     );
     return false;
   }
 
+  private async trySetAudienceControl(
+    candidate: Locator,
+    countStr: string,
+    opts?: { clickOnly?: boolean },
+  ) {
+    try {
+      if (!(await candidate.count())) return false;
+      const text = `${await candidate.innerText().catch(() => "")} ${await candidate.getAttribute("aria-label").catch(() => "")}`;
+      if (isForbiddenClickLabel(text) || isPaymentStageSignal("", text)) {
+        console.warn(`[audience] refusing payment-like control: ${text.trim().slice(0, 60)}`);
+        return false;
+      }
+      const tag = await candidate.evaluate((el) => el.tagName.toLowerCase()).catch(() => "");
+      const role = await candidate.getAttribute("role").catch(() => "");
+      if (!opts?.clickOnly && (tag === "input" || tag === "select" || role === "spinbutton" || role === "combobox")) {
+        await candidate.fill(countStr);
+      } else {
+        await candidate.click();
+      }
+      console.log(`[audience] selected count=${countStr} (DOM not E2E-verified)`);
+      const page = this.getPage();
+      await this.waitForProgress(page);
+      await this.assertNoCaptcha(page);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   async selectSeats(target: BookingTarget) {
     const page = this.getPage();
     await this.assertNoCaptcha(page);
-
     await this.selectAudienceCount(target.requestedSeatCount);
 
     const explicit = target.seatIds?.filter(Boolean) ?? [];
@@ -514,8 +555,17 @@ export class CgvBookingAgent {
   }
 
   private async isPaymentStage(page: Page) {
-    const body = await page.locator("body").innerText().catch(() => "");
-    return isPaymentStageSignal(page.url(), body);
+    const main = await page.locator("body").innerText().catch(() => "");
+    if (isPaymentStageSignal(page.url(), main)) return true;
+    for (const frame of page.frames()) {
+      try {
+        const body = await frame.locator("body").innerText().catch(() => "");
+        if (isPaymentStageSignal(frame.url(), body)) return true;
+      } catch {
+        /* cross-origin */
+      }
+    }
+    return false;
   }
 
   /**
@@ -556,12 +606,14 @@ export class CgvBookingAgent {
     const body = await page.locator("body").innerText().catch(() => "");
     if (looksLikeCaptchaChallenge(body)) {
       this.stopped = true;
+      await this.saveFailureShot(page, "captcha");
       throw new Error("CAPTCHA_DETECTED: agent will not bypass CAPTCHA. Solve manually or stop.");
     }
     for (const frame of page.frames()) {
       try {
         if (isCaptchaFrameUrl(frame.url())) {
           this.stopped = true;
+          await this.saveFailureShot(page, "captcha");
           throw new Error("CAPTCHA_DETECTED: agent will not bypass CAPTCHA. Solve manually or stop.");
         }
       } catch (error) {

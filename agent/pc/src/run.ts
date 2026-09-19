@@ -337,6 +337,8 @@ console.log(`Date: ${target.playDate}`);
 console.log(`Showtime: ${target.showtime}`);
 console.log(`Seat count: ${requestedSeatCount}`);
 console.log(`BOOKING_URL: ${exactBookingUrl ? "yes" : "no"}`);
+console.log(`Headless: ${headless}`);
+console.log(`Hold browser: ${holdAtPayment}`);
 if (!exactBookingUrl) {
   console.log("WARNING: BOOKING_URL is empty. Agent will try movie/date/showtime clicks (DOM unverified).");
 }
@@ -426,20 +428,6 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (message.startsWith("CAPTCHA_DETECTED")) {
-    if (callbacksEnabled && bookingSessionId) {
-      try {
-        await updateState({
-          openbellUrl: openbellUrl!,
-          workerToken: workerToken!,
-          sessionId: bookingSessionId!,
-          state: "CAPTCHA_STOP",
-        });
-        console.log("OpenBell booking state: CAPTCHA_STOP");
-      } catch (stateError) {
-        const detail = stateError instanceof Error ? stateError.message : String(stateError);
-        console.warn(`[captcha] failed to report CAPTCHA_STOP: ${detail.slice(0, 200)}`);
-      }
-    }
     printResultCode("C", message);
   } else if (
     message.startsWith("OPENBELL_") ||
@@ -449,6 +437,21 @@ try {
     printResultCode("E", message);
   } else {
     printResultCode("D", message);
+  }
+  // Server has no CAPTCHA_STOP state — report FAILED so the session is not left WATCHING.
+  if (callbacksEnabled && bookingSessionId && !message.startsWith("OPENBELL_")) {
+    try {
+      await updateState({
+        openbellUrl: openbellUrl!,
+        workerToken: workerToken!,
+        sessionId: bookingSessionId,
+        state: "FAILED",
+      });
+      console.log("OpenBell booking state: FAILED");
+    } catch (stateError) {
+      const detail = stateError instanceof Error ? stateError.message : String(stateError);
+      console.warn(`[state] failed to report FAILED: ${detail.slice(0, 200)}`);
+    }
   }
   process.exitCode = 1;
   throw error;
