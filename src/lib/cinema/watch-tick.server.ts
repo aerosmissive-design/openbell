@@ -40,6 +40,23 @@ function hostSeenFromPrefs(prefs: unknown): string[] {
 const THEATER_IDS = THEATERS.map((t) => t.id);
 let lastRunAt = 0;
 
+function isDbQuota(err: unknown) {
+  const e = err as { code?: string; message?: string };
+  return e?.code === "53000" || /exceeded the quota/i.test(String(e?.message || err));
+}
+
+async function probeDbLabel(): Promise<"neon" | "pglite" | "neon-quota"> {
+  if (dbLabel() !== "neon") return "pglite";
+  try {
+    const sql = await getSql();
+    await sql.query("select 1 as ok");
+    return "neon";
+  } catch (err) {
+    if (isDbQuota(err)) return "neon-quota";
+    return "neon";
+  }
+}
+
 export async function watchTickHealth() {
   const stored = await readWatchLastRun();
   const last = Math.max(lastRunAt, stored);
@@ -52,11 +69,13 @@ export async function watchTickHealth() {
   const externalWakeAt =
     Number.isFinite(externalAt) && externalAt > 0 ? externalAt : 0;
   const { readCgvRelayWatch } = await import("./relay-watch.server");
+  const db = await probeDbLabel();
   return {
     lastRunAt: last,
     ageMs: last ? Date.now() - last : null,
     alive: last > 0 && Date.now() - last < 10 * 60 * 1000,
-    db: dbLabel(),
+    db,
+    dbQuota: db === "neon-quota",
     lastNotify: notify,
     githubWakeAt,
     githubWakeAgeMs: githubWakeAt ? Date.now() - githubWakeAt : null,
@@ -485,6 +504,10 @@ export async function runWatchTick() {
     );
     return { skipped: false as const, users: accounts.length, sent };
   } catch (err) {
+    if (isDbQuota(err)) {
+      lastRunAt = 0;
+      return { skipped: true as const, users: 0, sent: 0, dbQuota: true as const };
+    }
     lastRunAt = 0;
     await writeWatchLastRun(0);
     throw err;

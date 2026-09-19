@@ -754,7 +754,9 @@ function AlertPathStatus({ health }: { health: NotifyHealth }) {
           : "알림 경로를 확인하는 중입니다.";
   const dbTitle = health.dbLine === "pglite" ? "임시 저장" : "Neon";
   const dbValue =
-    health.dbLine === "neon"
+    health.dbLine === "neon-quota"
+      ? "쿼터 초과. Neon에서 한도를 올려야 알림이 갑니다."
+      : health.dbLine === "neon"
       ? "유지됨"
       : health.dbLine === "pglite"
         ? "새로고침하면 사라질 수 있음"
@@ -807,6 +809,7 @@ type AliveProbe = {
   reachable: boolean;
   alive: boolean;
   ageMs: number | null;
+  dbQuota?: boolean;
   githubWakeAlive?: boolean;
   githubWakeAgeMs?: number | null;
   externalWakeAlive?: boolean;
@@ -838,6 +841,7 @@ function agoLabel(at?: number | null, ageMs?: number | null) {
 }
 function watchLine(probe: AliveProbe) {
   if (!probe.reachable) return "확인 못 함";
+  if (probe.dbQuota) return "DB 쿼터";
   if (probe.alive) return "켜짐";
   return "다음 주기 대기";
 }
@@ -861,6 +865,7 @@ async function probeWatchAlive(url: string): Promise<AliveProbe> {
       reachable: true,
       alive: Boolean(json.alive),
       ageMs: typeof json.ageMs === "number" ? json.ageMs : null,
+      dbQuota: json.db === "neon-quota" || Boolean(json.dbQuota),
       githubWakeAlive: Boolean(json.githubWakeAlive),
       githubWakeAgeMs: typeof json.githubWakeAgeMs === "number" ? json.githubWakeAgeMs : null,
       externalWakeAlive: Boolean(json.externalWakeAlive),
@@ -895,7 +900,14 @@ function useNotifyHealth(config: WatchConfig): NotifyHealth {
       try {
         const res = await fetch("/api/watch-alive", { signal: AbortSignal.timeout(8000) });
         const json = (await res.json()) as any;
-        dbLine = json.db === "neon" ? "neon" : json.db === "pglite" ? "pglite" : "";
+        dbLine =
+          json.db === "neon-quota"
+            ? "neon-quota"
+            : json.db === "neon"
+              ? "neon"
+              : json.db === "pglite"
+                ? "pglite"
+                : "";
         relay = json.cgvRelay ?? null;
       } catch {
         dbLine = "pending";
