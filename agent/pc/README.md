@@ -1,4 +1,4 @@
-# OpenBell PC CGV Booking Agent (v2)
+# OpenBell PC CGV Booking Agent (v2.0.1)
 
 Windows PC 전용 **독립 패키지**입니다. 웹앱 루트의 `npm install` 없이 `agent/pc` 안에서만 설치·실행합니다.
 
@@ -40,6 +40,7 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 | `OPENBELL_URL` + `NAS_WORKER_TOKEN` | 둘 다 있으면 OpenBell API 콜백. **없으면 dry-run** |
 | `BOOKING_SESSION_ID` | 기존 세션 ID. 비우고 콜백 ON이면 `POST /api/booking/create` 로 생성 |
 | `PAYMENT_HOLD_BROWSER` | `true`(기본): 결제 직전 브라우저를 열어 두고 수동 결제 대기 |
+| `SEAT_PREFERRED_ROW` / `SEAT_PREFERRED_ROW_DISTANCE` | 선호 열과 허용 거리 (거리 밖 열은 자동 선택에서 제외) |
 | `PAYMENT_HARD_STOP` | 항상 true로 취급 — 최종결제 자동화 없음 |
 
 ### BOOKING_URL 규칙 (필수 쿼리)
@@ -141,6 +142,7 @@ agent/pc/
 
 ```bat
 npm run typecheck
+npm test
 npm start
 ```
 
