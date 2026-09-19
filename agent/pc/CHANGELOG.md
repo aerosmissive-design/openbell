@@ -1,5 +1,14 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.8 — 2026-09-19
+
+### Internals (no behavior change for operators)
+
+- Split CLI (`src/cli.ts`) from `runBooking` so tests can import the library without launching a browser.
+- OpenBell HTTP client extracted (`openbell-api.ts`). Unit tests: create URL, **401 is not retried**, 5xx then success.
+
+`2-run.cmd` now starts `src/cli.ts`. Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.7 — 2026-09-19
 
 ### Safety / operator
