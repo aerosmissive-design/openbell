@@ -394,9 +394,21 @@ export class CgvBookingAgent {
   async fillBookingInfo(info: Record<string, string>) {
     const page = this.getPage();
     await this.assertNoCaptcha(page);
+    const roots = await this.interactiveRoots();
     for (const [label, value] of Object.entries(info)) {
-      const field = page.getByLabel(label, { exact: false }).first();
-      if (await field.count()) await field.fill(value);
+      if (isForbiddenClickLabel(label) || isForbiddenClickLabel(value)) {
+        throw new Error(`FORBIDDEN_BOOKING_INFO:${label}`);
+      }
+      let filled = false;
+      for (const root of roots) {
+        const field = root.getByLabel(label, { exact: false }).first();
+        if (await field.count()) {
+          await field.fill(value);
+          filled = true;
+          break;
+        }
+      }
+      if (!filled) console.warn(`[booking-info] no field matched label=${label}`);
     }
     if (!(await this.clickSafeNext(page))) throw new Error("CGV_BOOKING_INFO_NEXT_NOT_FOUND");
     await this.assertNoCaptcha(page);
@@ -406,6 +418,7 @@ export class CgvBookingAgent {
     const page = this.getPage();
     await this.advanceUntilPayment(page);
     this.stopped = true;
+    await this.saveFailureShot(page, "payment-ready");
     const url = page.url();
     const seats = this.selectedSeats.length ? this.selectedSeats : (target.seatIds ?? []);
     await this.options.onPaymentReady?.({ url, seats });
@@ -419,9 +432,12 @@ export class CgvBookingAgent {
 
   async waitForBrowserClose() {
     const page = this.page;
+    const browser = this.browser;
     if (!page || page.isClosed()) return;
     await new Promise<void>((resolve) => {
-      page.once("close", () => resolve());
+      const done = () => resolve();
+      page.once("close", done);
+      browser?.once("disconnected", done);
     });
   }
 
@@ -615,7 +631,7 @@ export class CgvBookingAgent {
   private async clickSafeNext(page: Page) {
     if (await this.isPaymentStage(page)) return false;
 
-    const roots: SeatRoot[] = [page, ...page.frames()];
+    const roots = await this.interactiveRoots();
     for (const root of roots) {
       const candidates: Locator[] = [
         root.getByRole("button", { name: SAFE_NEXT_WORDS }).first(),

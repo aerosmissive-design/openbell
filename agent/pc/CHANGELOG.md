@@ -1,5 +1,16 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.7 — 2026-09-19
+
+### Safety / operator
+
+- `PAYMENT_HARD_STOP=false` is **ignored**. Final payment is never automated.
+- Shared `env.ts` parser (CRLF/quotes) used by run / doctor / save-login.
+- HARD STOP saves `logs/payment-ready-*.png`. Booking-info fill searches iframes and refuses payment-like labels.
+- `waitForBrowserClose` also ends if Chromium disconnects.
+
+Safety unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.6 — 2026-09-19
 
 ### Operator helper (no credential automation)

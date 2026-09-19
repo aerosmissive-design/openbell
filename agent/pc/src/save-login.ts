@@ -4,32 +4,16 @@
  *
  * Usage: npx tsx src/save-login.ts
  */
-import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { chromium } from "playwright";
 import { looksLikeLoginPage } from "./safety.js";
+import { PC_ROOT, applyEnvFile } from "./env.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PC_ROOT = resolve(__dirname, "..");
 const CGV_HOME = "https://www.cgv.co.kr/";
 
-function loadEnv(path = resolve(PC_ROOT, "config.env")) {
-  if (!existsSync(path)) return;
-  for (const raw of readFileSync(path, "utf8").split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const index = line.indexOf("=");
-    if (index < 1) continue;
-    const key = line.slice(0, index).trim();
-    const value = line.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
-
-loadEnv();
+applyEnvFile();
 
 const outPath = resolve(PC_ROOT, process.env.CGV_STORAGE_STATE?.trim() || "cgv-storage.json");
 

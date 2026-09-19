@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   CgvBookingAgent,
   type BookingState,
@@ -9,26 +8,7 @@ import {
 } from "./cgv-agent.js";
 import { classifyAgentError } from "./result-code.js";
 import { isBookingDate, isBookingShowtime } from "./safety.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PC_ROOT = resolve(__dirname, "..");
-
-function loadEnv(path = resolve(PC_ROOT, "config.env")) {
-  try {
-    const text = readFileSync(path, "utf8");
-    for (const raw of text.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) continue;
-      const index = line.indexOf("=");
-      if (index < 1) continue;
-      const key = line.slice(0, index).trim();
-      const value = line.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
-      if (!process.env[key]) process.env[key] = value;
-    }
-  } catch {
-    // Shell env vars are also supported.
-  }
-}
+import { PC_ROOT, applyEnvFile, isFalseyFlag } from "./env.js";
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -277,7 +257,7 @@ export async function runBooking(input: RunBookingInput) {
 
 // --- CLI entry ---
 
-loadEnv(process.env.OPENBELL_AGENT_CONFIG || resolve(PC_ROOT, "config.env"));
+applyEnvFile(process.env.OPENBELL_AGENT_CONFIG || resolve(PC_ROOT, "config.env"));
 
 const requestedSeatCount = Number(process.env.BOOKING_SEAT_COUNT || "2");
 if (!Number.isInteger(requestedSeatCount) || requestedSeatCount < 1) {
@@ -348,6 +328,10 @@ console.log(`Seat count: ${requestedSeatCount}`);
 console.log(`BOOKING_URL: ${exactBookingUrl ? "yes" : "no"}`);
 console.log(`Headless: ${headless}`);
 console.log(`Hold browser: ${holdAtPayment}`);
+console.log("PAYMENT_HARD_STOP: locked (final payment is never clicked)");
+if (isFalseyFlag(process.env.PAYMENT_HARD_STOP)) {
+  console.warn("[safety] PAYMENT_HARD_STOP=false is ignored. Final payment is never automated.");
+}
 const storageResolved = storageStatePath ? resolve(PC_ROOT, storageStatePath) : undefined;
 if (storageResolved && existsSync(storageResolved)) {
   console.log("CGV_STORAGE_STATE: file found");

@@ -2,37 +2,15 @@
  * Operator doctor — checks install/config without printing secret values.
  * Usage: npx tsx src/doctor.ts
  */
-import { existsSync, readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   isBookingDate,
   isBookingShowtime,
   isExactCgvBookingUrl,
   isOfficialOpenBellUrl,
 } from "./safety.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PC_ROOT = resolve(__dirname, "..");
-
-function loadEnvFile(path: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  try {
-    const text = readFileSync(path, "utf8");
-    for (const raw of text.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) continue;
-      const index = line.indexOf("=");
-      if (index < 1) continue;
-      const key = line.slice(0, index).trim();
-      const value = line.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
-      out[key] = value;
-    }
-  } catch {
-    /* missing file handled by caller */
-  }
-  return out;
-}
+import { PC_ROOT, isFalseyFlag, loadEnvFile } from "./env.js";
 
 function present(value: string | undefined) {
   return Boolean(value?.trim());
@@ -112,6 +90,13 @@ if (present(storageRaw)) {
   check("CGV_STORAGE_STATE file", existsSync(storagePath), existsSync(storagePath) ? "found" : "missing — run 4-save-login.cmd");
 } else {
   lines.push("[INFO] CGV_STORAGE_STATE unset — if CGV shows login, run 4-save-login.cmd");
+}
+
+const hardStop = env.PAYMENT_HARD_STOP ?? process.env.PAYMENT_HARD_STOP;
+if (isFalseyFlag(hardStop)) {
+  lines.push("[WARN] PAYMENT_HARD_STOP=false is ignored — final payment is never automated");
+} else {
+  lines.push("[OK] PAYMENT_HARD_STOP locked (payment is never clicked)");
 }
 
 for (const line of lines) console.log(line);
