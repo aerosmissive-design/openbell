@@ -26,6 +26,11 @@ export function isExactCgvBookingUrl(value: string) {
   }
 }
 
+/** Only exact CGV movie-book URLs may leave the PC as browserAccessUrl. Payment pages → "". */
+export function safeBrowserAccessUrl(url: string): string {
+  return isExactCgvBookingUrl(url) ? url : "";
+}
+
 /**
  * Payment STAGE (hard stop) — conservative.
  * A lone "결제하기" / English "order" is NOT enough: those appear as nav or as
@@ -141,4 +146,3 @@ export function showtimeClickLabels(hhmm: string): string[] {
     new Set([hhmm.trim(), padded, `${hour}:${min}`, `${hour}시 ${min}분`, `${hour}시${min}분`]),
   );
 }
-
