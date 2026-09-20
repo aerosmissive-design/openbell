@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isExactCgvBookingUrl } from "./safety.js";
+import { dateClickLabels, isExactCgvBookingUrl } from "./safety.js";
 
 test("accepts exact CGV booking URL with required query params", () => {
   const url =
@@ -32,4 +32,10 @@ test("rejects non-CGV host or http", () => {
     ),
     false,
   );
+});
+
+test("dateClickLabels accepts YYYYMMDD from OpenBell alerts", () => {
+  const labels = dateClickLabels("20260920");
+  assert.ok(labels.includes("20260920"));
+  assert.ok(labels.includes("9월 20일"));
 });

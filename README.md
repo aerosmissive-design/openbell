@@ -1,10 +1,16 @@
-# 오픈벨 (Openbell) v3.9.73
+# 오픈벨 (Openbell) v3.9.74
 
 CGV·메가박스 특별관 예매 오픈·잔여석 알림 웹앱입니다.
 
 웹: https://openbell-fawn.vercel.app  
 전광판: https://openbell-fawn.vercel.app/board
 저장소: https://github.com/aerosmissive-design/openbell
+
+## v3.9.74에서 달라진 점
+
+- 알림은 회차 키를 기다리지 않습니다. 먼저 온 출처(KT·네이버·공홈)로 바로 보냅니다.
+- CGV 링크에 scnsNo·scnSseq가 있으면 빨간 테두리까지, 메가박스는 playSchdlNo가 있으면 좌석화면까지 갑니다. 키가 없으면 영화/극장 페이지로 보냅니다.
+- PC·NAS 부킹에이전트는 키가 없어도 중단하지 않습니다. 날짜·회차를 눌러 같은 화면까지 이어갑니다.
 
 ## v3.9.73에서 달라진 점
 
