@@ -2,9 +2,48 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { ScanResult, TheaterId } from "@/lib/cinema/types";
+import { seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { SourceStatus } from "./source-status";
+
+const SOURCE_COLS: { id: string; label: string; keys: string[] }[] = [
+  { id: "official", label: "공홈", keys: ["official", "megabox", "cgv"] },
+  { id: "g-pc", label: "G_PC", keys: ["g-pc", "pc", "nas-report"] },
+  { id: "g-nas", label: "G_NAS", keys: ["g-nas225+", "g-nas423+", "nas225", "nas423", "nas225+", "nas423+", "nas"] },
+  { id: "kt", label: "KT 우회", keys: ["cgv-kt", "mega-mobile", "kt"] },
+  { id: "naver", label: "네이버", keys: ["naver", "cgv-relay", "relay"] },
+];
+
+function sourceTimeLabel(value?: string) {
+  if (!value) return "없음";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "없음";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function pickSourceTime(times: Record<string, string> | undefined, keys: string[]) {
+  let best = "";
+  let bestAt = 0;
+  for (const key of keys) {
+    const value = times?.[key];
+    if (!value) continue;
+    const at = new Date(value).getTime();
+    if (!Number.isFinite(at)) continue;
+    if (at >= bestAt) {
+      bestAt = at;
+      best = value;
+    }
+  }
+  return best;
+}
 
 export function FormatChips({
   theaterId,
@@ -75,7 +114,7 @@ export function SettingsTheaterPicks({
         감시 극장
       </h2>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        제목을 누르면 그 극장 특별관이 전부 켜지거나 꺼집니다. 켤 특별관만
+        제목을 누르면 그 극장 특별관이 전부 켜지거나 꺼집니다. 켜 특별관만
         알림이 갑니다. 상영시간·잔여석 출처는 마지막 조회 기준입니다.
       </p>
       <div className="mt-3 flex flex-col gap-2">
@@ -88,7 +127,104 @@ export function SettingsTheaterPicks({
           />
         ))}
       </div>
+      <ScanSourceBoard lastScan={lastScan ?? null} />
     </>
+  );
+}
+
+function ScanSourceBoard({ lastScan }: { lastScan: ScanResult | null }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="mt-4 border-t border-border pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex min-h-11 w-full items-center justify-between gap-3 text-left"
+      >
+        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
+          상영시간 및 잔여석 현황 출처
+        </h2>
+        <span className="shrink-0 text-xs text-muted">{open ? "접기" : "펼치기"}</span>
+      </button>
+      {open ? (
+        <>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            상영시간과 잔여석 현황은 각각 실제 조회에 사용된 출처와 시각을 표시합니다.
+            값이 없으면 「없음」입니다. 지금 시각을 「기준」으로 붙이지 않습니다.
+          </p>
+          <div className="mt-4">
+            <p className="font-medium text-fg">상영시간 출처</p>
+            <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
+              <p className="text-xs text-muted">극장</p>
+              <p className="text-xs text-muted">상영시간</p>
+              <p className="text-xs text-muted">잔여석</p>
+              {THEATERS.map((theater) => {
+                const row = lastScan?.theaters.find((t) => t.theaterId === theater.id);
+                return (
+                  <div key={theater.id} className="contents">
+                    <p className="text-fg">{theater.shortName}</p>
+                    <p className="text-muted">{timetableSourceLabel(row?.source ?? "none", row?.ok ?? false)}</p>
+                    <p className="text-muted">{seatSourceLabel(row?.seatSource)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="mt-5">
+            <p className="font-medium text-fg">잔여석 현황 출처</p>
+            <p className="mt-1 text-sm text-muted">
+              각 경로에서 마지막으로 성공한 조회 시각입니다. 극장별 가장 최근 칸은 빨간색입니다.
+            </p>
+            <div className="mt-3 overflow-x-auto rounded-lg ring-1 ring-border">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-bg">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted">극장</th>
+                    {SOURCE_COLS.map((col) => (
+                      <th key={col.id} className="px-3 py-2 text-left text-xs font-medium text-muted">
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {THEATERS.map((theater) => {
+                    const times = lastScan?.seatSourceTimes?.[theater.id] ?? {};
+                    const entries = SOURCE_COLS.map((col) => {
+                      const value = pickSourceTime(times, col.keys);
+                      return {
+                        id: col.id,
+                        value,
+                        at: value ? new Date(value).getTime() : 0,
+                      };
+                    });
+                    const latestAt = Math.max(0, ...entries.map((entry) => entry.at));
+                    return (
+                      <tr key={theater.id} className="border-b border-border last:border-b-0">
+                        <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-fg">
+                          {theater.shortName}
+                        </th>
+                        {entries.map((entry) => (
+                          <td
+                            key={entry.id}
+                            className={cn(
+                              "whitespace-nowrap px-3 py-2 tabular-nums text-muted",
+                              entry.at > 0 && entry.at === latestAt ? "font-medium text-danger" : "",
+                            )}
+                          >
+                            {sourceTimeLabel(entry.value)}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }
 
