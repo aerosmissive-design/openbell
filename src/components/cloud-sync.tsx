@@ -57,8 +57,12 @@ export async function flushSettings(signedIn: boolean): Promise<GasPushResult> {
     watchSig: snap.watchSig,
   };
   if (signedIn) {
-    const res = await saveCloudSettings({ data: payload });
-    return res.gas;
+    try {
+      const res = await saveCloudSettings({ data: payload });
+      if (res?.gas) return res.gas;
+    } catch {
+      /* Neon이 막혀도 GAS 반영은 시도 */
+    }
   }
   const res = await publishToGas({ data: payload });
   return res.gas;
@@ -107,7 +111,6 @@ export function CloudSync() {
     if (!hydrated || isPending) return;
     if (!userId) {
       pulledFor.current = null;
-      forgetGasLink();
       useAppStore.getState().setOwnerId(null);
       setReady(true);
       return;

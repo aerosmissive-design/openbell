@@ -171,8 +171,6 @@ export const useAppStore = create<AppState>()(
         }),
       toggleWatchTitle: (title) =>
         set((s) => {
-          // HTML 엔티티(& 등) 디코드 후 정규화 비교 — 표시 제목과 저장 제목이
-          // "&" vs "&" 로 달라도 같은 영화로 보고 토글한다.
           const display = decodeHtml(String(title || "")).trim();
           if (!display) return s;
           const key = normalizeTitle(display);
@@ -256,6 +254,9 @@ export const useAppStore = create<AppState>()(
             hold: normalizeHold(snap.config.hold),
             gasSourceStamp:
               snap.config.gasSourceStamp || s.config.gasSourceStamp,
+            gasWebUrl: String(snap.config.gasWebUrl || s.config.gasWebUrl || "").trim(),
+            gasScriptId: String(snap.config.gasScriptId || s.config.gasScriptId || "").trim(),
+            gasSyncKey: String(snap.config.gasSyncKey || s.config.gasSyncKey || "").trim(),
           },
           queue: snap.queue.slice(0, 40),
           alerts: snap.alerts.slice(0, 2000),
@@ -310,9 +311,9 @@ export const useAppStore = create<AppState>()(
               typeof p.config?.emailNotify === "boolean"
                 ? p.config.emailNotify
                 : Boolean(p.config?.email?.trim()),
-            gasWebUrl: "",
-            gasScriptId: "",
-            gasSyncKey: "",
+            gasWebUrl: String(p.config?.gasWebUrl ?? "").trim(),
+            gasScriptId: String(p.config?.gasScriptId ?? "").trim(),
+            gasSyncKey: String(p.config?.gasSyncKey ?? "").trim(),
           },
           seenDates: p.seenDates ?? current.seenDates,
         };
