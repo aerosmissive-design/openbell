@@ -233,6 +233,171 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               <p className="mt-3 text-xs leading-relaxed text-faint">
                 구글 트리거에는 1분 아니면 5분(또는 10분)만 있습니다. 하루 종일 받으려면 5분을 쓰세요. 1분은 더 빠르지만 오후에 끊길 수 있습니다.
               </p>
+              <button
+                type="button"
+                onClick={() => setShowGasHelp((v) => !v)}
+                className="mt-3 flex min-h-11 w-full items-center justify-between gap-3 text-left"
+              >
+                <p className="text-sm font-medium text-fg">설치 방법</p>
+                <span className="shrink-0 text-xs text-muted">{showGasHelp ? "접기" : "펼치기"}</span>
+              </button>
+              {showGasHelp ? (
+                <>
+                  <p className="mt-1 text-sm font-medium text-fg">처음 설치</p>
+                  <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
+                    <li>
+                      <a
+                        href="https://script.google.com/home/usersettings"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-fg underline underline-offset-2"
+                      >
+                        script.google.com/home/usersettings
+                      </a>
+                      에서 Google Apps Script API를 켜세요.
+                    </li>
+                    <li>스크립트 복사를 누르세요.</li>
+                    <li>
+                      <a
+                        href={gasHomeUrl(loginEmail) || "https://script.google.com"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-fg underline underline-offset-2"
+                      >
+                        script.google.com
+                      </a>
+                      에서 새 프로젝트를 만드세요.
+                    </li>
+                    <li>코드를 붙여넣고 저장하세요.</li>
+                    <li>위쪽 함수를 설치 로 실행하고 권한을 허용하세요.</li>
+                    <li>배포된 웹앱 주소(/exec)를 아래 칸에 붙이세요.</li>
+                  </ol>
+                  <p className="mt-3 text-sm font-medium text-fg">이후 업데이트</p>
+                  <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
+                    <li>스크립트 복사를 누르세요.</li>
+                    <li>script.google.com 열기로 오픈벨을 연 뒤, 붙여넣고 저장하세요.</li>
+                  </ol>
+                </>
+              ) : null}
+              <label className="mt-4 block text-xs text-muted">웹앱 주소</label>
+              <button
+                type="button"
+                onClick={() => setShowGasUrlHelp((v) => !v)}
+                className="mt-1 flex min-h-11 w-full items-center justify-between gap-3 text-left"
+              >
+                <p className="text-sm font-medium text-fg">웹앱 주소 찾는 법</p>
+                <span className="shrink-0 text-xs text-muted">{showGasUrlHelp ? "접기" : "펼치기"}</span>
+              </button>
+              {showGasUrlHelp ? (
+                <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
+                  <li>
+                    <a
+                      href={gasHomeUrl(loginEmail) || "https://script.google.com"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-fg underline underline-offset-2"
+                    >
+                      script.google.com
+                    </a>
+                    에서 오픈벨 프로젝트를 여세요.
+                  </li>
+                  <li>오른쪽 위 배포 → 새 배포를 누르세요. 이미 있으면 배포 관리입니다.</li>
+                  <li>유형은 웹 앱, 실행은 나, 액세스는 모든 사용자로 두세요.</li>
+                  <li>배포 후 나온 주소 끝이 /exec 인지 확인하세요.</li>
+                  <li>그 주소를 아래 칸에 붙이고 웹앱 주소 연결을 누르세요.</li>
+                </ol>
+              ) : null}
+              <input
+                value={gasUrlDraft}
+                onChange={(e) => setGasUrlDraft(e.target.value)}
+                placeholder="https://script.google.com/macros/s/…/exec"
+                className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border focus:ring-border-strong"
+              />
+              <button
+                type="button"
+                className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border"
+                onClick={() => {
+                  const raw = gasUrlDraft.trim();
+                  if (!raw) {
+                    toast.error("웹앱 주소를 붙여넣으세요.");
+                    return;
+                  }
+                  let parsed: URL;
+                  try {
+                    parsed = new URL(raw);
+                  } catch {
+                    toast.error("주소가 올바르지 않습니다.");
+                    return;
+                  }
+                  if (
+                    !parsed.hostname.endsWith("script.google.com") &&
+                    !parsed.hostname.endsWith("googleusercontent.com")
+                  ) {
+                    toast.error("구글 스크립트 웹앱 주소만 됩니다.");
+                    return;
+                  }
+                  ensureGasSyncKey();
+                  setConfig({ gasWebUrl: raw });
+                  void (async () => {
+                    const id = await refreshGasMeta(raw).catch(() => "");
+                    await flushSettings(Boolean(loginEmail));
+                    toast.success(
+                      id
+                        ? "웹앱을 연결했습니다. 알림 경로에서 구글 스크립트를 확인하세요."
+                        : "주소를 저장했습니다. 알림 경로에서 확인하세요.",
+                    );
+                  })();
+                }}
+              >
+                웹앱 주소 연결
+              </button>
+              {config.gasWebUrl.trim() ? (
+                <button
+                  type="button"
+                  className="mt-2 min-h-11 w-full text-sm text-muted"
+                  onClick={() => {
+                    forgetGasLink();
+                    setGasUrlDraft("");
+                    void flushSettings(Boolean(loginEmail));
+                    toast.success("웹앱 연결을 끊었습니다.");
+                  }}
+                >
+                  연결 끊기
+                </button>
+              ) : null}
+              <a
+                href={gasHomeUrl(loginEmail) || "https://script.google.com"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 flex min-h-11 w-full items-center justify-center rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong"
+              >
+                script.google.com 열기
+              </a>
+              <button
+                type="button"
+                className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border"
+                onClick={() => {
+                  void copyGasScript().then((ok) => {
+                    if (!ok) {
+                      toast.error("복사하지 못했습니다.");
+                      return;
+                    }
+                    toast.success(
+                      `스크립트를 복사했습니다. ${config.intervalMin}분 · ${config.daysAhead}일. script.google.com에 붙여넣고 저장하세요.`,
+                    );
+                    markScriptCurrent();
+                  });
+                }}
+              >
+                스크립트 복사
+              </button>
+              {(config.gasWebUrl.trim() || config.gasScriptId.trim()) &&
+              ((remoteStamp != null && remoteStamp !== GAS_SOURCE_STAMP) ||
+                (remoteStamp == null &&
+                  Boolean(config.gasSourceStamp) &&
+                  config.gasSourceStamp !== GAS_SOURCE_STAMP)) ? (
+                <p className="mt-2 text-sm text-danger">변경되었습니다. 복사한 코드를 붙여넣고 저장하세요</p>
+              ) : null}
             </>
           ) : null}
         </div>
