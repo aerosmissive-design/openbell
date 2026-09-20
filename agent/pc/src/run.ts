@@ -1,5 +1,4 @@
-import { CgvBookingAgent, type BookingTarget } from "./cgv-booking-agent";
-import type { BookingState } from "../../src/lib/booking/types";
+import { CgvBookingAgent, type BookingState, type BookingTarget } from "./cgv-agent.js";
 
 export type RunBookingInput = BookingTarget & {
   bookingInfo?: Record<string, string>;
@@ -12,7 +11,8 @@ export type RunBookingInput = BookingTarget & {
 
 /** Runs the full non-payment portion of a CGV booking. */
 export async function runBooking(input: RunBookingInput) {
-  const headless = input.headless ?? true;
+  const headless = input.headless ?? false;
+  const holdAtPayment = input.holdAtPayment ?? !headless;
   const agent = new CgvBookingAgent({
     storageStatePath: input.storageStatePath,
     headless,
@@ -35,20 +35,31 @@ export async function runBooking(input: RunBookingInput) {
 
     if (input.bookingInfo) {
       await agent.fillBookingInfo(input.bookingInfo);
-      await input.onStateChange?.("BOOKING_INFO");
-    } else {
-      await input.onStateChange?.("BOOKING_INFO");
     }
+    await input.onStateChange?.("BOOKING_INFO");
 
     const result = await agent.goToPaymentPage(input);
-    const holdAtPayment = input.holdAtPayment ?? !headless;
     if (holdAtPayment) {
       await input.onStateChange?.("WAITING_USER");
       console.log("Payment hard stop reached. Browser remains open for manual completion.");
       await agent.waitForBrowserClose();
+    } else {
+      await agent.close();
     }
     return result;
   } catch (error) {
+    // If we already hit PAYMENT_READY, never close the browser on a later API/callback error.
+    if (agent.hasHardStopped() && holdAtPayment) {
+      console.error("[HARD_STOP] Error after payment page. Browser stays open for manual payment.");
+      console.error(error instanceof Error ? error.message : error);
+      try {
+        await input.onStateChange?.("WAITING_USER");
+      } catch {
+        /* ignore */
+      }
+      await agent.waitForBrowserClose();
+      throw error;
+    }
     await agent.close();
     throw error;
   }

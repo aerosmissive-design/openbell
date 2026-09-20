@@ -1,4 +1,5 @@
 import type { BookingSession } from "@/lib/booking/types";
+import { telegramSafeBrowserUrl } from "@/lib/booking/cgv-url";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
@@ -32,6 +33,8 @@ function textFor(session: BookingSession) {
     "",
     "✅ 결제 직전까지 자동으로 진행되었습니다.",
     "⚠️ 최종 결제는 자동으로 진행하지 않습니다.",
+    "🖥 PC에 열린 브라우저에서 직접 결제하세요.",
+    "⛔ 휴대폰에서 결제 페이지를 새로 열지 마세요.",
     "⏳ " + expire + "까지 처리해주세요.",
   ].join("\n");
 }
@@ -41,8 +44,9 @@ export async function sendPaymentReadyTelegram(session: BookingSession) {
   if (!token || !chatId) return { ok: false, skipped: true, reason: "telegram_not_configured" };
 
   const buttons: Array<Array<Record<string, string>>> = [];
-  if (session.browserAccessUrl && session.browserAccessUrl.indexOf("https://") === 0) {
-    buttons.push([{ text: "🖥 브라우저 열기", url: session.browserAccessUrl }]);
+  const openUrl = telegramSafeBrowserUrl(session.browserAccessUrl);
+  if (openUrl) {
+    buttons.push([{ text: "🖥 예매 페이지 (참고)", url: openUrl }]);
   }
   buttons.push([
     { text: "❌ 예약 중단", callback_data: "openbell:cancel:" + session.id },

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { updateBookingState, saveBookingSession } from "@/lib/booking/session";
+import { telegramSafeBrowserUrl } from "@/lib/booking/cgv-url";
 import { sendPaymentReadyTelegram } from "@/lib/telegram/notifier";
 
 function authorized(request: Request) {
@@ -25,7 +26,7 @@ export const Route = createFileRoute("/api/booking/payment-ready")({
           const session = await updateBookingState(id, "PAYMENT_READY");
           const updated = {
             ...session,
-            browserAccessUrl: body.browserAccessUrl || session.browserAccessUrl,
+            browserAccessUrl: telegramSafeBrowserUrl(body.browserAccessUrl) || session.browserAccessUrl,
             selectedSeats: Array.isArray(body.selectedSeats) ? body.selectedSeats.map(String) : session.selectedSeats,
           };
           await saveBookingSession(updated);
