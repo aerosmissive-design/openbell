@@ -10,7 +10,7 @@ export function GasBackupMailField() {
   const signedIn = Boolean(user?.primaryEmail?.trim());
   return (
     <>
-      <label className="mt-4 block text-xs text-muted">예비 메일 (구글스크립트)</label>
+      <label className="mt-4 block text-xs text-muted">알림 받을 메일</label>
       <input
         type="email"
         inputMode="email"
