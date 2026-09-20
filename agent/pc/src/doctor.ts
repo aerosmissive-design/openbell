@@ -84,7 +84,11 @@ if (present(showtime)) {
 
 const bookingUrl = (env.BOOKING_URL ?? process.env.BOOKING_URL)?.trim();
 if (present(bookingUrl)) {
-  check("BOOKING_URL format", isExactCgvBookingUrl(bookingUrl!), "needs movNo,scnYmd,scnsNo,scnSseq");
+  if (isExactCgvBookingUrl(bookingUrl!)) {
+    check("BOOKING_URL format", true, "exact showtime URL");
+  } else {
+    lines.push("[WARN] BOOKING_URL lacks scnsNo/scnSseq — agent will click date/time instead of aborting");
+  }
 } else {
   lines.push("[INFO] BOOKING_URL unset — agent will click movie/date/showtime (DOM unverified)");
 }
