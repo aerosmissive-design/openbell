@@ -22,6 +22,5 @@ export const CONFIG_ACCOUNT_KEYS = [
 export function stripConfigSecrets(config: WatchConfig): WatchConfig {
   const next = { ...config };
   for (const key of CONFIG_SECRET_KEYS) next[key] = "";
-  for (const key of CONFIG_ACCOUNT_KEYS) next[key] = "";
   return next;
 }
