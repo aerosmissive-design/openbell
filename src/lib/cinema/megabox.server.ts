@@ -335,7 +335,7 @@ async function loadNaverMegabox(
         const bookingUrl =
           urls[idx] ||
           urls[0] ||
-          `https://m.megabox.co.kr/booking?brchNo=${brchNo}&playDe=${date}`;
+          `https://www.megabox.co.kr/booking?brchNo=${brchNo}&playDe=${date}`;
         const playSchdlNo = bookingUrl.match(/playSchdlNo=(\w+)/)?.[1];
         const row: Showtime = {
           id: `megabox:${brchNo}:${date}:${startTime}:${hall}`,
@@ -352,7 +352,7 @@ async function loadNaverMegabox(
           restSeats: null,
           totalSeats: null,
           bookingUrl: playSchdlNo
-            ? `https://m.megabox.co.kr/on/oh/ohz/PcntSeatChoi/selectPcntSeatChoi.do?playSchdlNo=${playSchdlNo}&brchNo=${brchNo}&playDe=${date}`
+            ? `https://www.megabox.co.kr/booking/seat?playSchdlNo=${playSchdlNo}&brchNo=${brchNo}&playDe=${date}`
             : bookingUrl,
           bookable: true,
         };
@@ -420,9 +420,9 @@ function megaboxSeatUrl(
       playDe: playDate,
     });
     if (movieNo) q.set("movieNo", movieNo);
-    return `https://m.megabox.co.kr/booking/seat?playSchdlNo=${encodeURIComponent(playSchdlNo)}`;
+    return `https://www.megabox.co.kr/booking/seat?${q.toString()}`;
   }
   const q = new URLSearchParams({ brchNo, playDe: playDate });
   if (movieNo) q.set("movieNo", movieNo);
-  return `https://m.megabox.co.kr/booking?${q.toString()}`;
+  return `https://www.megabox.co.kr/booking?${q.toString()}`;
 }
