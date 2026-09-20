@@ -151,7 +151,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           </button>
           {showGasSection ? (
             <>
-              <p className="mt-2 text-sm leading-relaxed text-muted">베셀·Neon이 죽어도 구글스크립트가 메일 알림을 보냅니다.</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted">베셀·Neon이 죽어도 구글스크립트가 알림을 보냅니다. 받을 메일은 아래 「메일로 받기」에만 적습니다.</p>
+              <p className="mt-2 text-xs leading-relaxed text-faint">
+                {config.email.trim() ? `알림 메일 ${config.email}` : "알림 메일이 없습니다. 「메일로 받기」에서 주소를 적으세요."}
+              </p>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {[1, 5, 10].map((n) => (
                   <button
@@ -167,7 +170,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                   </button>
                 ))}
               </div>
-              <GasBackupMailField />
               <button type="button" onClick={() => setShowGasHelp((v) => !v)} className="mt-3 flex min-h-11 w-full items-center justify-between gap-3 text-left">
                 <p className="text-sm font-medium text-fg">설치 방법</p>
                 <span className="shrink-0 text-xs text-muted">{showGasHelp ? "접기" : "펼치기"}</span>
@@ -272,7 +274,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           <Button className="mt-3 w-full" disabled={sendingTest || !config.email.trim()} onClick={() => void sendTestMail()}>
             {sendingTest ? "보내는 중…" : "구글스크립트로 테스트 메일"}
           </Button>
-          <p className="mt-2 text-xs leading-relaxed text-faint">위에 /exec 웹앱 주소가 연결되어 있어야 합니다. 칸에서 손을 떼면 스크립트에 반영됩니다.</p>
+          <p className="mt-2 text-xs leading-relaxed text-faint">구글스크립트(예비)에 /exec가 연결되어 있어야 합니다. 칸에서 손을 떠면 스크립트에 반영됩니다.</p>
           {user ? (
             <>
               <div className="mt-3">
@@ -391,7 +393,7 @@ function CloudSettingsCard() {
         </div>
       ) : (
         <div>
-          <p className="mt-2 text-sm leading-relaxed text-muted">로그인은 Neon이 막혀 안 될 수 있습니다. 아래 구글스크립트 예비 메일로 알림을 받으세요.</p>
+          <p className="mt-2 text-sm leading-relaxed text-muted">로그인은 Neon이 막혀 안 될 수 있습니다. 아래 「메일로 받기」에 주소를 적으세요.</p>
           <Link to="/login" className="mt-3 flex min-h-11 items-center justify-center rounded-md bg-bg text-sm text-muted ring-1 ring-border">로그인</Link>
         </div>
       )}
