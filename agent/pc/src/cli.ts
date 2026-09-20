@@ -2,12 +2,11 @@
  * Windows CLI entry. Importing this file starts the agent.
  * Library code lives in run.ts / openbell-api.ts (safe to import from tests).
  */
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type BookingState, type BookingTarget, isExactCgvBookingUrl } from "./cgv-agent.js";
 import { classifyAgentError } from "./result-code.js";
 import { isBookingDate, isBookingShowtime, safeBrowserAccessUrl } from "./safety.js";
-import { PC_ROOT, applyEnvFile, isFalseyFlag, paymentReadyTtlMinutes, resolveExistingStorageState } from "./env.js";
+import { PC_ROOT, agentVersion, applyEnvFile, isFalseyFlag, paymentReadyTtlMinutes, resolveExistingStorageState } from "./env.js";
 import { createSession, notifyPaymentReady, updateState } from "./openbell-api.js";
 import { runBooking } from "./run.js";
 
@@ -29,6 +28,17 @@ function optionalNumber(name: string) {
   if (!Number.isFinite(parsed)) throw new Error(`INVALID_ENV:${name}`);
   return parsed;
 }
+
+function optionalIntList(name: string): number[] | undefined {
+  const value = process.env[name]?.trim();
+  if (!value) return undefined;
+  const parts = value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return undefined;
+  const nums = parts.map((p) => Number(p));
+  if (nums.some((n) => !Number.isInteger(n))) throw new Error(`INVALID_ENV:${name}`);
+  return nums;
+}
+
 
 applyEnvFile(process.env.OPENBELL_AGENT_CONFIG || resolve(PC_ROOT, "config.env"));
 
@@ -63,6 +73,7 @@ const target: BookingTarget = {
   seatPreference: {
     preferredRow: process.env.SEAT_PREFERRED_ROW?.trim() || undefined,
     preferredRowDistance: optionalNumber("SEAT_PREFERRED_ROW_DISTANCE"),
+    preferredNumbers: optionalIntList("SEAT_PREFERRED_NUMBERS"),
     allowAisle: bool("SEAT_ALLOW_AISLE", true),
     allowEdge: bool("SEAT_ALLOW_EDGE", false),
   },
@@ -90,15 +101,9 @@ for (const [key, value] of Object.entries(process.env)) {
   if (key.startsWith("BOOKING_INFO_")) bookingInfo[key.slice("BOOKING_INFO_".length)] = value || "";
 }
 
-let agentVersion = "2.0.16";
-try {
-  const pkg = JSON.parse(readFileSync(resolve(PC_ROOT, "package.json"), "utf8")) as { version?: string };
-  if (pkg.version) agentVersion = pkg.version;
-} catch {
-  // hardcoded fallback
-}
+const version = agentVersion();
 console.log("========================================");
-console.log(`OpenBell PC Agent preflight — openbell-pc-agent@${agentVersion}`);
+console.log(`OpenBell PC Agent preflight — openbell-pc-agent@${version}`);
 console.log(`Mode: ${dryRun ? "dry-run" : "linked"}`);
 console.log(`Movie: ${target.movieTitle}`);
 console.log(`Date: ${target.playDate}`);
@@ -192,6 +197,11 @@ try {
       // Never send a payment-page URL to OpenBell/Telegram — exact movie-book only.
       const callbackUrl =
         safeBrowserAccessUrl(exactBookingUrl ?? "") || safeBrowserAccessUrl(url);
+      if (!callbackUrl) {
+        console.warn(
+          "[payment-ready] safeBrowserAccessUrl yielded empty URL; posting empty browserAccessUrl with seats (payment page never forwarded).",
+        );
+      }
       await notifyPaymentReady({
         openbellUrl: openbellUrl!,
         workerToken: workerToken!,

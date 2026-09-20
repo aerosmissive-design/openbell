@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolve } from "node:path";
-import { isFalseyFlag, isPaymentAutomationLocked, parseEnvFile, paymentReadyTtlMinutes, resolveExistingStorageState } from "./env.js";
+import { agentVersion, isFalseyFlag, isPaymentAutomationLocked, parseEnvFile, paymentReadyTtlMinutes, resolveExistingStorageState } from "./env.js";
 
 test("parseEnvFile skips comments, handles CRLF and quotes", () => {
   const parsed = parseEnvFile("# comment\r\nBOOKING_MOVIE=영화\r\nTOKEN='abc'\nEMPTY=\nNOEQ\n=novalue\n");
@@ -35,4 +35,10 @@ test("resolveExistingStorageState skips missing files so Playwright does not cra
     resolve("/r", "cgv-storage.json"),
   );
   assert.equal(resolveExistingStorageState("/r", "missing.json", () => false), undefined);
+});
+
+test("agentVersion reads package.json via PC_ROOT", () => {
+  const v = agentVersion("0.0.0-fallback");
+  assert.match(v, /^\d+\.\d+\.\d+/);
+  assert.notEqual(v, "0.0.0-fallback");
 });
