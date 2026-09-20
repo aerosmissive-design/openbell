@@ -1,6 +1,6 @@
 {
   "name": "openbell-pc-agent",
-  "version": "2.0.16",
+  "version": "2.0.17",
   "private": true,
   "type": "module",
   "description": "Standalone Windows PC CGV booking agent for OpenBell (hard-stop before payment)",
