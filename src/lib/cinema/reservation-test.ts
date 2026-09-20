@@ -3,7 +3,7 @@ import { z } from "zod";
 import { kstDateKeys } from "@/lib/utils";
 import { fetchCgvOfficial, fetchCgvRelaySeatmap, fetchCgvNaver } from "./cgv.server";
 import { fetchMegaboxSchedule } from "./megabox.server";
-import { alertBookingUrl, formatPlayDate, formatClock, showAlertBody } from "./seats";
+import { alertBookingUrl, escapeAttr, formatPlayDate, formatClock, showAlertBody } from "./seats";
 import { theaterById } from "./theaters";
 import type { Showtime, TheaterId } from "./types";
 
@@ -117,7 +117,6 @@ async function fetchCandidates(theaterId: TheaterId, dates: string[]) {
       all.push(...rows);
       continue;
     }
-
     try {
       const rows = await fetchMegaboxSchedule(theaterId, date, { ignoreCircuit: true, timeoutMs: 8000 });
       all.push(...rows);
@@ -182,8 +181,8 @@ function cardText(show: Showtime) {
 
 function telegramCard(show: Showtime) {
   const card = cardText(show);
-  const href = alertBookingUrl(show) || show.bookingUrl;
-  const link = href ? `\n<a href="${href.replace(/&/g, "&").replace(/"/g, """)}">바로 예매</a>` : "";
+  const href = escapeAttr(alertBookingUrl(show) || show.bookingUrl);
+  const link = href ? `\n<a href="${href}">바로 예매</a>` : "";
   return `<b>${card.title}</b>\n${card.body}${link}`;
 }
 
@@ -206,7 +205,6 @@ export const sendReservationTest = createServerFn({ method: "POST" })
   .validator(Input)
   .handler(async ({ data }) => {
     const selected = await findTestShows(kstNow());
-
     const items = selected.map((show, i) => {
       const card = cardText(show);
       return {
@@ -228,7 +226,6 @@ export const sendReservationTest = createServerFn({ method: "POST" })
         seatSource: show.seatSource,
       };
     });
-
     if (data.channel === "telegram") {
       if (!data.telegramToken?.trim() || !data.telegramChatId?.trim()) throw new Error("텔레그램을 먼저 연결하세요.");
       for (const show of selected) await telegramSend(data.telegramToken, data.telegramChatId, telegramCard(show));
