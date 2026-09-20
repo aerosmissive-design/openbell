@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { kstDateKeys } from "@/lib/utils";
-import { fetchCgvOfficial, fetchCgvRelaySeatmap, fetchCgvNaver } from "./cgv.server";
-import { fetchMegaboxSchedule } from "./megabox.server";
-import { alertBookingUrl, escapeAttr, formatPlayDate, formatClock, showAlertBody } from "./seats";
+import { fetchCgvOfficial, fetchCgvNaver } from "./cgv.server";
+import { fetchMegaboxSchedule, fetchNaverMegabox } from "./megabox.server";
+import { escapeAttr, formatPlayDate, formatClock, showAlertBody } from "./seats";
 import { theaterById } from "./theaters";
 import type { Showtime, TheaterId } from "./types";
 
@@ -25,6 +25,16 @@ const THEATERS = [
   "megabox_namyangju",
 ] as const satisfies readonly TheaterId[];
 
+const CGV_SITES: Record<"cgv_yongsan" | "cgv_yeongdeungpo", { siteNo: string; siteNm: string }> = {
+  cgv_yongsan: { siteNo: "0013", siteNm: "용산아이파크몰" },
+  cgv_yeongdeungpo: { siteNo: "0059", siteNm: "영등포타임스퀘어" },
+};
+
+const MEGA_BRCH: Record<"megabox_coex" | "megabox_namyangju", string> = {
+  megabox_coex: "1351",
+  megabox_namyangju: "0019",
+};
+
 function kstNow() {
   const p = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Seoul",
@@ -39,96 +49,225 @@ function kstNow() {
   return { date: `${get("year")}${get("month")}${get("day")}`, time: `${get("hour")}:${get("minute")}` };
 }
 
-function pick(shows: Showtime[], today: string, nowTime: string) {
-  const usable = shows.filter((s) => s && s.bookable !== false);
-  const todayFuture = usable.filter((s) => s.playDate === today && String(s.startTime).slice(0, 5) >= nowTime);
-  const pool = todayFuture.length ? todayFuture : usable.filter((s) => s.playDate >= today);
-  const ranked = pool.length ? pool : usable;
-  if (!ranked.length) return null;
-  const withUrl = ranked.filter((s) => String(s.bookingUrl || "").trim());
-  const source = withUrl.length ? withUrl : ranked;
-  return source[Math.floor(Math.random() * source.length)];
+function param(url: string, key: string) {
+  const hit = String(url || "").match(new RegExp(`[?&]${key}=([^&#]*)`, "i"));
+  return hit ? decodeURIComponent(hit[1]) : "";
 }
 
-function isExactCgvUrl(url: string) {
-  return /cgv\.co\.kr\/cnm\/movieBook\/movie\?[^#]*movNo=[^#]*scnYmd=[^#]*scnsNo=[^#]*scnSseq=/i.test(url);
+function clockKey(raw: string) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (digits.length < 3) return "";
+  const padded = digits.length === 3 ? `0${digits}` : digits.slice(0, 4);
+  return `${padded.slice(0, 2)}:${padded.slice(2)}`;
 }
 
-function isExactMegaboxUrl(url: string) {
-  return /(?:www\.|m\.)?megabox\.co\.kr\/booking\/seat\?[^#]*playSchdlNo=/i.test(url) ||
-    /megabox\.co\.kr\/on\/oh\/ohz\/PcntSeatChoi\/selectPcntSeatChoi\.do\?[^#]*playSchdlNo=/i.test(url);
+function padScreen(value: string) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits ? digits.padStart(3, "0") : "";
 }
 
-function sameShow(a: Showtime, b: Showtime) {
-  const titleA = a.movieTitle.replace(/\s+/g, "").toLowerCase();
-  const titleB = b.movieTitle.replace(/\s+/g, "").toLowerCase();
-  const hallA = a.hallName.replace(/\s+/g, "").toLowerCase();
-  const hallB = b.hallName.replace(/\s+/g, "").toLowerCase();
-  return a.playDate === b.playDate &&
-    String(a.startTime).slice(0, 5) === String(b.startTime).slice(0, 5) &&
-    titleA === titleB &&
-    (!hallA || !hallB || hallA === hallB || hallA.includes(hallB) || hallB.includes(hallA));
+function buildCgvUrl(opts: {
+  siteNo: string;
+  siteNm: string;
+  movNo: string;
+  scnYmd: string;
+  scnsNo?: string;
+  scnSseq?: string;
+}) {
+  if (!opts.movNo || !opts.scnYmd) return "";
+  const q = new URLSearchParams({
+    movNo: opts.movNo,
+    scnYmd: opts.scnYmd,
+    siteNo: opts.siteNo,
+    siteNm: opts.siteNm,
+  });
+  if (opts.scnsNo) q.set("scnsNo", padScreen(opts.scnsNo));
+  if (opts.scnSseq) q.set("scnSseq", String(opts.scnSseq));
+  return `https://cgv.co.kr/cnm/movieBook/movie?${q.toString()}`;
 }
 
-async function findExactOrBestCgvShow(theaterId: "cgv_yongsan" | "cgv_yeongdeungpo", candidate: Showtime) {
-  const rows = await fetchCgvOfficial(theaterId, candidate.playDate);
-  const matches = rows.filter((row) => sameShow(row, candidate));
-  const exact = matches.filter((row) => isExactCgvUrl(row.bookingUrl));
-  return exact[Math.floor(Math.random() * Math.max(1, exact.length))] ||
-    matches[Math.floor(Math.random() * Math.max(1, matches.length))] ||
-    candidate;
+function deepCgvUrl(url: string, playDate = "") {
+  const movNo = param(url, "movNo");
+  const scnYmd = param(url, "scnYmd") || playDate;
+  const scnsNo = param(url, "scnsNo");
+  const scnSseq = param(url, "scnSseq");
+  if (!movNo || !scnYmd || !scnsNo || !scnSseq) return "";
+  return buildCgvUrl({
+    siteNo: param(url, "siteNo"),
+    siteNm: param(url, "siteNm"),
+    movNo,
+    scnYmd,
+    scnsNo,
+    scnSseq,
+  });
 }
 
-async function findExactOrBestMegaboxShow(theaterId: "megabox_coex" | "megabox_namyangju", candidate: Showtime) {
-  const rows = await fetchMegaboxSchedule(theaterId, candidate.playDate, { ignoreCircuit: true, timeoutMs: 8000 });
-  const matches = rows.filter((row) => sameShow(row, candidate));
-  const exact = matches.filter((row) => isExactMegaboxUrl(row.bookingUrl));
-  return exact[Math.floor(Math.random() * Math.max(1, exact.length))] ||
-    matches[Math.floor(Math.random() * Math.max(1, matches.length))] ||
-    candidate;
+function deepMegaUrl(url: string, playDate = "", brchNo = "") {
+  const playSchdlNo = param(url, "playSchdlNo");
+  if (!playSchdlNo) return "";
+  const q = new URLSearchParams({ playSchdlNo });
+  const brch = brchNo || param(url, "brchNo");
+  const playDe = playDate || param(url, "playDe");
+  if (brch) q.set("brchNo", brch);
+  if (playDe) q.set("playDe", playDe);
+  const movieNo = param(url, "movieNo");
+  if (movieNo) q.set("movieNo", movieNo);
+  return `https://www.megabox.co.kr/booking/seat?${q.toString()}`;
 }
 
-async function fetchCandidates(theaterId: TheaterId, dates: string[]) {
-  const all: Showtime[] = [];
-  for (const date of dates) {
-    if (theaterId.startsWith("cgv_")) {
-      let rows: Showtime[] = [];
-      try {
-        rows = await fetchCgvOfficial(theaterId, date);
-      } catch {
-        rows = [];
-      }
-      if (!rows.length) {
-        try {
-          const relay = await fetchCgvRelaySeatmap({ theaterId, days: 1, fresh: true });
-          rows = relay.showtimes.filter((s) => s.playDate === date);
-        } catch {
-          rows = [];
-        }
-      }
-      if (!rows.length) {
-        try {
-          const naver = await fetchCgvNaver(theaterId);
-          rows = naver.get(date) ?? [];
-        } catch {
-          rows = [];
-        }
-      }
-      all.push(...rows);
-      continue;
-    }
+function deepUrl(show: Showtime) {
+  if (show.theaterId.startsWith("cgv_")) return deepCgvUrl(show.bookingUrl, show.playDate);
+  const brch = show.theaterId === "megabox_coex" || show.theaterId === "megabox_namyangju" ? MEGA_BRCH[show.theaterId] : "";
+  return deepMegaUrl(show.bookingUrl, show.playDate, brch);
+}
+
+function isDeep(show: Showtime) {
+  return Boolean(deepUrl(show));
+}
+
+function walkRows(node: unknown, out: Record<string, unknown>[] = [], depth = 0) {
+  if (node == null || depth > 8) return out;
+  if (Array.isArray(node)) {
+    for (const item of node) walkRows(item, out, depth + 1);
+    return out;
+  }
+  if (typeof node !== "object") return out;
+  const row = node as Record<string, unknown>;
+  const time = String(row.scnsrtTm || row.startTime || row.playStartTime || "");
+  const seq = row.scnSseq ?? row.scnsrtNo ?? row.sseq ?? row.playSseq ?? row.SCN_SSEQ;
+  const screen = row.scnsNo ?? row.scrnNo ?? row.scnNo ?? row.theabNo ?? row.SCNS_NO;
+  if (time && (seq != null || screen != null)) out.push(row);
+  for (const child of Object.values(row)) {
+    if (child && typeof child === "object") walkRows(child, out, depth + 1);
+  }
+  return out;
+}
+
+async function fetchCgvSchByMov(siteNo: string, playDate: string, movNo: string) {
+  const scopes = ["01", "08"];
+  for (const scope of scopes) {
     try {
-      const rows = await fetchMegaboxSchedule(theaterId, date, { ignoreCircuit: true, timeoutMs: 8000 });
-      all.push(...rows);
+      const res = await fetch(
+        `https://api.cgv.co.kr/cnm/atkt/searchSchByMov?coCd=A420&siteNo=${siteNo}&scnYmd=${playDate}&movNo=${movNo}&rtctlScopCd=${scope}`,
+        {
+          headers: {
+            accept: "application/json, text/plain, */*",
+            "accept-language": "ko-KR,ko;q=0.9",
+            origin: "https://cgv.co.kr",
+            referer: "https://cgv.co.kr/",
+            "user-agent":
+              "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
+          },
+          redirect: "follow",
+          signal: AbortSignal.timeout(4000),
+        },
+      );
+      if (!res.ok) continue;
+      const json = await res.json();
+      const rows = walkRows(json);
+      if (rows.length) return rows;
     } catch {
-      // keep going
+      /* try next scope */
     }
   }
-  return all;
+  return [] as Record<string, unknown>[];
+}
+
+async function enrichCgv(show: Showtime): Promise<Showtime> {
+  if (!show.theaterId.startsWith("cgv_")) return show;
+  const ready = deepUrl(show);
+  if (ready) return { ...show, bookingUrl: ready };
+  const site = show.theaterId === "cgv_yongsan" || show.theaterId === "cgv_yeongdeungpo"
+    ? CGV_SITES[show.theaterId]
+    : null;
+  if (!site) return show;
+  const movNo = show.movieNo || param(show.bookingUrl, "movNo");
+  if (!movNo) return show;
+  const rows = await fetchCgvSchByMov(site.siteNo, show.playDate, movNo);
+  const want = clockKey(show.startTime);
+  const matched = rows.find((row) => clockKey(String(row.scnsrtTm || row.startTime || "")) === want) || rows[0];
+  if (!matched) return show;
+  const scnsNo = padScreen(String(matched.scnsNo ?? matched.scrnNo ?? matched.scnNo ?? matched.theabNo ?? param(show.bookingUrl, "scnsNo") ?? ""));
+  const scnSseq = String(matched.scnSseq ?? matched.scnsrtNo ?? matched.sseq ?? matched.playSseq ?? param(show.bookingUrl, "scnSseq") ?? "");
+  const url = buildCgvUrl({ ...site, movNo, scnYmd: show.playDate, scnsNo, scnSseq });
+  return url ? { ...show, movieNo: movNo, bookingUrl: url } : show;
+}
+
+async function enrichMega(show: Showtime): Promise<Showtime> {
+  const brch = show.theaterId === "megabox_coex" || show.theaterId === "megabox_namyangju" ? MEGA_BRCH[show.theaterId] : "";
+  const ready = deepMegaUrl(show.bookingUrl, show.playDate, brch);
+  return ready ? { ...show, bookingUrl: ready } : show;
+}
+
+function pickDeep(shows: Showtime[], today: string, nowTime: string) {
+  const usable = shows.filter((s) => s && s.bookable !== false && isDeep(s));
+  const todayFuture = usable.filter((s) => s.playDate === today && String(s.startTime).slice(0, 5) >= nowTime);
+  const later = usable.filter((s) => s.playDate > today);
+  const pool = todayFuture.length ? todayFuture : later.length ? later : usable;
+  if (!pool.length) return null;
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+  const url = deepUrl(chosen);
+  return url ? { ...chosen, bookingUrl: url } : null;
+}
+
+async function fetchDay(theaterId: TheaterId, date: string): Promise<Showtime[]> {
+  try {
+    if (theaterId === "cgv_yongsan" || theaterId === "cgv_yeongdeungpo") {
+      const official = await fetchCgvOfficial(theaterId, date);
+      let extra: Showtime[] = [];
+      try {
+        extra = (await fetchCgvNaver(theaterId)).get(date) ?? [];
+      } catch {
+        extra = [];
+      }
+      return [...official, ...extra];
+    }
+    const official = await fetchMegaboxSchedule(theaterId, date, { ignoreCircuit: true, timeoutMs: 8000 }).catch(() => []);
+    if (official.some((row) => param(row.bookingUrl, "playSchdlNo"))) return official;
+    try {
+      const naver = await fetchNaverMegabox(theaterId);
+      return [...official, ...(naver.get(date) ?? [])];
+    } catch {
+      return official;
+    }
+  } catch {
+    return [];
+  }
+}
+
+async function pickTheaterShow(theaterId: TheaterId, now: { date: string; time: string }) {
+  const dates = kstDateKeys(7);
+  const collected: Showtime[] = [];
+  for (const date of dates) {
+    collected.push(...(await fetchDay(theaterId, date)));
+    const enriched = theaterId.startsWith("cgv_")
+      ? await Promise.all(collected.filter((s) => !isDeep(s) && (s.movieNo || param(s.bookingUrl, "movNo"))).slice(0, 8).map(enrichCgv))
+      : collected.map((s) => {
+          const url = deepMegaUrl(
+            s.bookingUrl,
+            s.playDate,
+            theaterId === "megabox_coex" || theaterId === "megabox_namyangju" ? MEGA_BRCH[theaterId] : "",
+          );
+          return url ? { ...s, bookingUrl: url } : s;
+        });
+    const merged = new Map<string, Showtime>();
+    for (const row of [...collected, ...enriched]) merged.set(row.id, row);
+    const hit = pickDeep([...merged.values()], now.date, now.time);
+    if (hit) return theaterId.startsWith("cgv_") ? enrichCgv(hit) : enrichMega(hit);
+  }
+  const any = collected.find((s) => s.bookable !== false);
+  if (any) {
+    const enriched = theaterId.startsWith("cgv_") ? await enrichCgv(any) : await enrichMega(any);
+    if (isDeep(enriched)) return enriched;
+  }
+  return fallbackShow(theaterId, now);
 }
 
 function fallbackShow(theaterId: TheaterId, now: { date: string; time: string }): Showtime {
   const theater = theaterById(theaterId);
+  const bookingUrl = theaterId === "cgv_yongsan" || theaterId === "cgv_yeongdeungpo"
+    ? `https://cgv.co.kr/cnm/movieBook/cinema?siteNo=${CGV_SITES[theaterId].siteNo}&siteNm=${encodeURIComponent(CGV_SITES[theaterId].siteNm)}&date=${now.date}`
+    : `https://www.megabox.co.kr/booking?brchNo=${MEGA_BRCH[theaterId]}&playDe=${now.date}`;
   return {
     id: `test-fallback:${theaterId}:${now.date}`,
     theaterId,
@@ -143,29 +282,9 @@ function fallbackShow(theaterId: TheaterId, now: { date: string; time: string })
     formats: [],
     restSeats: null,
     totalSeats: null,
-    bookingUrl: theater.bookingUrl,
+    bookingUrl,
     bookable: true,
   };
-}
-
-async function pickTheaterShow(theaterId: TheaterId, now: { date: string; time: string }) {
-  const dates = kstDateKeys(3);
-  let candidate: Showtime | null = null;
-  try {
-    const candidates = await fetchCandidates(theaterId, dates);
-    candidate = pick(candidates, now.date, now.time);
-  } catch {
-    candidate = null;
-  }
-  if (!candidate) return fallbackShow(theaterId, now);
-  try {
-    const best = theaterId === "cgv_yongsan" || theaterId === "cgv_yeongdeungpo"
-      ? await findExactOrBestCgvShow(theaterId, candidate)
-      : await findExactOrBestMegaboxShow(theaterId, candidate);
-    return best || candidate;
-  } catch {
-    return candidate;
-  }
 }
 
 async function findTestShows(now: { date: string; time: string }) {
@@ -181,7 +300,7 @@ function cardText(show: Showtime) {
 
 function telegramCard(show: Showtime) {
   const card = cardText(show);
-  const href = escapeAttr(alertBookingUrl(show) || show.bookingUrl);
+  const href = escapeAttr(show.bookingUrl);
   const link = href ? `\n<a href="${href}">바로 예매</a>` : "";
   return `<b>${card.title}</b>\n${card.body}${link}`;
 }
@@ -213,7 +332,7 @@ export const sendReservationTest = createServerFn({ method: "POST" })
         kind: "open" as const,
         title: card.title,
         body: card.body,
-        bookingUrl: alertBookingUrl(show) || show.bookingUrl,
+        bookingUrl: show.bookingUrl,
         theaterId: show.theaterId,
         theaterName: card.theater,
         movieTitle: show.movieTitle,
