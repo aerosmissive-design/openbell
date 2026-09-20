@@ -257,6 +257,8 @@ export const useAppStore = create<AppState>()(
             gasWebUrl: String(snap.config.gasWebUrl || s.config.gasWebUrl || "").trim(),
             gasScriptId: String(snap.config.gasScriptId || s.config.gasScriptId || "").trim(),
             gasSyncKey: String(snap.config.gasSyncKey || s.config.gasSyncKey || "").trim(),
+            telegramToken: String(snap.config.telegramToken || s.config.telegramToken || "").trim(),
+            telegramChatId: String(snap.config.telegramChatId || s.config.telegramChatId || "").trim(),
           },
           queue: snap.queue.slice(0, 40),
           alerts: snap.alerts.slice(0, 2000),
@@ -271,7 +273,11 @@ export const useAppStore = create<AppState>()(
     {
       name: "openbell-v2",
       partialize: (s) => ({
-        config: stripConfigSecrets(s.config),
+        config: {
+          ...stripConfigSecrets(s.config),
+          telegramToken: s.config.telegramToken,
+          telegramChatId: s.config.telegramChatId,
+        },
         primed: s.primed,
         seenIds: s.seenIds,
         seenDates: s.seenDates,
@@ -314,6 +320,8 @@ export const useAppStore = create<AppState>()(
             gasWebUrl: String(p.config?.gasWebUrl ?? "").trim(),
             gasScriptId: String(p.config?.gasScriptId ?? "").trim(),
             gasSyncKey: String(p.config?.gasSyncKey ?? "").trim(),
+            telegramToken: String(p.config?.telegramToken ?? "").trim(),
+            telegramChatId: String(p.config?.telegramChatId ?? "").trim(),
           },
           seenDates: p.seenDates ?? current.seenDates,
         };
