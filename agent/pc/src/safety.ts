@@ -49,7 +49,7 @@ export function isPaymentStageSignal(url: string, visibleText: string) {
  * script URLs — those false-positive on almost every CDN page.
  */
 export function looksLikeCaptchaChallenge(visibleText: string) {
-  return /보안문자|자동입력\s*방지|자동등록방지|\b캡차\b|\b캡챠\b|\bcaptcha\b|로봇이\s*아닙니다|i['’]?m not a robot|recaptcha challenge|h-?captcha|checking your browser before|just a moment\.\.\./i.test(
+  return /보안문자|자동입력\s*방지|자동등록방지|\b캡차\b|\b캡차\b|\bcaptcha\b|로봇이\s*아닙니다|i['’]?m not a robot|recaptcha challenge|h-?captcha|checking your browser before|just a moment\.\.\./i.test(
     visibleText,
   );
 }
@@ -110,16 +110,18 @@ export function isBookingShowtime(value: string) {
   return /^\d{1,2}:\d{2}$/.test(value.trim());
 }
 
-/** Calendar labels to try for BOOKING_DATE=YYYY-MM-DD. DOM not E2E-verified. */
+/** Calendar labels to try for BOOKING_DATE=YYYY-MM-DD or YYYYMMDD. */
 export function dateClickLabels(iso: string): string[] {
-  const m = iso.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return [iso.trim()];
+  const raw = iso.trim();
+  const compact = raw.replace(/\D/g, "");
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/) || (compact.length === 8 ? compact.match(/^(\d{4})(\d{2})(\d{2})$/) : null);
+  if (!m) return [raw];
   const [, y, mo, d] = m;
   const mon = String(Number(mo));
   const day = String(Number(d));
   return Array.from(
     new Set([
-      iso.trim(),
+      raw,
       `${y}${mo}${d}`,
       `${y}.${mo}.${d}`,
       `${mo}/${d}`,
@@ -141,4 +143,3 @@ export function showtimeClickLabels(hhmm: string): string[] {
     new Set([hhmm.trim(), padded, `${hour}:${min}`, `${hour}시 ${min}분`, `${hour}시${min}분`]),
   );
 }
-
