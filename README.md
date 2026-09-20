@@ -1,10 +1,15 @@
-# 오픈벨 (Openbell) v3.9.68
+# 오픈벨 (Openbell) v3.9.69
 
 CGV·메가박스 특별관 예매 오픈·잔여석 알림 웹앱입니다.
 
 웹: https://openbell-fawn.vercel.app  
 전광판: https://openbell-fawn.vercel.app/board
 저장소: https://github.com/aerosmissive-design/openbell
+
+## v3.9.69에서 달라진 점
+
+- 구글스크립트 웹앱이 연결되면 주소 칸이 회색으로 잠깁니다. 바꾸려면 연결 끊기를 누르세요.
+- 메일·카톡·텔레그램 알림 테스트는 용산·영등포·코엑스·남양주에서 실제 회차를 골라 「바로 예매」를 보냅니다. 그 버튼이 열리면 실제 오픈 알림도 같은 경로입니다.
 
 ## v3.9.68에서 달라진 점
 
