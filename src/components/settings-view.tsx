@@ -22,7 +22,6 @@ import { SettingsTheaterPicks } from "./theater-picks";
 import { GasBackupMailField } from "./gas-backup-mail";
 
 export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
-  void lastScan;
   const config = useAppStore((s) => s.config);
   const setConfig = useAppStore((s) => s.setConfig);
   const pushAlerts = useAppStore((s) => s.pushAlerts);
@@ -359,7 +358,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">
-        <SettingsTheaterPicks onChange={() => void pushWatchWindow()} />
+        <SettingsTheaterPicks lastScan={lastScan} onChange={() => void pushWatchWindow()} />
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">
