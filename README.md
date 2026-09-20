@@ -1,10 +1,20 @@
-# 오픈벨 (Openbell) v3.9.64
+# 오픈벨 (Openbell) v3.9.66
 
 CGV·메가박스 특별관 예매 오픈·잔여석 알림 웹앱입니다.
 
 웹: https://openbell-fawn.vercel.app  
 전광판: https://openbell-fawn.vercel.app/board
 저장소: https://github.com/aerosmissive-design/openbell
+
+## v3.9.66에서 달라진 점
+
+- 설정 → 메일로 받기에 **로그인 없이** 예비 메일 주소를 적을 수 있습니다.
+- Neon이 막혀 로그인할 수 없어도, 구글스크립트 웹앱(/exec)이 연결되어 있으면 그 주소로 알림·테스트 메일을 보냅니다.
+- 설정 화면 파일이 PLACEHOLDER로 덮여 빌드가 깨지던 상태를 되돌렸습니다.
+
+## v3.9.65에서 달라진 점
+
+- 구글스크립트(예비)에 메일 주소 입력 칸을 넣었습니다.
 
 ## v3.9.64에서 달라진 점
 
