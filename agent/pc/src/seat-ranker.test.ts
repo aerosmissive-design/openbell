@@ -129,3 +129,23 @@ test("skips non-contiguous numbers", () => {
     ["E3", "E4"],
   );
 });
+
+test("preferredRow comparison is case-insensitive (e vs E)", () => {
+  const seats: SeatPoint[] = [
+    seat("E4", "E", 4),
+    seat("E5", "E", 5),
+    seat("A1", "A", 1),
+    seat("A2", "A", 2),
+  ];
+  const blocks = rankSeatBlocks(seats, {
+    count: 2,
+    preferredRow: "e",
+    preferredRowDistance: 0,
+  });
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].seats[0].row, "E");
+  assert.deepEqual(
+    blocks[0].seats.map((s) => s.id),
+    ["E4", "E5"],
+  );
+});

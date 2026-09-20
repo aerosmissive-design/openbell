@@ -35,9 +35,12 @@ export type RankSeatBlocksOptions = {
 };
 
 export function rowDistance(row: string, preferred?: string): number {
-  if (!preferred || row === preferred) return 0;
-  const a = row.charCodeAt(0);
-  const b = preferred.charCodeAt(0);
+  if (!preferred) return 0;
+  const r = row.toUpperCase();
+  const p = preferred.toUpperCase();
+  if (r === p) return 0;
+  const a = r.charCodeAt(0);
+  const b = p.charCodeAt(0);
   return Math.abs(a - b);
 }
 
