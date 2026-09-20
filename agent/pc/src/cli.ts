@@ -5,7 +5,13 @@
 import { resolve } from "node:path";
 import { type BookingState, type BookingTarget, isExactCgvBookingUrl } from "./cgv-agent.js";
 import { classifyAgentError } from "./result-code.js";
-import { isBookingDate, isBookingShowtime } from "./safety.js";
+import {
+  isAllowedCgvBookingPageUrl,
+  isBookingShowtime,
+  isMegaboxTarget,
+  isPaymentBookingUrl,
+  normalizeBookingDate,
+} from "./safety.js";
 import { PC_ROOT, applyEnvFile, isFalseyFlag, paymentReadyTtlMinutes, resolveExistingStorageState } from "./env.js";
 import { createSession, notifyPaymentReady, updateState } from "./openbell-api.js";
 import { runBooking } from "./run.js";
@@ -45,19 +51,35 @@ if (explicitSeatIds.length && explicitSeatIds.length !== requestedSeatCount) {
   throw new Error("BOOKING_SEAT_IDS must contain exactly BOOKING_SEAT_COUNT seats when provided");
 }
 
-const exactBookingUrl = process.env.BOOKING_URL?.trim() || undefined;
-if (exactBookingUrl && !isExactCgvBookingUrl(exactBookingUrl)) {
-  throw new Error(
-    "INVALID_BOOKING_URL: must be https://cgv.co.kr/cnm/movieBook/movie with movNo,scnYmd,scnsNo,scnSseq",
-  );
+const bookingUrlRaw = process.env.BOOKING_URL?.trim() || undefined;
+if (bookingUrlRaw && isPaymentBookingUrl(bookingUrlRaw)) {
+  throw new Error("PAYMENT_URL_FORBIDDEN: BOOKING_URL must not be a payment/checkout page");
+}
+const theaterId = process.env.BOOKING_THEATER_ID?.trim() || "CGV용산아이파크몰";
+if (isMegaboxTarget(theaterId, bookingUrlRaw)) {
+  throw new Error("MEGABOX_NOT_SUPPORTED: this PC agent is CGV-only");
+}
+let bookingUrl = bookingUrlRaw;
+if (bookingUrl && !isAllowedCgvBookingPageUrl(bookingUrl) && !isExactCgvBookingUrl(bookingUrl)) {
+  console.warn("[booking-url] not a CGV movieBook page; ignoring BOOKING_URL and clicking title/date/time");
+  bookingUrl = undefined;
+} else if (bookingUrl && !isExactCgvBookingUrl(bookingUrl)) {
+  console.warn("[booking-url] shallow URL (no scnsNo/scnSseq). Will click title/date/time. Not aborting.");
+}
+
+const playDate = normalizeBookingDate(required("BOOKING_DATE"));
+if (!playDate) {
+  throw new Error("INVALID_BOOKING_DATE: use YYYY-MM-DD or YYYYMMDD");
 }
 
 const target: BookingTarget = {
   movieTitle: required("BOOKING_MOVIE"),
-  playDate: required("BOOKING_DATE"),
+  playDate,
   showtime: required("BOOKING_SHOWTIME"),
   requestedSeatCount,
-  bookingUrl: exactBookingUrl,
+  bookingUrl,
+  hall: process.env.BOOKING_HALL?.trim() || undefined,
+  theaterId,
   seatIds: explicitSeatIds.length ? explicitSeatIds : undefined,
   seatPreference: {
     preferredRow: process.env.SEAT_PREFERRED_ROW?.trim() || undefined,
@@ -67,9 +89,6 @@ const target: BookingTarget = {
   },
 };
 
-if (!isBookingDate(target.playDate)) {
-  throw new Error("INVALID_BOOKING_DATE: use YYYY-MM-DD");
-}
 if (!isBookingShowtime(target.showtime)) {
   throw new Error("INVALID_BOOKING_SHOWTIME: use HH:MM (e.g. 20:10)");
 }
@@ -96,7 +115,7 @@ console.log(`Movie: ${target.movieTitle}`);
 console.log(`Date: ${target.playDate}`);
 console.log(`Showtime: ${target.showtime}`);
 console.log(`Seat count: ${requestedSeatCount}`);
-console.log(`BOOKING_URL: ${exactBookingUrl ? "yes" : "no"}`);
+console.log(`BOOKING_URL: ${bookingUrl ? (isExactCgvBookingUrl(bookingUrl) ? "exact" : "shallow") : "no"}`);
 console.log(`Headless: ${headless}`);
 console.log(`Hold browser: ${holdAtPayment}`);
 console.log("PAYMENT_HARD_STOP: locked (final payment is never clicked)");
@@ -111,8 +130,10 @@ if (storageStatePath) {
 } else {
   console.log("CGV_STORAGE_STATE: unset. If CGV shows login, run 4-save-login.cmd.");
 }
-if (!exactBookingUrl) {
+if (!bookingUrl) {
   console.log("WARNING: BOOKING_URL is empty. Agent will try movie/date/showtime clicks (DOM unverified).");
+} else if (!isExactCgvBookingUrl(bookingUrl)) {
+  console.log("WARNING: BOOKING_URL is shallow. Agent will click title/date/time (DOM unverified).");
 }
 console.log("========================================");
 
@@ -122,11 +143,11 @@ if (dryRun) {
   bookingSessionId = await createSession({
     openbellUrl: openbellUrl!,
     workerToken: workerToken!,
-    theaterId: process.env.BOOKING_THEATER_ID?.trim() || "CGV용산아이파크몰",
+    theaterId,
     movieTitle: target.movieTitle,
     playDate: target.playDate,
     showtime: target.showtime,
-    hall: process.env.BOOKING_HALL?.trim() || "20관",
+    hall: target.hall || "20관",
     requestedSeatCount,
     bookingUrl: target.bookingUrl,
   });
@@ -181,9 +202,14 @@ try {
         return;
       }
 
-      const callbackUrl =
-        (exactBookingUrl && isExactCgvBookingUrl(exactBookingUrl) && exactBookingUrl) ||
-        (isExactCgvBookingUrl(url) ? url : "");
+      const callbackUrl = (() => {
+        if (isPaymentBookingUrl(url)) {
+          return bookingUrl && isAllowedCgvBookingPageUrl(bookingUrl) ? bookingUrl : "";
+        }
+        if (isExactCgvBookingUrl(url) || isAllowedCgvBookingPageUrl(url)) return url;
+        if (bookingUrl && isAllowedCgvBookingPageUrl(bookingUrl)) return bookingUrl;
+        return "";
+      })();
       await notifyPaymentReady({
         openbellUrl: openbellUrl!,
         workerToken: workerToken!,

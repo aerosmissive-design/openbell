@@ -7,7 +7,7 @@ OpenBell PC Agent - 시작 안내
      BOOKING_DATE=2026-09-20
      BOOKING_SHOWTIME=20:10
      BOOKING_SEAT_COUNT=2
-   선택: BOOKING_URL 에는 movNo, scnYmd, scnsNo, scnSseq 포함
+   선택: BOOKING_URL 이 회차 키(scnsNo) 없어도 제목/날짜/시간 클릭으로 진행. 결제 URL은 거부.
 3. 선택: 4-save-login.cmd
    CGV에 직접 로그인한 뒤, 검은 창에서 Enter
 4. 선택: 3-doctor.cmd

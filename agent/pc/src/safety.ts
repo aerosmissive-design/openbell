@@ -26,6 +26,44 @@ export function isExactCgvBookingUrl(value: string) {
   }
 }
 
+export function isPaymentBookingUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return /payment|checkout|ticketpay/i.test(url.pathname + url.search);
+  } catch {
+    return /payment|checkout|ticketpay/i.test(value);
+  }
+}
+
+/** CGV movie or cinema booking page. Not payment. MegaBox is not this agent's job. */
+export function isAllowedCgvBookingPageUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.replace(/\/+$/, "");
+    if (url.protocol !== "https:") return false;
+    if (host !== "cgv.co.kr" && host !== "www.cgv.co.kr") return false;
+    if (isPaymentBookingUrl(value)) return false;
+    return path === "/cnm/movieBook/movie" || path === "/cnm/movieBook/cinema" || path.startsWith("/cnm/movieBook/");
+  } catch {
+    return false;
+  }
+}
+
+export function isMegaboxTarget(theaterId?: string, url?: string) {
+  const blob = `${theaterId || ""} ${url || ""}`;
+  return /mega\s*box|메가박스|megabox\.co\.kr/i.test(blob);
+}
+
+/** YYYY-MM-DD, or compact YYYYMMDD from the web watch path. */
+export function normalizeBookingDate(value: string) {
+  const t = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const m = t.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return undefined;
+}
+
 /**
  * Payment STAGE (hard stop) — conservative.
  * A lone "결제하기" / English "order" is NOT enough: those appear as nav or as
@@ -103,7 +141,7 @@ export function isOfficialOpenBellUrl(value: string) {
 }
 
 export function isBookingDate(value: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+  return Boolean(normalizeBookingDate(value));
 }
 
 export function isBookingShowtime(value: string) {
