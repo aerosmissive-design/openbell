@@ -11,6 +11,8 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const RETRY_BACKOFF_MS = [500, 1500] as const;
+
 export function isRetryableNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const msg = error.message.toLowerCase();
@@ -20,6 +22,13 @@ export function isRetryableNetworkError(error: unknown): boolean {
     /fetch failed|network|econnreset|econnrefused|etimedout|enotfound|socket|aborted/.test(msg) ||
     /econnreset|econnrefused|etimedout|enotfound|und_err/.test(code)
   );
+}
+
+function shouldRetryOpenBellError(error: unknown, failPrefix: string): boolean {
+  if (isRetryableNetworkError(error)) return true;
+  if (!(error instanceof Error)) return false;
+  if (error.message.includes(":401:")) return false;
+  return new RegExp(`${failPrefix}:5\\d\\d`).test(error.message);
 }
 
 export async function createSession(
@@ -37,31 +46,75 @@ export async function createSession(
   deps: OpenBellDeps = {},
 ) {
   const doFetch = deps.fetch ?? fetch;
-  const response = await doFetch(`${input.openbellUrl}/api/booking/create`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${input.workerToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      theaterId: input.theaterId,
-      movieTitle: input.movieTitle,
-      playDate: input.playDate,
-      showtime: input.showtime,
-      hall: input.hall,
-      requestedSeatCount: input.requestedSeatCount,
-      bookingUrl: input.bookingUrl || undefined,
-      agent: "pc",
-    }),
-  });
+  const doSleep = deps.sleep ?? sleep;
+  let lastError: Error | undefined;
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OPENBELL_SESSION_CREATE_FAILED:${response.status}:${text.slice(0, 500)}`);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await doFetch(`${input.openbellUrl}/api/booking/create`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${input.workerToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          theaterId: input.theaterId,
+          movieTitle: input.movieTitle,
+          playDate: input.playDate,
+          showtime: input.showtime,
+          hall: input.hall,
+          requestedSeatCount: input.requestedSeatCount,
+          bookingUrl: input.bookingUrl || undefined,
+          agent: "pc",
+        }),
+      });
+
+      if (response.status === 401) {
+        const text = await response.text();
+        throw new Error(`OPENBELL_SESSION_CREATE_FAILED:401:${text.slice(0, 500)}`);
+      }
+
+      if (response.status >= 500) {
+        const text = await response.text();
+        lastError = new Error(`OPENBELL_SESSION_CREATE_FAILED:${response.status}:${text.slice(0, 500)}`);
+        if (attempt < 3) {
+          const wait = RETRY_BACKOFF_MS[attempt - 1] ?? 1500;
+          console.warn(`[create-session] ${response.status} on attempt ${attempt}/3; retry in ${wait}ms`);
+          await doSleep(wait);
+          continue;
+        }
+        throw lastError;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`OPENBELL_SESSION_CREATE_FAILED:${response.status}:${text.slice(0, 500)}`);
+      }
+      const data = (await response.json()) as { ok?: boolean; session?: { id?: string } };
+      if (!data.ok || !data.session?.id) throw new Error("OPENBELL_SESSION_CREATE_INVALID_RESPONSE");
+      return data.session.id;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(":401:")) throw error;
+      if (error instanceof Error && error.message === "OPENBELL_SESSION_CREATE_INVALID_RESPONSE") throw error;
+      if (
+        !shouldRetryOpenBellError(error, "OPENBELL_SESSION_CREATE_FAILED") &&
+        !(error instanceof Error && /OPENBELL_SESSION_CREATE_FAILED:5\d\d/.test(error.message))
+      ) {
+        if (error instanceof Error && error.message.startsWith("OPENBELL_SESSION_CREATE_FAILED:")) throw error;
+        if (!isRetryableNetworkError(error)) throw error;
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < 3) {
+        const wait = RETRY_BACKOFF_MS[attempt - 1] ?? 1500;
+        console.warn(`[create-session] network/5xx on attempt ${attempt}/3; retry in ${wait}ms`);
+        await doSleep(wait);
+        continue;
+      }
+      throw lastError;
+    }
   }
-  const data = (await response.json()) as { ok?: boolean; session?: { id?: string } };
-  if (!data.ok || !data.session?.id) throw new Error("OPENBELL_SESSION_CREATE_INVALID_RESPONSE");
-  return data.session.id;
+
+  throw lastError ?? new Error("OPENBELL_SESSION_CREATE_FAILED:unknown");
 }
 
 export async function updateState(
@@ -74,19 +127,63 @@ export async function updateState(
   deps: OpenBellDeps = {},
 ) {
   const doFetch = deps.fetch ?? fetch;
-  const response = await doFetch(`${input.openbellUrl}/api/booking/state`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${input.workerToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ id: input.sessionId, state: input.state }),
-  });
+  const doSleep = deps.sleep ?? sleep;
+  let lastError: Error | undefined;
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OPENBELL_STATE_UPDATE_FAILED:${response.status}:${text.slice(0, 500)}`);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await doFetch(`${input.openbellUrl}/api/booking/state`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${input.workerToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ id: input.sessionId, state: input.state }),
+      });
+
+      if (response.status === 401) {
+        const text = await response.text();
+        throw new Error(`OPENBELL_STATE_UPDATE_FAILED:401:${text.slice(0, 500)}`);
+      }
+
+      if (response.status >= 500) {
+        const text = await response.text();
+        lastError = new Error(`OPENBELL_STATE_UPDATE_FAILED:${response.status}:${text.slice(0, 500)}`);
+        if (attempt < 3) {
+          const wait = RETRY_BACKOFF_MS[attempt - 1] ?? 1500;
+          console.warn(`[state] ${response.status} on attempt ${attempt}/3; retry in ${wait}ms`);
+          await doSleep(wait);
+          continue;
+        }
+        throw lastError;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`OPENBELL_STATE_UPDATE_FAILED:${response.status}:${text.slice(0, 500)}`);
+      }
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(":401:")) throw error;
+      if (
+        !shouldRetryOpenBellError(error, "OPENBELL_STATE_UPDATE_FAILED") &&
+        !(error instanceof Error && /OPENBELL_STATE_UPDATE_FAILED:5\d\d/.test(error.message))
+      ) {
+        if (error instanceof Error && error.message.startsWith("OPENBELL_STATE_UPDATE_FAILED:")) throw error;
+        if (!isRetryableNetworkError(error)) throw error;
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < 3) {
+        const wait = RETRY_BACKOFF_MS[attempt - 1] ?? 1500;
+        console.warn(`[state] network/5xx on attempt ${attempt}/3; retry in ${wait}ms`);
+        await doSleep(wait);
+        continue;
+      }
+      throw lastError;
+    }
   }
+
+  throw lastError ?? new Error("OPENBELL_STATE_UPDATE_FAILED:unknown");
 }
 
 /**
@@ -106,7 +203,7 @@ export async function notifyPaymentReady(
 ) {
   const doFetch = deps.fetch ?? fetch;
   const doSleep = deps.sleep ?? sleep;
-  const backoffMs = [500, 1500];
+  const backoffMs = RETRY_BACKOFF_MS;
   let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
