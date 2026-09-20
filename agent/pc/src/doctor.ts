@@ -2,7 +2,7 @@
  * Operator doctor — checks install/config without printing secret values.
  * Usage: npx tsx src/doctor.ts
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   isBookingDate,
@@ -28,8 +28,16 @@ function check(label: string, pass: boolean, hint?: string) {
   lines.push(`[${mark}] ${label}${hint ? ` — ${hint}` : ""}`);
 }
 
+let agentVersion = "2.0.16";
+try {
+  const pkg = JSON.parse(readFileSync(resolve(PC_ROOT, "package.json"), "utf8")) as { version?: string };
+  if (pkg.version) agentVersion = pkg.version;
+} catch {
+  // keep hardcoded fallback matching package.json
+}
+
 console.log("========================================");
-console.log("OpenBell PC Agent doctor");
+console.log(`OpenBell PC Agent doctor — openbell-pc-agent@${agentVersion}`);
 console.log("========================================");
 
 check("Node.js runtime", typeof process.versions.node === "string", `node ${process.versions.node}`);
@@ -115,7 +123,7 @@ if (isFalseyFlag(hardStop)) {
   lines.push("[OK] PAYMENT_HARD_STOP locked (payment is never clicked)");
 }
 
-lines.push("[INFO] PAYMENT_READY_TTL_MS is display-only; server TTL is 10 minutes until this PR is merged");
+lines.push("[INFO] PAYMENT_READY_TTL_MS is display-only; server TTL is 10 minutes");
 
 for (const line of lines) console.log(line);
 
