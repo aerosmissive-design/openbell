@@ -1,4 +1,4 @@
-# OpenBell PC CGV Booking Agent (v2.0.15)
+# OpenBell PC CGV Booking Agent (v2.0.16)
 
 Windows PC 전용 **독립 패키지**입니다. **먼저 `START.txt` 를 읽으세요.** 웹앱 루트의 `npm install` 없이 `agent/pc` 안에서만 설치·실행합니다.
 
@@ -9,6 +9,12 @@ CAPTCHA / 보안문자는 **절대 우회하지 않습니다**. 감지 시 중�
 
 > **미완료 / 주의:** CGV DOM 셀렉터는 실제 E2E로 검증되지 않았습니다.  
 > 무인 운영 전에 headed 모드로 회차·좌석 맵을 직접 확인하세요. “검증 완료”를 주장하지 않습니다.
+
+### v2.0.16 notes
+
+- On **main** after PR #3 (v2.0.15+). Post-merge: Windows headed dry-run result **B** is still the confidence gate before trusting CGV DOM in real bookings.
+- `safeBrowserAccessUrl`: OpenBell payment-ready callback never receives a payment-page URL (exact movie-book URL only, else empty).
+- Doctor prints `openbell-pc-agent@2.0.16`. Preferred-row matching is case-insensitive (`e` vs `E`).
 
 ### v2.0.15 notes
 
@@ -201,21 +207,20 @@ Authorization: `Bearer <NAS_WORKER_TOKEN>` (서버: `NAS_WORKER_TOKEN` / `NAS_RE
 
 ```
 agent/pc/
-  1-install.cmd      # ASCII 설치
-  2-run.cmd          # 실행
-  install.cmd        # → 1-install.cmd
-  run-agent.cmd      # → 2-run.cmd
-  package.json       # 로컬 전용
-  tsconfig.json
-  config.env.example
+  1-install.cmd / 2-run.cmd / 3-doctor.cmd / 4-save-login.cmd / 5-open-config.cmd
+  install.cmd / run-agent.cmd   # wrappers → 1 / 2
+  START.txt / START-ko.txt
+  package.json / tsconfig.json / config.env.example
+  README.md / CHANGELOG.md
   src/
-    safety.ts
-    safety.test.ts
-    seat-ranker.ts   # 인라인 연속좌석 랭커 (../../src 비의존)
+    cli.ts           # npm start / 2-run.cmd entry
+    doctor.ts        # 3-doctor.cmd
+    save-login.ts    # 4-save-login.cmd
+    run.ts           # library (no side effects on import)
     cgv-agent.ts
-    run.ts
-  README.md
-  CHANGELOG.md
+    openbell-api.ts / result-code.ts / env.ts
+    safety.ts / seat-ranker.ts
+    *.test.ts
 ```
 
 ```bat
