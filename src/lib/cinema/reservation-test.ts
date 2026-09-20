@@ -3,7 +3,8 @@ import { z } from "zod";
 import { kstDateKeys } from "@/lib/utils";
 import { fetchCgvOfficial, fetchCgvRelaySeatmap, fetchCgvNaver } from "./cgv.server";
 import { fetchMegaboxSchedule } from "./megabox.server";
-import { notifyCopy, showAlertBody } from "./seats";
+import { alertBookingUrl, formatPlayDate, formatClock, showAlertBody } from "./seats";
+import { theaterById } from "./theaters";
 import type { Showtime, TheaterId } from "./types";
 
 const Input = z.object({
@@ -42,7 +43,11 @@ function pick(shows: Showtime[], today: string, nowTime: string) {
   const usable = shows.filter((s) => s && s.bookable !== false);
   const todayFuture = usable.filter((s) => s.playDate === today && String(s.startTime).slice(0, 5) >= nowTime);
   const pool = todayFuture.length ? todayFuture : usable.filter((s) => s.playDate >= today);
-  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  const ranked = pool.length ? pool : usable;
+  if (!ranked.length) return null;
+  const withUrl = ranked.filter((s) => String(s.bookingUrl || "").trim());
+  const source = withUrl.length ? withUrl : ranked;
+  return source[Math.floor(Math.random() * source.length)];
 }
 
 function isExactCgvUrl(url: string) {
@@ -117,33 +122,69 @@ async function fetchCandidates(theaterId: TheaterId, dates: string[]) {
       const rows = await fetchMegaboxSchedule(theaterId, date, { ignoreCircuit: true, timeoutMs: 8000 });
       all.push(...rows);
     } catch {
-      // One failed date/source must not stop the other dates or the alert itself.
+      // keep going
     }
   }
   return all;
 }
 
-async function findTestShows(now: { date: string; time: string }) {
-  const dates = kstDateKeys(7);
-  const selected: Showtime[] = [];
+function fallbackShow(theaterId: TheaterId, now: { date: string; time: string }): Showtime {
+  const theater = theaterById(theaterId);
+  return {
+    id: `test-fallback:${theaterId}:${now.date}`,
+    theaterId,
+    theaterName: theater.name,
+    chain: theater.chain,
+    movieTitle: `${theater.shortName} 예매 테스트`,
+    movieNo: "",
+    playDate: now.date,
+    startTime: now.time,
+    endTime: null,
+    hallName: theater.name,
+    formats: [],
+    restSeats: null,
+    totalSeats: null,
+    bookingUrl: theater.bookingUrl,
+    bookable: true,
+  };
+}
 
-  for (const theaterId of THEATERS) {
+async function pickTheaterShow(theaterId: TheaterId, now: { date: string; time: string }) {
+  const dates = kstDateKeys(3);
+  let candidate: Showtime | null = null;
+  try {
     const candidates = await fetchCandidates(theaterId, dates);
-    const candidate = pick(candidates, now.date, now.time);
-    if (!candidate) continue;
-
-    try {
-      const best = theaterId.startsWith("cgv_")
-        ? await findExactOrBestCgvShow(theaterId, candidate)
-        : await findExactOrBestMegaboxShow(theaterId, candidate);
-      selected.push(best || candidate);
-    } catch {
-      // Keep the already selected real show and its best available fallback URL.
-      selected.push(candidate);
-    }
+    candidate = pick(candidates, now.date, now.time);
+  } catch {
+    candidate = null;
   }
+  if (!candidate) return fallbackShow(theaterId, now);
+  try {
+    const best = theaterId === "cgv_yongsan" || theaterId === "cgv_yeongdeungpo"
+      ? await findExactOrBestCgvShow(theaterId, candidate)
+      : await findExactOrBestMegaboxShow(theaterId, candidate);
+    return best || candidate;
+  } catch {
+    return candidate;
+  }
+}
 
-  return selected;
+async function findTestShows(now: { date: string; time: string }) {
+  const picked = await Promise.all(THEATERS.map((id) => pickTheaterShow(id, now)));
+  return THEATERS.map((id, i) => picked[i] || fallbackShow(id, now));
+}
+
+function cardText(show: Showtime) {
+  const theater = theaterById(show.theaterId);
+  const place = showAlertBody(show) || [theater.name, formatPlayDate(show.playDate), formatClock(show.startTime), show.hallName].filter(Boolean).join(" · ");
+  return { title: `${show.movieTitle} 예매 오픈`, body: place, theater: theater.name };
+}
+
+function telegramCard(show: Showtime) {
+  const card = cardText(show);
+  const href = alertBookingUrl(show) || show.bookingUrl;
+  const link = href ? `\n<a href="${href.replace(/&/g, "&").replace(/"/g, """)}">바로 예매</a>` : "";
+  return `<b>${card.title}</b>\n${card.body}${link}`;
 }
 
 async function kakaoSend(restKey: string, refreshToken: string, text: string, bookingUrl: string) {
@@ -165,38 +206,55 @@ export const sendReservationTest = createServerFn({ method: "POST" })
   .validator(Input)
   .handler(async ({ data }) => {
     const selected = await findTestShows(kstNow());
-    if (!selected.length) throw new Error("실제 상영 중인 테스트 회차를 찾지 못했습니다. 잠시 뒤 다시 눌러 주세요.");
 
-    const items = selected.map((show, i) => ({
-      id: `alert:test-reservation:${show.id}:${Date.now()}:${i}`,
-      createdAt: new Date().toISOString(),
-      kind: "open" as const,
-      title: `${show.movieTitle} 예매 오픈`,
-      body: showAlertBody(show),
-      bookingUrl: show.bookingUrl,
-      theaterId: show.theaterId,
-      movieTitle: show.movieTitle,
-      playDate: show.playDate,
-      startTime: show.startTime,
-      hallName: show.hallName,
-      formats: show.formats,
-      restSeats: show.restSeats,
-      totalSeats: show.totalSeats,
-      seatSource: show.seatSource,
-    }));
-    const copy = notifyCopy(items as any, { total: items.length });
+    const items = selected.map((show, i) => {
+      const card = cardText(show);
+      return {
+        id: `alert:test-reservation:${show.theaterId}:${Date.now()}:${i}`,
+        createdAt: new Date().toISOString(),
+        kind: "open" as const,
+        title: card.title,
+        body: card.body,
+        bookingUrl: alertBookingUrl(show) || show.bookingUrl,
+        theaterId: show.theaterId,
+        theaterName: card.theater,
+        movieTitle: show.movieTitle,
+        playDate: show.playDate,
+        startTime: show.startTime,
+        hallName: show.hallName,
+        formats: show.formats,
+        restSeats: show.restSeats,
+        totalSeats: show.totalSeats,
+        seatSource: show.seatSource,
+      };
+    });
 
     if (data.channel === "telegram") {
       if (!data.telegramToken?.trim() || !data.telegramChatId?.trim()) throw new Error("텔레그램을 먼저 연결하세요.");
-      await telegramSend(data.telegramToken, data.telegramChatId, copy.telegramHtml);
+      for (const show of selected) await telegramSend(data.telegramToken, data.telegramChatId, telegramCard(show));
     } else if (data.channel === "kakao") {
       if (!data.kakaoRestKey?.trim() || !data.kakaoRefreshToken?.trim()) throw new Error("카카오를 먼저 연결하세요.");
       for (const item of items) await kakaoSend(data.kakaoRestKey, data.kakaoRefreshToken, `${item.title}\n${item.body}`, item.bookingUrl);
     } else {
       if (!data.email?.trim()) throw new Error("메일 주소를 확인하세요.");
       const { sendOpenbellMail } = await import("./mail.server");
-      const result = await sendOpenbellMail({ to: data.email, subject: `[오픈벨] 예매 오픈 테스트 ${items.length}건`, text: copy.text, url: items[0].bookingUrl, items: items.map((x) => ({ title: x.title, body: x.body, bookingUrl: x.bookingUrl })), gasWebUrl: data.gasWebUrl, gmailAppPassword: data.gmailAppPassword });
-      if (!result.ok) throw new Error(result.error);
+      for (const item of items) {
+        const result = await sendOpenbellMail({
+          to: data.email,
+          subject: `[오픈벨] ${item.movieTitle} 예매 오픈`,
+          text: `${item.title}\n${item.body}\n바로 예매 ${item.bookingUrl}`,
+          url: item.bookingUrl,
+          title: item.title,
+          theater: item.theaterName,
+          hall: item.hallName,
+          date: item.playDate,
+          time: item.startTime,
+          items: [{ title: item.title, body: item.body, bookingUrl: item.bookingUrl }],
+          gasWebUrl: data.gasWebUrl,
+          gmailAppPassword: data.gmailAppPassword,
+        });
+        if (!result.ok) throw new Error(result.error);
+      }
     }
     return { ok: true as const, count: items.length, theaters: items.map(({ theaterId, movieTitle, playDate, startTime, hallName, bookingUrl }) => ({ theaterId, movieTitle, playDate, startTime, hallName, bookingUrl })) };
   });
