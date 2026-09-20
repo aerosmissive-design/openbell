@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { THEATERS } from "@/lib/cinema/theaters";
-import type { TheaterId } from "@/lib/cinema/types";
+import type { ScanResult, TheaterId } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { SourceStatus } from "./source-status";
 
 export function FormatChips({
   theaterId,
@@ -61,21 +62,28 @@ export function FormatChips({
   );
 }
 
-export function SettingsTheaterPicks({ onChange }: { onChange?: () => void }) {
+export function SettingsTheaterPicks({
+  lastScan,
+  onChange,
+}: {
+  lastScan?: ScanResult | null;
+  onChange?: () => void;
+}) {
   return (
     <>
       <h2 className="text-xs font-medium tracking-[0.16em] text-muted">
         감시 극장
       </h2>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        제목을 누르면 그 극장 특별관이 전부 켜지거나 꺼집니다. 켠 특별관만
-        알림이 갑니다.
+        제목을 누르면 그 극장 특별관이 전부 켜지거나 꺼집니다. 켤 특별관만
+        알림이 갑니다. 상영시간·잔여석 출처는 마지막 조회 기준입니다.
       </p>
       <div className="mt-3 flex flex-col gap-2">
         {THEATERS.map((theater) => (
           <SettingsTheaterRow
             key={theater.id}
             theaterId={theater.id}
+            lastScan={lastScan}
             onChange={onChange}
           />
         ))}
@@ -86,9 +94,11 @@ export function SettingsTheaterPicks({ onChange }: { onChange?: () => void }) {
 
 function SettingsTheaterRow({
   theaterId,
+  lastScan,
   onChange,
 }: {
   theaterId: TheaterId;
+  lastScan?: ScanResult | null;
   onChange?: () => void;
 }) {
   const theater = THEATERS.find((t) => t.id === theaterId);
@@ -99,6 +109,7 @@ function SettingsTheaterRow({
   const ids = theater.formats.map((f) => f.id);
   const allOn = ids.length > 0 && ids.every((id) => formats.includes(id));
   const someOn = formats.length > 0;
+  const pack = lastScan?.theaters.find((row) => row.theaterId === theaterId);
   const summary = theater.formats
     .filter((f) => formats.includes(f.id))
     .map((f) => f.label)
@@ -127,6 +138,14 @@ function SettingsTheaterRow({
           )}
         >
           <p className="truncate text-sm font-bold text-fg">{theater.name}</p>
+          <div className="mt-1">
+            <SourceStatus
+              source={pack?.source || "none"}
+              seatSource={pack?.seatSource || "none"}
+              ok={Boolean(pack?.ok)}
+              quiet
+            />
+          </div>
           <p className="mt-0.5 truncate text-xs text-muted">
             {summary || "특별관 없음"}
           </p>
