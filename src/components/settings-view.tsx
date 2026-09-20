@@ -1,1 +1,22 @@
-PLACEHOLDER_WILL_FAIL
+import { ExternalLink } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { toast } from "sonner";
+import { authEnabled, signOut } from "@/lib/auth/client";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { extractKakaoCode, kakaoRedirectUri } from "@/lib/cinema/kakao";
+import { currentGasScript, ensureGasSyncKey, forgetGasLink, gasHomeUrl, gasWatchFingerprint, refreshGasMeta } from "@/lib/cinema/gas-provision";
+import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
+import { pullGasMeta } from "@/lib/cinema/cloud";
+import { describeGasPush, flushSettings } from "./cloud-sync";
+import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendGasTest } from "@/lib/cinema/scan";
+import { sendReservationTest } from "@/lib/cinema/reservation-test";
+import type { ScanResult } from "@/lib/cinema/types";
+import { mailEnabled } from "@/lib/cinema/types";
+import { THEME_MODES } from "@/lib/theme";
+import { useAppStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
+import { Button } from "./ui/button";
+import { Switch } from "./ui/switch";
+import { SettingsTheaterPicks } from "./theater-picks";
+import { GasBackupMailField } from "./gas-backup-mail";
