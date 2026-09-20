@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createBookingSession } from "@/lib/booking/session";
-import { isExactCgvMovieBookUrl } from "@/lib/booking/cgv-url";
+import { isAllowedBookingPageUrl } from "@/lib/booking/cgv-url";
 
 function authorized(request: Request) {
   const expected = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim() || process.env.CRON_SECRET?.trim() || "";
@@ -39,7 +39,7 @@ export const Route = createFileRoute("/api/booking/create")({
         const hall = String(body.hall || "").trim();
         const requestedSeatCount = Number(body.requestedSeatCount ?? 2);
         const bookingUrlRaw = String(body.bookingUrl || "").trim();
-        const bookingUrl = bookingUrlRaw && isExactCgvMovieBookUrl(bookingUrlRaw) ? bookingUrlRaw : undefined;
+        const bookingUrl = bookingUrlRaw && isAllowedBookingPageUrl(bookingUrlRaw) ? bookingUrlRaw : undefined;
 
         if (!theaterId || !movieTitle || !playDate || !showtime || !hall) {
           return json({ ok: false, error: "theaterId, movieTitle, playDate, showtime, hall are required" }, 400);
@@ -48,7 +48,7 @@ export const Route = createFileRoute("/api/booking/create")({
           return json({ ok: false, error: "invalid requestedSeatCount" }, 400);
         }
         if (bookingUrlRaw && !bookingUrl) {
-          return json({ ok: false, error: "bookingUrl must be a valid exact CGV movie-booking URL" }, 400);
+          return json({ ok: false, error: "bookingUrl must be a CGV/Megabox booking page, not payment" }, 400);
         }
 
         const agent = body.agent === "nas" ? "nas" : "pc";
