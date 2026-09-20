@@ -20,7 +20,7 @@ export function SourceStatus({
           quiet ? "text-xs text-faint" : "text-xs text-muted",
         )}
       >
-        극장 현황 출처 : {timetableSourceLabel(source, ok)}
+        상영시간 출처 : {timetableSourceLabel(source, ok)}
       </p>
       <p
         className={cn(
