@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { extractKakaoCode, kakaoRedirectUri } from "@/lib/cinema/kakao";
-import { currentGasScript, ensureGasSyncKey, forgetGasLink, gasHomeUrl, refreshGasMeta } from "@/lib/cinema/gas-provision";
+import { currentGasScript, ensureGasSyncKey, forgetGasLink, gasHomeUrl, gasWatchFingerprint, refreshGasMeta } from "@/lib/cinema/gas-provision";
 import { GAS_SOURCE_STAMP } from "@/lib/cinema/gas-script";
 import { pullGasMeta } from "@/lib/cinema/cloud";
 import { describeGasPush, flushSettings } from "./cloud-sync";
@@ -31,23 +31,50 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const [kakaoCode, setKakaoCode] = useState("");
   const [showMail, setShowMail] = useState(!user);
   const [showKakao, setShowKakao] = useState(false);
-  const [showTelegram, setShowTelegram] = useState(false);
+  const [showTelegram, setShowTelegram] = useState(() => Boolean(useAppStore.getState().config.telegramToken || useAppStore.getState().config.telegramChatId));
   const [sendingTest, setSendingTest] = useState(false);
   const [showGasSection, setShowGasSection] = useState(true);
   const [showGasHelp, setShowGasHelp] = useState(false);
   const [redirectUri, setRedirectUri] = useState("");
   const [gasUrlDraft, setGasUrlDraft] = useState(config.gasWebUrl);
+  const [remoteStamp, setRemoteStamp] = useState<string | null>(null);
+  const [copiedWatch, setCopiedWatch] = useState("");
   useEffect(() => setRedirectUri(kakaoRedirectUri()), []);
   useEffect(() => setGasUrlDraft(config.gasWebUrl), [config.gasWebUrl]);
   useEffect(() => {
+    try {
+      const saved = String(localStorage.getItem("openbell-gas-copied-fp") || "");
+      if (saved) {
+        setCopiedWatch(saved);
+        return;
+      }
+      if (config.gasWebUrl.trim() || config.gasScriptId.trim()) {
+        const fp = gasWatchFingerprint();
+        localStorage.setItem("openbell-gas-copied-fp", fp);
+        setCopiedWatch(fp);
+      }
+    } catch {
+      setCopiedWatch("");
+    }
+  }, [config.gasWebUrl, config.gasScriptId]);
+  useEffect(() => {
     const url = config.gasWebUrl.trim();
-    if (!url) return;
+    if (!url) {
+      setRemoteStamp(null);
+      return;
+    }
+    let cancelled = false;
     void pullGasMeta({ data: { url } })
       .then((meta) => {
-        if (meta.status === "ok" && meta.stamp === GAS_SOURCE_STAMP && config.gasSourceStamp !== GAS_SOURCE_STAMP)
+        if (cancelled || meta.status !== "ok") return;
+        setRemoteStamp(meta.stamp || "");
+        if (meta.stamp === GAS_SOURCE_STAMP && config.gasSourceStamp !== GAS_SOURCE_STAMP)
           setConfig({ gasSourceStamp: GAS_SOURCE_STAMP });
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [config.gasWebUrl]);
 
   async function pushWatchWindow() {
@@ -212,12 +239,36 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                   void (async () => {
                     const id = await refreshGasMeta(raw).catch(() => "");
                     await flushSettings(Boolean(loginEmail));
+                    try {
+                      if (!localStorage.getItem("openbell-gas-copied-fp")) {
+                        const fp = gasWatchFingerprint();
+                        localStorage.setItem("openbell-gas-copied-fp", fp);
+                        setCopiedWatch(fp);
+                      }
+                    } catch {
+                      /* ignore */
+                    }
                     toast.success(id ? "웹앱을 연결했습니다." : "주소를 저장했습니다.");
                   })();
                 }}
               >
                 웹앱 주소 연결
               </button>
+              {config.gasWebUrl.trim() ? (
+                <button
+                  type="button"
+                  className="mt-2 min-h-11 w-full text-sm text-muted"
+                  onClick={() => {
+                    forgetGasLink();
+                    setGasUrlDraft("");
+                    setRemoteStamp(null);
+                    void flushSettings(Boolean(loginEmail));
+                    toast.success("웹앱 연결을 끊었습니다.");
+                  }}
+                >
+                  연결 끊기
+                </button>
+              ) : null}
               <a href={gasHomeUrl(loginEmail) || "https://script.google.com"} target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">
                 script.google.com 열기
               </a>
@@ -227,8 +278,15 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                 onClick={() => {
                   void navigator.clipboard.writeText(currentGasScript()).then(
                     () => {
+                      const fp = gasWatchFingerprint();
                       setConfig({ gasSourceStamp: GAS_SOURCE_STAMP });
-                      toast.success("스크립트를 복사했습니다. script.google.com에 붙여넣으세요.");
+                      setCopiedWatch(fp);
+                      try {
+                        localStorage.setItem("openbell-gas-copied-fp", fp);
+                      } catch {
+                        /* ignore */
+                      }
+                      toast.success("스크립트를 복사했습니다. script.google.com에 붙여넣고 저장하세요.");
                     },
                     () => toast.error("복사하지 못했습니다."),
                   );
@@ -236,6 +294,20 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               >
                 스크립트 복사
               </button>
+              {(() => {
+                const linked = Boolean(config.gasWebUrl.trim() || config.gasScriptId.trim());
+                if (!linked) return null;
+                const stampStale =
+                  (remoteStamp != null && remoteStamp !== GAS_SOURCE_STAMP) ||
+                  (remoteStamp == null && Boolean(config.gasSourceStamp) && config.gasSourceStamp !== GAS_SOURCE_STAMP);
+                const settingsStale = Boolean(copiedWatch) && copiedWatch !== gasWatchFingerprint();
+                if (!stampStale && !settingsStale) return null;
+                return (
+                  <p className="mt-2 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+                    변경되었습니다. 복사한 코드를 붙여넣고 저장하세요.
+                  </p>
+                );
+              })()}
             </>
           ) : null}
         </div>
