@@ -2,7 +2,7 @@
  * Operator doctor — checks install/config without printing secret values.
  * Usage: npx tsx src/doctor.ts
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   isBookingDate,
@@ -10,7 +10,7 @@ import {
   isExactCgvBookingUrl,
   isOfficialOpenBellUrl,
 } from "./safety.js";
-import { PC_ROOT, isFalseyFlag, loadEnvFile } from "./env.js";
+import { PC_ROOT, agentVersion, isFalseyFlag, loadEnvFile } from "./env.js";
 
 function present(value: string | undefined) {
   return Boolean(value?.trim());
@@ -28,16 +28,10 @@ function check(label: string, pass: boolean, hint?: string) {
   lines.push(`[${mark}] ${label}${hint ? ` — ${hint}` : ""}`);
 }
 
-let agentVersion = "2.0.16";
-try {
-  const pkg = JSON.parse(readFileSync(resolve(PC_ROOT, "package.json"), "utf8")) as { version?: string };
-  if (pkg.version) agentVersion = pkg.version;
-} catch {
-  // keep hardcoded fallback matching package.json
-}
+const version = agentVersion();
 
 console.log("========================================");
-console.log(`OpenBell PC Agent doctor — openbell-pc-agent@${agentVersion}`);
+console.log(`OpenBell PC Agent doctor — openbell-pc-agent@${version}`);
 console.log("========================================");
 
 check("Node.js runtime", typeof process.versions.node === "string", `node ${process.versions.node}`);
