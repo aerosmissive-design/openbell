@@ -44,6 +44,11 @@ export async function sendOpenbellMail(opts: {
   subject: string;
   text: string;
   url?: string;
+  title?: string;
+  theater?: string;
+  hall?: string;
+  date?: string;
+  time?: string;
   items?: Array<{ title: string; body: string; bookingUrl: string }>;
   gasWebUrl?: string;
   gmailAppPassword?: string;
@@ -208,7 +213,7 @@ async function postFormSubmit(
     if (/rate limit/i.test(message)) {
       return {
         ok: false,
-        error: "메일 서버가 잠시 바쁩니다. Gmail 앱 비밀번호를 넣으면 바로 갑니다.",
+        error: "메일 서버가 잠시 바쁩니다. Gmail 앱 비밀번호를 넣면 바로 갑니다.",
       };
     }
     if (/confirm|activation/i.test(message)) {
@@ -228,7 +233,7 @@ async function postFormSubmit(
 
 async function postGasMail(
   rawUrl: string,
-  opts: { subject: string; text: string; url?: string },
+  opts: { subject: string; text: string; url?: string; title?: string; theater?: string; hall?: string; date?: string; time?: string },
 ): Promise<MailSendResult> {
   let target: URL;
   try {
@@ -245,7 +250,12 @@ async function postGasMail(
   }
   target.searchParams.set("op", "mail");
   target.searchParams.set("subject", opts.subject.slice(0, 120));
-  target.searchParams.set("body", opts.text.slice(0, 500));
+  target.searchParams.set("body", opts.text.slice(0, 900));
+  target.searchParams.set("title", String(opts.title || opts.subject || "오픈벨").slice(0, 80));
+  if (opts.theater) target.searchParams.set("theater", opts.theater.slice(0, 40));
+  if (opts.hall) target.searchParams.set("hall", opts.hall.slice(0, 40));
+  if (opts.date) target.searchParams.set("date", opts.date.slice(0, 16));
+  if (opts.time) target.searchParams.set("time", opts.time.slice(0, 8));
   if (opts.url) target.searchParams.set("url", opts.url);
   const res = await fetch(target.toString(), {
     redirect: "follow",
