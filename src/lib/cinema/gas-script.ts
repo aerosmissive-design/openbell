@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260921-syntax";
+export const GAS_SOURCE_STAMP = "20260921-syntax2";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -203,7 +203,7 @@ function bindUrlToApp_() {
     email: email,
   });
   var bases = [];
-  if (CONFIG.appUrl) bases.push(String(CONFIG.appUrl).replace(/\\/$/, ""));
+  if (CONFIG.appUrl) bases.push((function(u){u=String(u);while(u.length&&u.charAt(u.length-1)==="/")u=u.slice(0,-1);return u;})(CONFIG.appUrl));
   bases.push("https://openbell-fawn.vercel.app");
   var seen = {};
   bases.forEach(function (base) {
@@ -371,7 +371,7 @@ function ensureWebApp_() {
   if (!url) {
     try { url = ScriptApp.getService().getUrl() || ""; } catch (err4) {}
   }
-  url = String(url || "").replace(/\\/dev$/, "/exec");
+  url = String(url || ""); if (url.slice(-4) === "/dev") url = url.slice(0, -4) + "/exec";
   if (!url && !WEBAPP_ERR_) WEBAPP_ERR_ = "웹앱 URL을 받지 못했습니다. 배포 → 새 배포에서 웹 앱을 만드세요.";
   return url;
 }
