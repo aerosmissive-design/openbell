@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260921-syntax2";
+export const GAS_SOURCE_STAMP = "20260921-syntax3";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -951,7 +951,7 @@ function gasBoardHtml_() {
       + "</td></tr>";
   }
   if (!rowsHtml) {
-    rowsHtml = "<tr><td colspan=7>데이터 없음 - 설치 후 트리거 실행 또는 op=shows&fresh=1</td></tr>";
+    rowsHtml = "<tr><td colspan=7>no data - run install or op=shows</td></tr>";
   }
   var repHtml = "";
   for (i = 0; i < reps.length; i++) {
@@ -962,14 +962,14 @@ function gasBoardHtml_() {
       + "</td><td>" + x.count + "</td><td>" + escapeHtml_(age) + "</td></tr>";
   }
   if (!repHtml) {
-    repHtml = "<tr><td colspan=4>리포트 없음 (G_PC/423/225 미수신)</td></tr>";
+    repHtml = "<tr><td colspan=4>no reporter data</td></tr>";
   }
   var srcHtml = "";
   var keys = Object.keys(bySrc);
   for (i = 0; i < keys.length; i++) {
     srcHtml += "<li><b>" + escapeHtml_(keys[i]) + "</b>: " + bySrc[keys[i]] + "</li>";
   }
-  if (!srcHtml) srcHtml = "<li>캐시 비어 있음</li>";
+  if (!srcHtml) srcHtml = "<li>empty cache</li>";
   var ageGas = "-";
   if (status.gasAgeMs != null) ageGas = Math.round(status.gasAgeMs / 1000) + "s";
   var aliveCls = status.gasAlive ? "ok" : "bad";
@@ -979,31 +979,26 @@ function gasBoardHtml_() {
   try { theaters = (CONFIG.theaters || []).join(", "); } catch (e4) { theaters = ""; }
   var html = "";
   html += "<!DOCTYPE html><html><head><meta charset=utf-8>";
-  html += "<meta name=viewport content=\"width=device-width,initial-scale=1\">";
-  html += "<title>OpenBell GAS Board</title>";
-  html += "<style>";
+  html += "<meta name=viewport content=" + "'" + "width=device-width,initial-scale=1" + "'" + ">";
+  html += "<title>OpenBell GAS Board</title><style>";
   html += "body{font-family:system-ui,sans-serif;background:#0b0f14;color:#e8eef6;margin:0;padding:16px}";
   html += "h1{font-size:1.2rem;margin:0 0 8px}h2{font-size:1rem;margin:20px 0 8px;color:#9ecbff}";
   html += ".meta{opacity:.85;font-size:.85rem;line-height:1.5}";
   html += "table{border-collapse:collapse;width:100%;font-size:.8rem}";
   html += "th,td{border:1px solid #243044;padding:6px 8px;text-align:left}";
   html += "th{background:#152033}tr:nth-child(even){background:#101820}";
-  html += ".ok{color:#5dffa8}.bad{color:#ff7b7b}";
-  html += "</style></head><body>";
+  html += ".ok{color:#5dffa8}.bad{color:#ff7b7b}</style></head><body>";
   html += "<h1>OpenBell GAS Board</h1>";
   html += "<div class=meta>stamp: <b>" + escapeHtml_(stamp) + "</b><br>";
   html += "last scan: <span class=" + aliveCls + ">" + escapeHtml_(ageGas) + aliveTxt + "</span><br>";
   html += "showcache: " + shows.length + " · " + escapeHtml_(showAge) + "<br>";
   html += "theaters: " + escapeHtml_(theaters) + "<br>auto refresh 60s</div>";
   html += "<h2>Sources</h2><ul>" + srcHtml + "</ul>";
-  html += "<h2>Reporters (G_PC / G_DS423 / G_DS225)</h2>";
-  html += "<table><thead><tr><th>src</th><th>theater</th><th>n</th><th>age</th></tr></thead><tbody>";
+  html += "<h2>Reporters</h2><table><thead><tr><th>src</th><th>theater</th><th>n</th><th>age</th></tr></thead><tbody>";
   html += repHtml + "</tbody></table>";
-  html += "<h2>Showtimes (max 400)</h2>";
-  html += "<table><thead><tr><th>theater</th><th>title</th><th>when</th><th>hall</th><th>rest</th><th>fmt</th><th>src</th></tr></thead><tbody>";
+  html += "<h2>Showtimes</h2><table><thead><tr><th>theater</th><th>title</th><th>when</th><th>hall</th><th>rest</th><th>fmt</th><th>src</th></tr></thead><tbody>";
   html += rowsHtml + "</tbody></table>";
-  html += "<script>setTimeout(function(){location.reload()},60000);</script>";
-  html += "</body></html>";
+  html += "<script>setTimeout(function(){location.reload()},60000);</script></body></html>";
   return HtmlService.createHtmlOutput(html)
     .setTitle("OpenBell GAS Board")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
