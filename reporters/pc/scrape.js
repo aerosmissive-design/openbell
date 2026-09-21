@@ -46,6 +46,26 @@ function loadEnvFile(file) {
   } catch {}
 }
 
+
+async function postJsonPreserve(url, headers, body) {
+  const payload = JSON.stringify(body);
+  const make = (target, redirect) =>
+    fetch(target, { method: "POST", headers, body: payload, redirect, signal: AbortSignal.timeout(20000) });
+  let res = await make(url, "manual");
+  let hops = 0;
+  let current = url;
+  while (res.status >= 300 && res.status < 400 && hops < 5) {
+    const loc = res.headers.get("location");
+    if (!loc) break;
+    current = new URL(loc, current).href;
+    hops++;
+    res = await make(current, hops >= 4 ? "follow" : "manual");
+  }
+  if (res.status >= 300 && res.status < 400) res = await make(url, "follow");
+  const text = await res.text();
+  return { status: res.status, text };
+}
+
 function parseGasUrls(raw) {
   const seen = new Set();
   const out = [];
@@ -176,15 +196,18 @@ async function reportTheater(theaterId, showtimes, mode) {
       console.log(`[${theaterId}] Vercel 전송 실패:`, e.message || e);
     }
   } else {
-    console.log("NAS_REPORT_TOKEN 없음 — Vercel 전송 건너뜀");
+    console.log("NAS_REPORT_TOKEN 없음 — Vercel 전송 건너뛄");
   }
 
   for (const gasUrl of GAS_WEB_URLS) {
     try {
-      const r = await postOne(gasUrl, { "content-type": "application/json" }, payload);
-      console.log(
-        `[${theaterId}] GAS ${mode} ${showtimes.length}건 -> ${r.status} ${r.text.slice(0, 120)} (${gasUrl.slice(-24)})`
-      );
+      const r = await postJsonPreserve(gasUrl, { "content-type": "application/json" }, payload);
+      const body = (r.text || "").trim();
+      if (!body.startsWith("{")) {
+        console.log(`[${theaterId}] GAS HTML 응답 — /exec 설치(새 배포) 확인 (${gasUrl.slice(-24)})`);
+      } else {
+        console.log(`[${theaterId}] GAS ${mode} ${showtimes.length}건 -> ${r.status} ${body.slice(0, 120)} (${gasUrl.slice(-24)})`);
+      }
     } catch (e) {
       console.log(`[${theaterId}] GAS 전송 실패 (${gasUrl.slice(-24)}):`, e.message || e);
     }
@@ -212,7 +235,7 @@ if (!THEATERS.length) {
 console.log(
   `오픈벨 집 리포터 시작 → ${OPENBELL_URL}` +
     (GAS_WEB_URLS.length ? ` + GAS×${GAS_WEB_URLS.length}` : "") +
-    `\n출처: ${REPORT_SOURCE} / 극장: ${THEATERS.join(", ")} / 전체 ${INTERVAL_MS}ms / IMAX ${IMAX_INTERVAL_MS}ms`
+    `\n출처: ${REPORT_SOURCE} / 귵장: ${THEATERS.join(", ")} / 전체 ${INTERVAL_MS}ms / IMAX ${IMAX_INTERVAL_MS}ms`
 );
 if (GAS_WEB_URLS.length) {
   GAS_WEB_URLS.forEach((u, i) => console.log(`  GAS[${i + 1}] ${u}`));

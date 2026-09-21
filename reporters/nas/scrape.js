@@ -39,6 +39,26 @@ function loadEnvFile(file) {
   } catch {}
 }
 
+
+async function postJsonPreserve(url, headers, body) {
+  const payload = JSON.stringify(body);
+  const make = (target, redirect) =>
+    fetch(target, { method: "POST", headers, body: payload, redirect, signal: AbortSignal.timeout(20000) });
+  let res = await make(url, "manual");
+  let hops = 0;
+  let current = url;
+  while (res.status >= 300 && res.status < 400 && hops < 5) {
+    const loc = res.headers.get("location");
+    if (!loc) break;
+    current = new URL(loc, current).href;
+    hops++;
+    res = await make(current, hops >= 4 ? "follow" : "manual");
+  }
+  if (res.status >= 300 && res.status < 400) res = await make(url, "follow");
+  const text = await res.text();
+  return { status: res.status, text };
+}
+
 function parseGasUrls(raw) {
   const seen = new Set();
   const out = [];
@@ -159,15 +179,13 @@ async function send(id, rows, mode) {
 
   for (const gasUrl of GAS_WEB_URLS) {
     try {
-      const r = await fetch(gasUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(20000),
-      });
-      console.log(
-        `[${id}] GAS ${mode} ${rows.length}건 -> ${r.status} ${(await r.text()).slice(0, 120)} (${gasUrl.slice(-24)})`
-      );
+      const r = await postJsonPreserve(gasUrl, { "content-type": "application/json" }, payload);
+      const body = (r.text || "").trim();
+      if (!body.startsWith("{")) {
+        console.log(`[${id}] GAS HTML 응답 — /exec 설치(새 배포) 확인 (${gasUrl.slice(-24)})`);
+      } else {
+        console.log(`[${id}] GAS ${mode} ${rows.length}건 -> ${r.status} ${body.slice(0, 120)} (${gasUrl.slice(-24)})`);
+      }
     } catch (e) {
       console.log(`[${id}] GAS 실패 (${gasUrl.slice(-24)})`, e.message || e);
     }
