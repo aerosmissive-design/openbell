@@ -390,10 +390,16 @@ function 설치() {
   } catch (e) {
     report.error = String(e);
   }
-  const names = (report.names || []).join(", ") || "없음";
-  var body = report.error
-    ? "설치는 됐지만 시간표 조회가 실패했습니다. " + report.error
-    : "지금부터 ${minutes}분마다 감시합니다.\\n알림 영화: " + names + "\\n이미 열린 상영 " + report.found + "건은 넘어갑니다.\\n용산 CGV " + (report.cgvFound || 0) + "건 확인" + (report.cgvFound ? "" : (report.cgvErr ? " (" + report.cgvErr + ")" : "")) + ".\\n앞으로 새 날짜·새 시간이 열리면 메일·텔레그램으로 알려드립니다.";
+  var names = (report.names || []).join(", ") || "없음";
+  var body = "";
+  if (report.error) {
+    body = "설치는 됐지만 시간표 조회가 실패했습니다. " + report.error;
+  } else {
+    body = "지금부터 " + (CONFIG.intervalMin || 5) + "분마다 감시합니다.\\n알림 영화: " + names
+      + "\\n이미 열린 상영 " + report.found + "건은 넘어갑니다.\\n용산 CGV " + (report.cgvFound || 0) + "건 확인"
+      + (report.cgvFound ? "" : (report.cgvErr ? " (" + report.cgvErr + ")" : ""))
+      + ".\\n앞으로 새 날짜·새 시간이 열리면 메일·텔레그램으로 알려드립니다.";
+  }
   if (web) body += "\\n웹앱: " + web;
   else if (WEBAPP_ERR_) body += "\\n웹앱 배포 실패: " + WEBAPP_ERR_ + " script.google.com/home/usersettings 에서 Apps Script API를 켠 뒤 설치를 다시 실행하세요.";
   notify_("[오픈벨] 설치 완료", body, [{
