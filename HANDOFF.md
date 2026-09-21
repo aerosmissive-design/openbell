@@ -179,7 +179,7 @@ GAS POST는 302에서도 POST를 유지. 로그 `[GAS 저장] {ok:true}` 가 정
 
 ## 10. 팀장 미결
 
-얎은 URL vs 키 필수 · 감시→잡 자동 vs 수동 · Neon 장애 시 GAS만으로 Agent 상시 가동(웹 권장: 반대).
+얕은 URL vs 키 필수 · 감시→잡 자동 vs 수동 · Neon 장애 시 GAS만으로 Agent 상시 가동(웹 권장: 반대).
 
 ---
 
@@ -188,6 +188,7 @@ GAS POST는 302에서도 POST를 유지. 로그 `[GAS 저장] {ok:true}` 가 정
 | 날짜 | 버전 | 내용 |
 |------|------|------|
 | 2026-09-21 | 3.9.84 | 리포터 GAS dual-post · G_DS 라벨 · POST 302 유지 · 속성 청크 · 보드 G_PC/G_DS 표시 |
+| 2026-09-21 | 3.9.84 | 잘린 gas-body 조각 제거, 단일 템플릿 복구 (handleSeatReport_/G_PC/G_DS) |
 | 2026-09-21 | 3.9.80 | HANDOFF-MASTER 초판. GAS 칸·seatStatusLine·HARD STOP·SEAT-1 통합 |
 
 **END HANDOFF-MASTER**
