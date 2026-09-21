@@ -155,4 +155,17 @@ export function seatChangeAlert(change: SeatChange, all: Showtime[] = []): Alert
 export function notifyBatches(items: AlertItem[], size = 8): AlertItem[][] { const out: AlertItem[][] = []; for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size)); return out; }
 export function alertBookingUrl(item: AlertItem): string { if (item.bookingUrl?.trim()) return item.bookingUrl.trim(); if (item.theaterId === "cgv_yongsan") return `https://cgv.co.kr/cnm/movieBook/cinema?siteNm=%EC%9A%A9%EC%82%B0%EC%95%84%EC%9D%B4%ED%8C%8C%ED%81%B4%EB%AA%B0&siteNo=0013&date=${String(item.playDate || "").replace(/-/g, "")}`; if (item.theaterId === "cgv_yeongdeungpo") return `https://cgv.co.kr/cnm/movieBook/cinema?siteNm=%EC%98%81%EB%93%B1%ED%8F%AC%ED%83%80%EC%9E%84%EC%8A%A4%ED%80%98%EC%96%B4&siteNo=0059&date=${String(item.playDate || "").replace(/-/g, "")}`; if (String(item.theaterId || "").startsWith("megabox")) return "https://www.megabox.co.kr/booking"; return ""; }
 export function notifyCopy(items: AlertItem[], opts?: { total?: number }): { subject: string; text: string; telegramHtml: string } { const total = opts?.total ?? items.length; const seats = items.filter((i) => i.kind === "seat").length; const opens = items.length - seats; const allSeats = seats === items.length; const allOpens = opens === items.length; const subject = allSeats ? `[오픈벨] 잔여석 변동 ${total}건` : allOpens ? `[오픈벨] 예매 오픈 ${total}건` : `[오픈벨] 알림 ${total}건`; const rawText = `${subject}\n\n${items.map((a) => { const url = alertBookingUrl(a); const link = url ? `\n바로 예매 ${url}` : ""; return `${decodeHtml(a.title)}\n${decodeHtml(a.body)}${link}`; }).join("\n\n")}`; const text = rawText; const telegramHtml = items.map((a) => { const url = alertBookingUrl(a); const link = url ? `\n<a href=\"${url}\">바로 예매</a>` : ""; return `<b>${escapeHtml(decodeHtml(a.title))}</b>\n${escapeHtml(decodeHtml(a.body))}${link}`; }).join("\n\n"); return { subject, text, telegramHtml }; }
-function escapeHtml(value: string) { return String(value || "").replace(/&/g, "&" + "amp;").replace(/\"/g, "&" + "quot;").replace(/</g, "&" + "lt;"); }
+export function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&" + "amp;")
+    .replace(/"/g, "&" + "quot;")
+    .replace(/</g, "&" + "lt;")
+    .replace(/>/g, "&" + "gt;");
+}
+export function escapeAttr(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&" + "amp;")
+    .replace(/"/g, "&" + "quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&" + "lt;");
+}
