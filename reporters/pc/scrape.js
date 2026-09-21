@@ -8,7 +8,7 @@ loadEnvFile(path.join(process.cwd(), "config.env"));
 
 const OPENBELL_URL = (process.env.OPENBELL_URL || "https://openbell-fawn.vercel.app").replace(/\/$/, "");
 const TOKEN = process.env.NAS_REPORT_TOKEN || process.env.NAS_WORKER_TOKEN || "";
-// 여러 GAS /exec 주소: 쉼표·줄바꿈·세미콜론 구분. GAS_WEB_URL 단일값도 호환.
+// 여러 GAS /exec 주소: 쉼표·줄바꾸·세미콜론 구분. GAS_WEB_URL 단일값도 호환.
 const GAS_WEB_URLS = parseGasUrls(
   process.env.GAS_WEB_URLS || process.env.GAS_WEB_URL || process.env.OPENBELL_GAS_URL || ""
 );
@@ -235,7 +235,7 @@ if (!THEATERS.length) {
 console.log(
   `오픈벨 집 리포터 시작 → ${OPENBELL_URL}` +
     (GAS_WEB_URLS.length ? ` + GAS×${GAS_WEB_URLS.length}` : "") +
-    `\n출처: ${REPORT_SOURCE} / 귵장: ${THEATERS.join(", ")} / 전체 ${INTERVAL_MS}ms / IMAX ${IMAX_INTERVAL_MS}ms`
+    `\n출처: ${REPORT_SOURCE} / 그장: ${THEATERS.join(", ")} / 전체 ${INTERVAL_MS}ms / IMAX ${IMAX_INTERVAL_MS}ms`
 );
 if (GAS_WEB_URLS.length) {
   GAS_WEB_URLS.forEach((u, i) => console.log(`  GAS[${i + 1}] ${u}`));
