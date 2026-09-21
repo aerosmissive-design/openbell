@@ -69,7 +69,7 @@ function splitNasMaps(showtimes: Showtime[]) {
   return { pcMap, nas225Map, nas423Map };
 }
 
-/** GAS 웹앱 status의 gasLastRun → 그장별 gas-cache 칸 */
+/** GAS 웹앱 status의 gasLastRun → 극장별 gas-cache 칸 */
 async function readGasSourceTimes(
   gasWebUrl: string | undefined,
   theaterIds: TheaterId[],
