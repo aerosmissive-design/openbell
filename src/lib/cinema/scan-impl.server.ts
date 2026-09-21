@@ -53,6 +53,61 @@ function splitNasMaps(showtimes: Showtime[]) {
   return { pcMap, nas225Map, nas423Map };
 }
 
+/** GAS 웹앱 status의 gasLastRun → 극장별 gas-cache 칸 */
+async function readGasSourceTimes(
+  gasWebUrl: string | undefined,
+  theaterIds: TheaterId[],
+): Promise<Record<string, Record<string, string>>> {
+  const out: Record<string, Record<string, string>> = {};
+  const raw = String(gasWebUrl || "").trim();
+  if (!raw) return out;
+  try {
+    const base = raw.replace(/\/$/, "");
+    const statusUrl = base.includes("?") ? `${base}&op=status` : `${base}?op=status`;
+    const res = await fetch(statusUrl, {
+      method: "GET",
+      headers: { "User-Agent": "OpenBell/gas-times" },
+      signal: AbortSignal.timeout(8000),
+    });
+    const text = await res.text();
+    let gasLastRun = 0;
+    try {
+      const json = JSON.parse(text) as { gasLastRun?: number };
+      if (typeof json.gasLastRun === "number" && json.gasLastRun > 0) gasLastRun = json.gasLastRun;
+    } catch {
+      /* plain text */
+    }
+    if (!gasLastRun) {
+      const packUrl = base.includes("?") ? `${base}&op=pack` : `${base}?op=pack`;
+      const packRes = await fetch(packUrl, {
+        method: "GET",
+        headers: { "User-Agent": "OpenBell/gas-times" },
+        signal: AbortSignal.timeout(8000),
+      });
+      const packText = await packRes.text();
+      try {
+        const pack = JSON.parse(packText) as { seats?: Record<string, { at?: number }> };
+        let latest = 0;
+        for (const hit of Object.values(pack.seats || {})) {
+          const at = typeof hit?.at === "number" ? hit.at : 0;
+          if (at > latest) latest = at;
+        }
+        if (latest > 0) gasLastRun = latest;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!gasLastRun) return out;
+    const iso = new Date(gasLastRun).toISOString();
+    for (const id of theaterIds) {
+      out[id] = { "gas-cache": iso, gas: iso };
+    }
+  } catch {
+    /* GAS 타임아웃/오류 → 칸 비움 */
+  }
+  return out;
+}
+
 function latestSeatSourceTimes(
   theaterId: TheaterId,
   sources: { key: string; map: SeatHitMap; source?: string }[],
@@ -165,7 +220,9 @@ function detectSeatSource(
   if (voted) return voted;
   const has = (name: string) => {
     const pack = packs.find((p) => p.name === name);
-    return pack ? pack.rows.some((s) => s.theaterId === theaterId && typeof s.restSeats === "number") : false;
+    return pack
+      ? pack.rows.some((s) => s.theaterId === theaterId && typeof s.restSeats === "number")
+      : false;
   };
   if (has("official")) return "official";
   if (nasSource === "nas423" && has("nas423")) return "g-nas423+";
@@ -176,7 +233,6 @@ function detectSeatSource(
   return seated.length ? "official" : "none";
 }
 
-/** 같은 회차는 정밀 예매 URL이 이기도록 mergeShowtimes로 합친다. */
 function foldShows(layers: Showtime[][]): Showtime[] {
   let out: Showtime[] = [];
   for (const layer of layers) {
@@ -307,12 +363,20 @@ export async function runScan(input: {
         { key: "cgv-relay", map: relay.map },
         { key: "g-nas225+", map: nas225Map, source: "g-nas225+" },
         { key: "g-nas423+", map: nas423Map, source: "g-nas423+" },
-        { key: "gas-cache", map: {} },
       ]);
       const fromReporter = reporterTimes[theaterId] || {};
       return [theaterId, { ...fromMaps, ...fromReporter }];
     }),
   );
+
+  const gasTimes = await readGasSourceTimes(input.gasWebUrl, [...wanted]).catch(
+    () => ({} as Record<string, Record<string, string>>),
+  );
+  for (const theaterId of wanted) {
+    const g = gasTimes[theaterId];
+    if (!g) continue;
+    seatSourceTimes[theaterId] = { ...(seatSourceTimes[theaterId] || {}), ...g };
+  }
 
   return {
     scannedAt: new Date().toISOString(),
@@ -427,6 +491,14 @@ export async function pingSeatmap(input: {
     ]);
     const fromReporter = reporterTimes[theaterId] || {};
     seatSourceTimes[theaterId] = { ...fromMaps, ...fromReporter };
+  }
+  const gasTimes = await readGasSourceTimes(input.url, nasTheaters).catch(
+    () => ({} as Record<string, Record<string, string>>),
+  );
+  for (const theaterId of nasTheaters) {
+    const g = gasTimes[theaterId];
+    if (!g) continue;
+    seatSourceTimes[theaterId] = { ...(seatSourceTimes[theaterId] || {}), ...g };
   }
   return {
     status: keys.length || extraShows.length ? ("ok" as const) : ("empty" as const),
