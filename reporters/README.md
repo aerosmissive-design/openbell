@@ -12,7 +12,7 @@ CGV 공홈 잔여석(특히 IMAX)을 집 PC 또는 NAS에서 읽어 **베셀**�
 |----|------|
 | `OPENBELL_URL` | 베셀 주소 (기본 openbell-fawn.vercel.app) |
 | `NAS_REPORT_TOKEN` | 베셀 `NAS_REPORT_TOKEN` / `NAS_WORKER_TOKEN` 과 동일 |
-| `GAS_WEB_URLS` | GAS `/exec` 주소 **여러 개** (쉼표·줄바꾸·세미콜론 구분) |
+| `GAS_WEB_URLS` | GAS `/exec` 주소 **여러 개** (쉼표·줄바꿈·세미콜론 구분) |
 | `GAS_WEB_URL` | 단일 URL 하위호환 |
 | `GAS_SYNC_KEY` | 오픈벨 설정 `gasSyncKey` 와 동일 (GAS에 키가 있으면 필수) |
 | `REPORT_SOURCE` | `pc` / `nas423` / `nas225` — 출처 칸 구분 |
