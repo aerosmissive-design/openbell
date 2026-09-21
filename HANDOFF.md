@@ -7,7 +7,7 @@
 | 저장소 | https://github.com/aerosmissive-design/openbell |
 | 프로드 | https://openbell-fawn.vercel.app |
 | 전광판 | https://openbell-fawn.vercel.app/board |
-| 스냅샷 버전 | **웹 3.9.83** (VERSION / APP_VERSION) |
+| 스냅샷 버전 | **웹 3.9.84** (VERSION / APP_VERSION) |
 | 작성·갱신 | 2026-09-21 · 버전 올릴 때마다 이 파일을 같이 갱신한다 |
 
 > **규칙:** 새 버전을 `main`에 올릴 때 `VERSION` · `src/lib/app-version.ts` · **이 문서(HANDOFF.md)** 를 함께 맞춘다.  
@@ -61,7 +61,7 @@
 
 | 칸 | 실제 출처 |
 |----|-----------|
-| 공홈 | 극장 공식 |
+| 공홈 | 귵장 공식 |
 | G_PC | 집 PC 리포터 |
 | G_DS423+ / G_DS225+ | 시놀로지 NAS 리포터 (기기별) |
 | KT 우회 | KT 쇼무비 |
@@ -71,7 +71,7 @@
 | 용아맥채널 | 용산 IMAX 채널류 |
 | GAS | Apps Script (`gas-cache`) |
 
-같은 회차는 **가장 최근 도착 숫자**를 쓴다.
+같은 회차는 **가장 최근 도착 숫자**를 쓠다.
 
 ---
 
@@ -85,6 +85,7 @@
 | **3.9.80** | **GAS 칸 「없음」 수정** — `readGasSourceTimes`가 `op=status`의 `gasLastRun`을 `gas-cache`에 반영. 회차 줄은 **같은 출처** 도착시각 우선 |
 | **3.9.82** | GAS `/exec` 기본 GET이 전광판 HTML. 저장만 하고 설치 안 하면 하얀 화면 `openbell` |
 | **3.9.83** | 3.9.82 설정 JSX 빌드 실패 수정. 프로드 헤더 3.9.83 |
+| **3.9.84** | 리포터→GAS dual-post. G_PC/G_DS 칸 반영. POST 302 유지. 저장 청크 |
 
 ### 3.9.80 핵심
 
@@ -135,6 +136,10 @@
 
 G_PC / G_DS423+ / G_DS225+. 리포터 ≠ 예매 Agent. NAS_WORKER_TOKEN PC/NAS 패키지 혼동 주의.
 
+v11.26부터 베셀 `/api/seat-report` 와 붙여넣은 GAS `/exec`(여러 개, `GAS_WEB_URLS`)에 **같이** 보낸다.
+GAS POST는 302에서도 POST를 유지. 로그 `[GAS 저장] {ok:true}` 가 정상. HTML이면 설치(새 배포) 전.
+웹 3.9.84 템플릿이 있어야 GAS 전광판 G_PC/G_DS 칸이 채워진다. 설정 → 구글스크립트 설치.
+
 ---
 
 ## 7. 자주 만지는 파일
@@ -174,7 +179,7 @@ G_PC / G_DS423+ / G_DS225+. 리포터 ≠ 예매 Agent. NAS_WORKER_TOKEN PC/NAS 
 
 ## 10. 팀장 미결
 
-얕은 URL vs 키 필수 · 감시→잡 자동 vs 수동 · Neon 장애 시 GAS만으로 Agent 상시 가동(웹 권장: 반대).
+얘은 URL vs 키 필수 · 감시→잡 자동 vs 수동 · Neon 장애 시 GAS만으로 Agent 상시 가동(웹 권장: 반대).
 
 ---
 
@@ -182,6 +187,7 @@ G_PC / G_DS423+ / G_DS225+. 리포터 ≠ 예매 Agent. NAS_WORKER_TOKEN PC/NAS 
 
 | 날짜 | 버전 | 내용 |
 |------|------|------|
+| 2026-09-21 | 3.9.84 | 리포터 GAS dual-post · G_DS 라벨 · POST 302 유지 · 속성 청크 · 보드 G_PC/G_DS 표시 |
 | 2026-09-21 | 3.9.80 | HANDOFF-MASTER 초판. GAS 칸·seatStatusLine·HARD STOP·SEAT-1 통합 |
 
 **END HANDOFF-MASTER**
