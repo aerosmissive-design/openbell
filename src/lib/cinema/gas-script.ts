@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260921-reporter";
+export const GAS_SOURCE_STAMP = "20260921-board";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -484,6 +484,16 @@ function grokStatus_() {
       } catch (e) {
         return null;
       }
+    })(),
+    stamp: (typeof SCRIPT_STAMP !== "undefined" ? SCRIPT_STAMP : ""),
+    reporters: reporterSummary_(),
+    showcacheN: (function () {
+      try {
+        var sc = loadShowcache_();
+        if (Array.isArray(sc)) return sc.length;
+        if (sc && sc.rows) return sc.rows.length;
+      } catch (e) {}
+      return 0;
     })()
   };
 }
@@ -857,6 +867,124 @@ function mergeReporterIntoLive_(live) {
 }
 
 
+
+function escapeHtml_(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function reporterSummary_() {
+  var props = PropertiesService.getScriptProperties();
+  var theaters = CONFIG.theaters || ["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"];
+  var sources = ["pc", "nas423", "nas225"];
+  var out = [];
+  var now = Date.now();
+  theaters.forEach(function (tid) {
+    sources.forEach(function (src) {
+      var raw = props.getProperty(reportSourceKey_(src, tid)) || "";
+      if (!raw) return;
+      try {
+        var p = JSON.parse(raw);
+        var at = Number(p.at) || 0;
+        var n = Array.isArray(p.rows) ? p.rows.length : 0;
+        out.push({
+          theaterId: tid,
+          source: src,
+          label: seatSourceLabel_(src),
+          at: at,
+          ageMs: at ? now - at : null,
+          count: n,
+        });
+      } catch (e) {}
+    });
+  });
+  return out;
+}
+
+function gasBoardHtml_() {
+  applyLiveConfig_();
+  var props = PropertiesService.getScriptProperties();
+  var status = grokStatus_();
+  var shows = [];
+  try {
+    var sc = loadShowcache_();
+    shows = Array.isArray(sc) ? sc : (sc && sc.rows) ? sc.rows : [];
+  } catch (e0) {
+    try {
+      shows = JSON.parse(props.getProperty("showcache") || "[]");
+    } catch (e1) { shows = []; }
+  }
+  var showAt = Number(props.getProperty("showcacheAt") || 0);
+  var reps = reporterSummary_();
+  var bySrc = {};
+  shows.forEach(function (r) {
+    var s = String((r && r.seatSource) || "scrape");
+    bySrc[s] = (bySrc[s] || 0) + 1;
+  });
+  var stamp = (typeof SCRIPT_STAMP !== "undefined" ? SCRIPT_STAMP : "") || "";
+  var rowsHtml = shows.slice(0, 400).map(function (r) {
+    return "<tr>"
+      + "<td>" + escapeHtml_(r.theater || r.theaterId) + "</td>"
+      + "<td>" + escapeHtml_(r.title) + "</td>"
+      + "<td>" + escapeHtml_(r.date) + " " + escapeHtml_(r.time) + "</td>"
+      + "<td>" + escapeHtml_(r.hall) + "</td>"
+      + "<td>" + escapeHtml_(r.restSeats != null ? r.restSeats : "—") + "</td>"
+      + "<td>" + escapeHtml_((r.formats || []).join(",")) + "</td>"
+      + "<td>" + escapeHtml_(r.seatSource || "scrape") + "</td>"
+      + "</tr>";
+  }).join("");
+  var repHtml = reps.map(function (x) {
+    var age = x.ageMs != null ? Math.round(x.ageMs / 60000) + "분 전" : "—";
+    return "<tr><td>" + escapeHtml_(x.label) + "</td><td>" + escapeHtml_(x.theaterId)
+      + "</td><td>" + x.count + "</td><td>" + escapeHtml_(age) + "</td></tr>";
+  }).join("") || "<tr><td colspan=4>리포트 없음 (G_PC/423/225 미수신)</td></tr>";
+  var srcHtml = Object.keys(bySrc).map(function (k) {
+    return "<li><b>" + escapeHtml_(k) + "</b>: " + bySrc[k] + "</li>";
+  }).join("") || "<li>캐시 비어 있음</li>";
+  var ageGas = status.gasAgeMs != null ? Math.round(status.gasAgeMs / 1000) + "s" : "—";
+  var html = "<!DOCTYPE html><html><head><meta charset=utf-8>"
+    + "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+    + "<title>오픈벨 GAS 전광판</title>"
+    + "<style>"
+    + "body{font-family:system-ui,sans-serif;background:#0b0f14;color:#e8eef6;margin:0;padding:16px}"
+    + "h1{font-size:1.2rem;margin:0 0 8px}h2{font-size:1rem;margin:20px 0 8px;color:#9ecbff}"
+    + ".meta{opacity:.85;font-size:.85rem;line-height:1.5}"
+    + "table{border-collapse:collapse;width:100%;font-size:.8rem}"
+    + "th,td{border:1px solid #243044;padding:6px 8px;text-align:left}"
+    + "th{background:#152033;position:sticky;top:0}"
+    + "tr:nth-child(even){background:#101820}"
+    + ".ok{color:#5dffa8}.bad{color:#ff7b7b}a{color:#9ecbff}"
+    + "ul{margin:4px 0 0 18px}"
+    + "</style></head><body>"
+    + "<h1>오픈벨 GAS 전광판</h1>"
+    + "<div class=meta>"
+    + "stamp: <b>" + escapeHtml_(stamp) + "</b><br>"
+    + "마지막 스캔: <span class=" + (status.gasAlive ? "ok" : "bad") + ">" + escapeHtml_(ageGas)
+    + (status.gasAlive ? " (생존)" : " (오래됨/미실행)") + "</span><br>"
+    + "showcache: " + shows.length + "건 · "
+    + (showAt ? Math.round((Date.now() - showAt) / 1000) + "s 전" : "시각 없음") + "<br>"
+    + "감시 극장: " + escapeHtml_((CONFIG.theaters || []).join(", ")) + "<br>"
+    + "자동 새로고침 60초"
+    + "</div>"
+    + "<h2>출처 합계 (showcache)</h2><ul>" + srcHtml + "</ul>"
+    + "<h2>리포터 수신 (G_PC / G_DS423 / G_DS225)</h2>"
+    + "<table><thead><tr><th>출처</th><th>극장</th><th>건수</th><th>수신</th></tr></thead><tbody>"
+    + repHtml + "</tbody></table>"
+    + "<h2>상영 캐시 (최대 400)</h2>"
+    + "<table><thead><tr><th>극장</th><th>영화</th><th>일시</th><th>관</th><th>잔여</th><th>포맷</th><th>출처</th></tr></thead><tbody>"
+    + (rowsHtml || "<tr><td colspan=7>데이터 없음 — 설치 후 트리거 실행 또는 ?op=shows&fresh=1</td></tr>")
+    + "</tbody></table>"
+    + "<script>setTimeout(function(){location.reload()},60000);</script>"
+    + "</body></html>";
+  return HtmlService.createHtmlOutput(html)
+    .setTitle("오픈벨 GAS 전광판")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+
 function doGet(e) {
   applyLiveConfig_();
   var p = (e && e.parameter) || {};
@@ -879,6 +1007,9 @@ function doGet(e) {
   }
   if (op === "status") {
     return jsonpOut_(grokStatus_(), p.callback || p.cb);
+  }
+  if (op === "board" || !op) {
+    return gasBoardHtml_();
   }
   if (op === "install") {
     설치();
