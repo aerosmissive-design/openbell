@@ -2,18 +2,13 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { ScanResult, TheaterId } from "@/lib/cinema/types";
-import { seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
+import { SEAT_SOURCE_COLUMNS, seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { SourceStatus } from "./source-status";
 
-const SOURCE_COLS: { id: string; label: string; keys: string[] }[] = [
-  { id: "official", label: "공홈", keys: ["official", "megabox", "cgv"] },
-  { id: "g-pc", label: "G_PC", keys: ["g-pc", "pc", "nas-report"] },
-  { id: "g-nas", label: "G_NAS", keys: ["g-nas225+", "g-nas423+", "nas225", "nas423", "nas225+", "nas423+", "nas"] },
-  { id: "kt", label: "KT 우회", keys: ["cgv-kt", "mega-mobile", "kt"] },
-  { id: "naver", label: "네이버", keys: ["naver", "cgv-relay", "relay"] },
-];
+/** UI-LOCK: 감시극장 아래 출처 표·라벨은 지시 없이 제거 금지. 칸을 늘리는 것만 허용. */
+const SOURCE_COLS = SEAT_SOURCE_COLUMNS;
 
 function sourceTimeLabel(value?: string) {
   if (!value) return "없음";
@@ -114,7 +109,7 @@ export function SettingsTheaterPicks({
         감시 극장
       </h2>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        제목을 누르면 그 극장 특별관이 전부 켜지거나 꺼집니다. 켜 특별관만
+        제목을 누르면 그 극장 특별관이 전부 켜지거나 께집니다. 켜 특별관만
         알림이 갑니다. 상영시간·잔여석 출처는 마지막 조회 기준입니다.
       </p>
       <div className="mt-3 flex flex-col gap-2">
@@ -173,10 +168,10 @@ function ScanSourceBoard({ lastScan }: { lastScan: ScanResult | null }) {
           <div className="mt-5">
             <p className="font-medium text-fg">잔여석 현황 출처</p>
             <p className="mt-1 text-sm text-muted">
-              각 경로에서 마지막으로 성공한 조회 시각입니다. 극장별 가장 최근 칸은 빨간색입니다.
+              각 경로가 베셀에 잔여석을 넘긴 마지막 시각입니다. 회차 숫자는 이 칸 중 가장 최근 도착분을 쓰니다. 극장별 가장 최근 칸은 빨간색입니다.
             </p>
             <div className="mt-3 overflow-x-auto rounded-lg ring-1 ring-border">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="w-full min-w-[1080px] text-sm">
                 <thead>
                   <tr className="border-b border-border bg-bg">
                     <th className="px-3 py-2 text-left text-xs font-medium text-muted">극장</th>
