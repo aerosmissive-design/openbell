@@ -33,14 +33,16 @@ export function sourcePlace(source: string) {
   if (source === "g-pc" || source === "pc" || source === "nas-report") return "G_PC";
   if (source === "g-nas225+" || source === "nas225" || source === "nas225+") return "G_NAS225+";
   if (source === "g-nas423+" || source === "nas423" || source === "nas423+") return "G_NAS423+";
-  if (source === "cgv-relay") return "CGV 우회조회";
-  if (source === "cgv-kt") return "KT 우회조회";
+  if (source === "cgv-relay" || source === "relay") return "CGV 우회조회";
+  if (source === "cgv-kt" || source === "kt") return "KT 우회조회";
+  if (source === "nas" || source === "g-nas") return "G_NAS";
   if (source === "mega-mobile") return "메가 우회조회";
   if (source === "gas-cache" || source === "gas") return "GAS";
   if (source === "naver") return "네이버";
+  if (source === "yong-imax" || source === "yongsan-imax" || source === "imax-channel") return "용아맥채널";
   if (source === "last-known") return "마지막 확인";
   if (source === "none") return "없음";
-  return "";
+  return source || "";
 }
 export function timetableSourceLabel(source: string, ok: boolean) { if (!ok) return "실패"; return sourcePlace(source) || "없음"; }
 export function seatSourceLabel(source?: string) { if (!source || source === "none") return "없음"; return sourcePlace(source) || "없음"; }
@@ -51,7 +53,7 @@ export function mailEnabled(config: Pick<WatchConfig, "email" | "emailNotify" | 
 }
 
 export const SEAT_HELP = [
-  { step: "1", title: "극장 공홈", body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 서버에서 막혀 건너뜁니다." },
+  { step: "1", title: "극장 공홈", body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 서버에서 막혀 건너뛁니다." },
   { step: "2", title: "G_PC / G_NAS", body: "PC 또는 NAS가 집 인터넷으로 CGV 공홈 잔여석을 읽어 오픈벨에 올립니다. 공홈 다음 2순위입니다. IMAX는 더 자주 확인합니다." },
   { step: "3", title: "CGV 우회조회", body: "집 리포터가 없거나 끊기면 우회조회·KT 순으로 붙입니다. 구글스크립트는 없어도 됩니다." },
   { step: "4", title: "마지막 확인", body: "공홈·집 리포터·우회가 모두 실패하면, 마지막으로 성공한 숫자를 ‘N분 전 확인’으로 보여 줍니다. 이번 조회에서 받은 숫자는 ‘실시간’입니다." },
