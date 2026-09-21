@@ -1,6 +1,7 @@
 import { seatSourceLabel, timetableSourceLabel } from "@/lib/cinema/types";
 import { cn } from "@/lib/utils";
 
+/** UI-LOCK: 상영시간 출처 / 잔여석 현황 출처 라벨. 지시 없이 제거 금지. */
 export function SourceStatus({
   source,
   seatSource,

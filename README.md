@@ -1,10 +1,17 @@
-# 오픈벨 (Openbell) v3.9.77
+# 오픈벨 (Openbell) v3.9.78
 
 CGV·메가박스 특별관 예매 오픈·잔여석 알림 웹앱입니다.
 
 웹: https://openbell-fawn.vercel.app  
 전광판: https://openbell-fawn.vercel.app/board
 저장소: https://github.com/aerosmissive-design/openbell
+
+## v3.9.78에서 달라진 점
+
+- 감시 회차 카드는 출처를 항상 적습니다. 없으면 「없음」.
+- 「N.NN일 HH:MM 기준」은 버그입니다. 우회경로가 베셀에 도착한 조회시각 + 출처만 쓰니다.
+- 현재 시계를 seatCheckedAt에 찍지 않습니다.
+- 설정 출처 표에 CGV우회·GAS·용아맥채널 칸을 추가했습니다. 기존 UI는 지시 없이 빼지 않습니다.
 
 ## v3.9.77에서 달라진 점
 
