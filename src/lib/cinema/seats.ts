@@ -14,7 +14,7 @@ export function mergeShowtimes(primary: Showtime[], extra: Showtime[] = []): Sho
     const index = out.findIndex((candidate) => sameShowtime(row, candidate));
     if (index < 0) { out.push(row); continue; }
     const prev = out[index];
-    out[index] = { ...prev, ...row, restSeats: row.restSeats ?? prev.restSeats, totalSeats: row.totalSeats ?? prev.totalSeats, bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl), movieNo: row.movieNo || prev.movieNo, seatLive: row.restSeats != null ? (row.seatLive ?? true) : prev.seatLive, seatCheckedAt: row.seatCheckedAt ?? prev.seatCheckedAt };
+    out[index] = { ...prev, ...row, restSeats: row.restSeats ?? prev.restSeats, totalSeats: row.totalSeats ?? prev.totalSeats, bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl), movieNo: row.movieNo || prev.movieNo, seatLive: row.restSeats != null ? (row.seatLive ?? true) : prev.seatLive, seatCheckedAt: row.seatCheckedAt ?? prev.seatCheckedAt, seatSource: row.seatSource && row.seatSource !== "none" ? row.seatSource : prev.seatSource };
   }
   return out;
 }
@@ -34,12 +34,72 @@ function stableShowtimeId(row: Showtime): string {
 
 function betterBookingUrl(a: string, b: string): string { const score = (url: string) => { const u = String(url || '').trim(); if (!u) return 0; if (/megabox\.co\.kr\/booking\/seat\?[^#]*playSchdlNo=|PcntSeatChoi\/selectPcntSeatChoi\.do\?[^#]*playSchdlNo=/i.test(u)) return 100; if (/cgv\.co\.kr\/cnm\/movieBook\/(?:movie|cinema)\?[^#]*(?:scnSseq|scnsNo)=/i.test(u) && /movNo=/i.test(u)) return 95; if (/cgv\.co\.kr\/cnm\/movieBook\/movie\?[^#]*movNo=/i.test(u)) return 75; if (/cgv\.co\.kr\/cnm\/movieBook\/cinema\?/i.test(u)) return 20; if (/megabox\.co\.kr\/booking\?/i.test(u)) return 20; return 10; }; return score(a) >= score(b) ? String(a || '').trim() : String(b || '').trim(); }
 
-export function applyCgvSeatHits(rows: Showtime[], map: SeatHitMap, overwrite = false, asLive = true): Showtime[] { const nowIso = new Date().toISOString(); const stampKeep = (row: Showtime): Showtime => { if (typeof row.restSeats !== "number" || !Number.isFinite(row.restSeats)) return { ...row, seatLive: false }; return { ...row, seatLive: row.seatLive ?? true, seatCheckedAt: row.seatCheckedAt ?? nowIso }; }; if (!Object.keys(map).length) return rows.map(stampKeep); return rows.map((row) => { const had = typeof row.restSeats === "number" && Number.isFinite(row.restSeats); const hit = lookupSeatHit(row, map); if (!hit) return stampKeep(row); const hitAt = typeof hit.at === "number" && Number.isFinite(hit.at) ? hit.at : Date.now(); const currentAt = row.seatCheckedAt ? new Date(row.seatCheckedAt).getTime() : 0; if (had && !overwrite && currentAt >= hitAt) return row; if (had && overwrite && currentAt > 0 && hitAt < currentAt) return row; return { ...row, restSeats: hit.rest, totalSeats: hit.total ?? row.totalSeats, seatLive: asLive, seatCheckedAt: new Date(hitAt).toISOString(), seatSource: hit.source ?? row.seatSource }; }); }
-export function indexSeatHit(map: SeatHitMap, row: { theaterId: string; playDate: string; startTime: string; movieTitle?: string; hallName?: string; movieNo?: string; chain?: "cgv" | "megabox" }, rec: SeatHit) { const chain = row.chain ?? (String(row.theaterId).startsWith("cgv") ? "cgv" : "megabox"); for (const key of seatLookupKeys({ id: "", theaterId: row.theaterId as Showtime["theaterId"], theaterName: "", chain, movieTitle: row.movieTitle || "", movieNo: row.movieNo || "", playDate: row.playDate, startTime: row.startTime, endTime: null, hallName: row.hallName || "", formats: [], restSeats: rec.rest, totalSeats: rec.total, bookingUrl: "", bookable: true })) map[key] = { ...rec, at: rec.at ?? Date.now() }; }
-export function putSeatHit(map: SeatHitMap, row: Showtime) { if (typeof row.restSeats !== "number" || !Number.isFinite(row.restSeats)) return; if (row.seatLive === false) return; const at = row.seatCheckedAt ? new Date(row.seatCheckedAt).getTime() : Date.now(); indexSeatHit(map, row, { rest: row.restSeats, total: row.totalSeats, at: Number.isFinite(at) ? at : Date.now(), source: row.seatSource }); }
+export function applyCgvSeatHits(rows: Showtime[], map: SeatHitMap, overwrite = false, asLive = true): Showtime[] { const stampKeep = (row: Showtime): Showtime => { if (typeof row.restSeats !== "number" || !Number.isFinite(row.restSeats)) return { ...row, seatLive: false }; return { ...row, seatLive: row.seatLive ?? true }; }; if (!Object.keys(map).length) return rows.map(stampKeep); return rows.map((row) => { const had = typeof row.restSeats === "number" && Number.isFinite(row.restSeats); const hit = lookupSeatHit(row, map); if (!hit) return stampKeep(row); const hitAt = typeof hit.at === "number" && Number.isFinite(hit.at) ? hit.at : null; const currentAt = row.seatCheckedAt ? new Date(row.seatCheckedAt).getTime() : 0; if (hitAt != null && had && !overwrite && currentAt >= hitAt) return row; if (hitAt != null && had && overwrite && currentAt > 0 && hitAt < currentAt) return row; return { ...row, restSeats: hit.rest, totalSeats: hit.total ?? row.totalSeats, seatLive: asLive, seatCheckedAt: hitAt != null ? new Date(hitAt).toISOString() : (row.seatCheckedAt ?? null), seatSource: hit.source ?? row.seatSource }; }); }
+export function indexSeatHit(map: SeatHitMap, row: { theaterId: string; playDate: string; startTime: string; movieTitle?: string; hallName?: string; movieNo?: string; chain?: "cgv" | "megabox" }, rec: SeatHit) { const chain = row.chain ?? (String(row.theaterId).startsWith("cgv") ? "cgv" : "megabox"); for (const key of seatLookupKeys({ id: "", theaterId: row.theaterId as Showtime["theaterId"], theaterName: "", chain, movieTitle: row.movieTitle || "", movieNo: row.movieNo || "", playDate: row.playDate, startTime: row.startTime, endTime: null, hallName: row.hallName || "", formats: [], restSeats: rec.rest, totalSeats: rec.total, bookingUrl: "", bookable: true })) map[key] = { ...rec, at: rec.at }; }
+export function putSeatHit(map: SeatHitMap, row: Showtime) { if (typeof row.restSeats !== "number" || !Number.isFinite(row.restSeats)) return; if (row.seatLive === false) return; const at = row.seatCheckedAt ? new Date(row.seatCheckedAt).getTime() : undefined; indexSeatHit(map, row, { rest: row.restSeats, total: row.totalSeats, at: at != null && Number.isFinite(at) ? at : undefined, source: row.seatSource }); }
 function packHit(hit: SeatHit): SeatHit { return { rest: hit.rest, total: hit.total ?? null, at: hit.at, source: hit.source }; }
 export function lookupSeatHit(row: Showtime, map: SeatHitMap): SeatHit | null { const hits: SeatHit[] = []; for (const key of seatLookupKeys(row)) { const hit = map[key]; if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) hits.push(hit); } const siteNo = SITE_NO[row.theaterId] ?? ""; if (siteNo) { const tag = row.chain === "cgv" ? "k" : "m"; for (const clock of clockVariants(row.playDate, row.startTime)) { const prefix = `${tag}:${siteNo}|${clock.playDate}|${clock.startTime}|`; const halls = hallVariants(row.hallName); if (halls.length) { for (const hall of halls) { const hit = map[`${prefix}${hall}`]; if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) hits.push(hit); } } else { for (const fallback of [normalizeTitle(row.movieTitle), row.movieNo].filter(Boolean)) { const hit = map[`${prefix}${fallback}`]; if (hit && typeof hit.rest === "number" && Number.isFinite(hit.rest)) hits.push(hit); } } } } if (!hits.length) return null; return packHit(hits.reduce((best, hit) => (hit.at ?? 0) >= (best.at ?? 0) ? hit : best)); }
-export function seatFreshnessLabel(show: Pick<Showtime, "restSeats" | "seatLive" | "seatCheckedAt">): string | null { if (typeof show.restSeats !== "number" || !Number.isFinite(show.restSeats)) return null; if (!show.seatCheckedAt) return "확인시각 없음"; const checked = new Date(show.seatCheckedAt); if (!Number.isFinite(checked.getTime())) return "확인시각 없음"; const parts = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(checked); const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ""; return `${Number(get("month"))}.${Number(get("day"))}일 ${get("hour")}:${get("minute")} 기준`; }
+/** UI-LOCK: 잔여석 줄은 출처+우회경로 도착시각만. 현재시각 「기준」 금지. 지시 없이 이 줄을 없애지 말 것. */
+export function formatSeatCheckedAt(iso?: string | null): string | null {
+  if (!iso) return null;
+  const checked = new Date(iso);
+  if (!Number.isFinite(checked.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(checked);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${Number(get("month"))}.${Number(get("day"))}일 ${get("hour")}:${get("minute")} 조회`;
+}
+export function latestSeatArrival(times?: Record<string, string> | null): { source: string; at: string } | null {
+  if (!times) return null;
+  let source = "";
+  let at = "";
+  let best = 0;
+  for (const [key, value] of Object.entries(times)) {
+    if (!key || key === "none" || !value) continue;
+    const ms = new Date(value).getTime();
+    if (!Number.isFinite(ms)) continue;
+    if (ms >= best) { best = ms; source = key; at = value; }
+  }
+  return at ? { source, at } : null;
+}
+export function seatStatusLine(
+  show: Pick<Showtime, "seatCheckedAt" | "seatSource" | "theaterId">,
+  theaterTimes?: Record<string, string> | null,
+): string {
+  let source = show.seatSource && show.seatSource !== "none" ? show.seatSource : "";
+  let at = show.seatCheckedAt || "";
+  if ((!source || !at) && theaterTimes) {
+    const latest = latestSeatArrival(theaterTimes);
+    if (latest) {
+      if (!source) source = latest.source;
+      if (!at) at = latest.at;
+    }
+  }
+  const sourceText = lazySeatSourceLabel(source || "none");
+  const timeText = formatSeatCheckedAt(at);
+  if (sourceText === "없음" && !timeText) return "잔여석 출처 없음";
+  if (sourceText === "없음") return `${timeText} · 출처 없음`;
+  if (!timeText) return `${sourceText} · 조회시각 없음`;
+  return `${timeText} · ${sourceText}`;
+}
+function lazySeatSourceLabel(source?: string) {
+  if (!source || source === "none") return "없음";
+  if (source === "official" || source === "megabox" || source === "cgv") return "공홈";
+  if (source === "g-pc" || source === "pc" || source === "nas-report") return "G_PC";
+  if (source === "g-nas225+" || source === "nas225" || source === "nas225+") return "G_NAS225+";
+  if (source === "g-nas423+" || source === "nas423" || source === "nas423+") return "G_NAS423+";
+  if (source === "nas" || source === "g-nas") return "G_NAS";
+  if (source === "cgv-relay" || source === "relay") return "CGV 우회조회";
+  if (source === "cgv-kt" || source === "kt") return "KT 우회조회";
+  if (source === "mega-mobile") return "메가 우회조회";
+  if (source === "gas-cache" || source === "gas") return "GAS";
+  if (source === "naver") return "네이버";
+  if (source === "yong-imax" || source === "yongsan-imax" || source === "imax-channel") return "용아맥채널";
+  if (source === "last-known") return "마지막 확인";
+  return source;
+}
+export function seatFreshnessLabel(show: Pick<Showtime, "restSeats" | "seatLive" | "seatCheckedAt" | "seatSource" | "theaterId">, theaterTimes?: Record<string, string> | null): string | null {
+  return seatStatusLine(show, theaterTimes);
+}
 export function countSeatHits(rows: Showtime[], map: SeatHitMap): number { if (!Object.keys(map).length) return 0; return rows.filter((row) => lookupSeatHit(row, map)).length; }
 export function summarizeSeatDelta(before: Showtime[], after: Showtime[]) { const gains = listSeatGains(before, after); return { shows: gains.length, seats: gains.reduce((sum, row) => sum + row.added, 0), lines: gains.map((row) => `• ${formatShowPlace(row.show)}에서 ${row.added}석이 추가됐습니다`) }; }
 export function listSeatGains(before: Showtime[], after: Showtime[]) { const prev = new Map(before.map((row) => [row.id, row.restSeats])); const rows: { show: Showtime; added: number }[] = []; for (const row of after) { if (typeof row.restSeats !== "number") continue; if (row.seatLive === false) continue; const last = prev.get(row.id); let added = 0; if (typeof last !== "number") added = row.restSeats; else if (row.restSeats > last) added = row.restSeats - last; if (added <= 0) continue; rows.push({ show: row, added }); } return rows; }
