@@ -46,14 +46,30 @@ function splitNasMaps(showtimes: Showtime[]) {
   const nas423Map: SeatHitMap = {};
   for (const row of showtimes) {
     const src = String(row.seatSource || "").toLowerCase();
-    if (src === "g-nas225+" || src === "nas225" || src === "nas225+") putSeatHit(nas225Map, row);
-    else if (src === "g-nas423+" || src === "nas423" || src === "nas423+") putSeatHit(nas423Map, row);
+    if (
+      src === "g-nas225+" ||
+      src === "g-ds225+" ||
+      src === "nas225" ||
+      src === "nas225+" ||
+      src === "ds225" ||
+      src === "ds225+"
+    )
+      putSeatHit(nas225Map, row);
+    else if (
+      src === "g-nas423+" ||
+      src === "g-ds423+" ||
+      src === "nas423" ||
+      src === "nas423+" ||
+      src === "ds423" ||
+      src === "ds423+"
+    )
+      putSeatHit(nas423Map, row);
     else putSeatHit(pcMap, row);
   }
   return { pcMap, nas225Map, nas423Map };
 }
 
-/** GAS 웹앱 status의 gasLastRun → 극장별 gas-cache 칸 */
+/** GAS 웹앱 status의 gasLastRun → 귵장별 gas-cache 칸 */
 async function readGasSourceTimes(
   gasWebUrl: string | undefined,
   theaterIds: TheaterId[],
@@ -131,15 +147,19 @@ function latestSeatSourceTimes(
         const hs = String(hit.source || "").toLowerCase();
         const want = String(source.source).toLowerCase();
         const aliases = new Set([want, `g-${want}`, want.replace(/^g-/, "")]);
-        if (want === "nas423" || want === "g-nas423+") {
+        if (want === "nas423" || want === "g-nas423+" || want === "g-ds423+") {
           aliases.add("g-nas423+");
+          aliases.add("g-ds423+");
           aliases.add("nas423");
           aliases.add("nas423+");
+          aliases.add("ds423");
         }
-        if (want === "nas225" || want === "g-nas225+") {
+        if (want === "nas225" || want === "g-nas225+" || want === "g-ds225+") {
           aliases.add("g-nas225+");
+          aliases.add("g-ds225+");
           aliases.add("nas225");
           aliases.add("nas225+");
+          aliases.add("ds225");
         }
         if (want === "pc" || want === "g-pc") {
           aliases.add("g-pc");
@@ -314,11 +334,25 @@ export async function runScan(input: {
   const { nas225Map, nas423Map } = splitNasMaps(nas.showtimes);
   const nas423Rows = nas.showtimes.filter((s) => {
     const src = String(s.seatSource || "").toLowerCase();
-    return src === "g-nas423+" || src === "nas423" || src === "nas423+";
+    return (
+      src === "g-nas423+" ||
+      src === "g-ds423+" ||
+      src === "nas423" ||
+      src === "nas423+" ||
+      src === "ds423" ||
+      src === "ds423+"
+    );
   });
   const nas225Rows = nas.showtimes.filter((s) => {
     const src = String(s.seatSource || "").toLowerCase();
-    return src === "g-nas225+" || src === "nas225" || src === "nas225+";
+    return (
+      src === "g-nas225+" ||
+      src === "g-ds225+" ||
+      src === "nas225" ||
+      src === "nas225+" ||
+      src === "ds225" ||
+      src === "ds225+"
+    );
   });
 
   const theaters = wanted.map((theaterId) => {
