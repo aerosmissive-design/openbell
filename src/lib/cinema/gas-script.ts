@@ -1,1 +1,5 @@
-FILE_READ_FROM_/tmp/openbell/src/lib/cinema/gas-script.ts_99795_bytes_sha256_8477392b6af2aa5eb63ffde75b031917d29c63c1f1b2d953469baef89c091ba1_GAS_SOURCE_STAMP_20260921-gds2
+import { DEFAULT_FORMATS, THEATERS } from "./theaters";
+import type { BookingIntent, WatchConfig } from "./types";
+import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
+
+export const GAS_SOURCE_STAMP = "20260921-gds2";
