@@ -1,5 +1,17 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.16 — 2026-09-21
+
+### Contract (HANDOFF-URL-1)
+
+- Shallow CGV `BOOKING_URL` (movie/cinema, no `scnsNo`/`scnSseq`) is a **warning**, not a process kill.
+- `openMovie` / `openShowtime` click title / date / time / hall instead of throwing `INVALID_EXACT_CGV_BOOKING_URL`.
+- Dates accept `YYYYMMDD` as well as `YYYY-MM-DD`.
+- MegaBox theater/URL is refused (`MEGABOX_NOT_SUPPORTED`). Payment/checkout URLs are refused.
+- Telegram callback still never sends a payment-page URL.
+
+HARD STOP unchanged. **Windows headed E2E still unverified.**
+
 ## 2.0.15 — 2026-09-19
 
 ### Fix

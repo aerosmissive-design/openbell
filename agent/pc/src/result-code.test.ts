@@ -61,6 +61,7 @@ test("isSafeDialogLabel allows age-gate, refuses payment", () => {
 
 test("date/showtime/official host helpers", () => {
   assert.equal(isBookingDate("2026-09-20"), true);
+  assert.equal(isBookingDate("20260920"), true);
   assert.equal(isBookingDate("2026/09/20"), false);
   assert.equal(isBookingShowtime("20:10"), true);
   assert.equal(isBookingShowtime("8pm"), false);

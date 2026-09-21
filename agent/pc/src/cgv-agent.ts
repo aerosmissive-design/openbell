@@ -8,7 +8,10 @@ import {
   dateClickLabels,
   isCaptchaFrameUrl,
   isExactCgvBookingUrl,
+  isAllowedCgvBookingPageUrl,
   isForbiddenClickLabel,
+  isMegaboxTarget,
+  isPaymentBookingUrl,
   isPaymentStageSignal,
   isSafeDialogLabel,
   looksLikeCaptchaChallenge,
@@ -22,6 +25,8 @@ export type BookingTarget = {
   showtime: string;
   requestedSeatCount: number;
   bookingUrl?: string;
+  hall?: string;
+  theaterId?: string;
   seatIds?: string[];
   seatPreference?: Omit<SeatPreference, "count">;
 };
@@ -245,15 +250,32 @@ export class CgvBookingAgent {
 
   async openMovie(target: BookingTarget) {
     const page = this.getPage();
+    if (isMegaboxTarget(target.theaterId, target.bookingUrl)) {
+      throw new Error("MEGABOX_NOT_SUPPORTED: this PC agent is CGV-only");
+    }
+    if (target.bookingUrl && isPaymentBookingUrl(target.bookingUrl)) {
+      throw new Error("PAYMENT_URL_FORBIDDEN: agent will not open a payment/checkout URL");
+    }
 
-    if (target.bookingUrl) {
-      if (!isExactCgvBookingUrl(target.bookingUrl)) {
-        throw new Error("INVALID_EXACT_CGV_BOOKING_URL: need https://cgv.co.kr/cnm/movieBook/movie?...&movNo&scnYmd&scnsNo&scnSseq");
-      }
+    if (target.bookingUrl && isExactCgvBookingUrl(target.bookingUrl)) {
       await page.goto(target.bookingUrl, { waitUntil: "domcontentloaded" });
       await this.waitForProgress(page);
       await this.assertNoCaptcha(page);
       return;
+    }
+
+    if (target.bookingUrl && isAllowedCgvBookingPageUrl(target.bookingUrl)) {
+      console.warn("[booking-url] shallow CGV URL (no scnsNo/scnSseq). Opening it, then clicking title/date/time.");
+      await page.goto(target.bookingUrl, { waitUntil: "domcontentloaded" });
+      await this.waitForProgress(page);
+      await this.assertNoCaptcha(page);
+      await this.clickTextOrRole(page, target.movieTitle);
+      await this.assertNoCaptcha(page);
+      return;
+    }
+
+    if (target.bookingUrl) {
+      console.warn(`[booking-url] not a CGV movieBook page; ignoring and starting from default booking page`);
     }
 
     await page.goto(this.options.baseUrl ?? CGV_BOOKING_URL, { waitUntil: "domcontentloaded" });
@@ -267,7 +289,7 @@ export class CgvBookingAgent {
     const page = this.getPage();
     await this.assertNoCaptcha(page);
 
-    if (target.bookingUrl) {
+    if (target.bookingUrl && isExactCgvBookingUrl(target.bookingUrl)) {
       if (page.url() !== target.bookingUrl) {
         await page.goto(target.bookingUrl, { waitUntil: "domcontentloaded" });
       }
@@ -278,6 +300,13 @@ export class CgvBookingAgent {
 
     await this.selectDate(page, target.playDate);
     await this.clickTextOrRole(page, target.showtime, showtimeClickLabels(target.showtime));
+    if (target.hall) {
+      try {
+        await this.clickTextOrRole(page, target.hall);
+      } catch {
+        console.warn(`[showtime] hall label not found: ${target.hall} (continuing)`);
+      }
+    }
     await this.assertNoCaptcha(page);
   }
 

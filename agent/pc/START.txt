@@ -7,7 +7,8 @@ OpenBell PC Agent - START HERE
      BOOKING_DATE=2026-09-20
      BOOKING_SHOWTIME=20:10
      BOOKING_SEAT_COUNT=2
-   Optional BOOKING_URL must include movNo, scnYmd, scnsNo, scnSseq
+   Optional BOOKING_URL: exact (movNo+scnYmd+scnsNo+scnSseq) or shallow movie/cinema page.
+   Missing keys: agent clicks title/date/time. Payment URLs are refused.
 3. Optional: double-click 4-save-login.cmd
    Log in to CGV yourself, then press Enter in the black window
 4. Optional: double-click 3-doctor.cmd

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dateClickLabels, isExactCgvBookingUrl } from "./safety.js";
+import {
+  dateClickLabels,
+  isAllowedCgvBookingPageUrl,
+  isExactCgvBookingUrl,
+  isMegaboxTarget,
+  isPaymentBookingUrl,
+  normalizeBookingDate,
+} from "./safety.js";
 
 test("accepts exact CGV booking URL with required query params", () => {
   const url =
@@ -38,4 +45,16 @@ test("dateClickLabels accepts YYYYMMDD from OpenBell alerts", () => {
   const labels = dateClickLabels("20260920");
   assert.ok(labels.includes("20260920"));
   assert.ok(labels.includes("9월 20일"));
+});
+
+test("shallow movie/cinema URLs are allowed; payment URLs are not", () => {
+  assert.equal(isAllowedCgvBookingPageUrl("https://cgv.co.kr/cnm/movieBook/movie?movNo=1"), true);
+  assert.equal(isAllowedCgvBookingPageUrl("https://www.cgv.co.kr/cnm/movieBook/cinema?siteNo=0013"), true);
+  assert.equal(isAllowedCgvBookingPageUrl("https://cgv.co.kr/cnm/movieBook/payment"), false);
+  assert.equal(isPaymentBookingUrl("https://cgv.co.kr/cnm/movieBook/checkout"), true);
+  assert.equal(isMegaboxTarget("메가박스 코엑스", undefined), true);
+  assert.equal(isMegaboxTarget("CGV용산아이파크몰", "https://cgv.co.kr/cnm/movieBook/movie?movNo=1"), false);
+  assert.equal(normalizeBookingDate("20260920"), "2026-09-20");
+  assert.equal(normalizeBookingDate("2026-09-20"), "2026-09-20");
+  assert.equal(normalizeBookingDate("2026/09/20"), undefined);
 });
