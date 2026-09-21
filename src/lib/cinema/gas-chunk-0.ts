@@ -58,38 +58,6 @@ function ensureTrigger_() {
   props.setProperty("trigMin", String(want));
 }
 
-function markGasRun_() {
-  try {
-    PropertiesService.getScriptProperties().setProperty("lastGasRun", String(Date.now()));
-  } catch (e) {}
-}
-
-function checkOpenSeats() {
-  applyLiveConfig_();
-  markGasRun_();
-  ensureTrigger_();
-  try { wakeVercelTick_(); } catch (e0) {}
-  const report = scan_(false);
-  if (report.alerts && report.alerts.length) {
-    const body = report.alerts.map(function (a) {
-      return "· " + a.title + "\n  " + a.theater + " / " + a.hall + "\n  " + a.date + " " + a.time + "\n  바로예매 " + a.url;
-    }).join("\n\n");
-    notify_("오픈벨 알림", body, report.alerts);
-  }
-  return report;
-}
-
-function wakeVercelTick_() {
-  try {
-    var base = String(CONFIG.appUrl || "https://openbell-fawn.vercel.app").replace(/\/$/, "");
-    if (!/^https:\/\//.test(base)) base = "https://openbell-fawn.vercel.app";
-    UrlFetchApp.fetch(base + "/api/watch-tick?src=gas", {
-      method: "get",
-      muteHttpExceptions: true,
-      followRedirects: true,
-    });
-  } catch (e) {
-    Logger.log("wakeVercel " + String(e));
-  }
-}
-`;
+function jsonOut_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSO`;
