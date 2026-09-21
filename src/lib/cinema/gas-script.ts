@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260921-wake";
+export const GAS_SOURCE_STAMP = "20260921-reporter";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -547,6 +547,8 @@ function scan_(primeOnly) {
       });
     });
   });
+  // G_PC / G_DS423 / G_DS225 리포트 병합 (베셀 readNasSeatmap 와 동일 역할)
+  live = mergeReporterIntoLive_(live);
   live.forEach(function (row) {
     if (!row || !row.id) return;
     byId[row.id] = row;
@@ -647,6 +649,213 @@ function testNotify() {
   }]);
 }
 function 테스트메일() { testNotify(); }
+
+
+function normalizeReportSource_(source) {
+  var s = String(source || "").trim().toLowerCase();
+  if (s === "nas423" || s === "g-nas423+" || s === "g_nas423+" || s === "g_ds423" || s === "g-ds423") return "nas423";
+  if (s === "nas225" || s === "g-nas225+" || s === "g_nas225+" || s === "g_ds225" || s === "g-ds225") return "nas225";
+  if (s === "nas") return "nas423";
+  return "pc";
+}
+
+function reportSourceKey_(source, theaterId) {
+  var src = source === "nas" ? "nas423" : source;
+  return "nas_seats:" + src + ":" + theaterId;
+}
+
+function reportLegacyKey_(theaterId) {
+  return "nas_seats:" + theaterId;
+}
+
+function seatSourceLabel_(source) {
+  if (source === "nas423") return "g-nas423+";
+  if (source === "nas225") return "g-nas225+";
+  return "g-pc";
+}
+
+function handleSeatReport_(body) {
+  applyLiveConfig_();
+  var expected = String(CONFIG.syncKey || PropertiesService.getScriptProperties().getProperty("syncKey") || "").trim();
+  var key = String(body.key || body.token || "").trim();
+  if (expected) {
+    if (!key || key !== expected) return jsonOut_({ ok: false, error: "key" });
+  }
+  var theaterId = String(body.theaterId || "").trim();
+  var allowed = { cgv_yongsan: 1, cgv_yeongdeungpo: 1, megabox_coex: 1, megabox_namyangju: 1 };
+  if (!allowed[theaterId]) return jsonOut_({ ok: false, error: "unknown theater" });
+  var incoming = Array.isArray(body.showtimes) ? body.showtimes : [];
+  var cleaned = [];
+  var seenK = {};
+  for (var i = 0; i < incoming.length; i++) {
+    var r = incoming[i] || {};
+    var restSeats = Number(r.restSeats);
+    if (!isFinite(restSeats)) continue;
+    var playDate = String(r.playDate || "").trim();
+    var startTime = String(r.startTime || "").trim();
+    var hallName = String(r.hallName || "").trim();
+    var movieTitle = String(r.movieTitle || "").trim();
+    if (!playDate || !startTime || !hallName || !movieTitle) continue;
+    var rk = playDate + "|" + startTime + "|" + hallName + "|" + movieTitle;
+    if (seenK[rk]) continue;
+    seenK[rk] = 1;
+    cleaned.push({
+      playDate: playDate,
+      startTime: startTime,
+      hallName: hallName,
+      movieTitle: movieTitle,
+      movieNo: r.movieNo ? String(r.movieNo) : "",
+      bookingUrl: r.bookingUrl ? String(r.bookingUrl).trim() : "",
+      scnsNo: r.scnsNo ? String(r.scnsNo).trim() : "",
+      scnSseq: r.scnSseq ? String(r.scnSseq).trim() : "",
+      restSeats: restSeats,
+      totalSeats: isFinite(Number(r.totalSeats)) ? Number(r.totalSeats) : undefined,
+    });
+    if (cleaned.length >= 5000) break;
+  }
+  if (!cleaned.length) return jsonOut_({ ok: false, error: "empty payload" });
+  var source = normalizeReportSource_(body.source);
+  var sk = reportSourceKey_(source, theaterId);
+  var merge = body.mode === "imax" || body.mode === "merge";
+  var rows = cleaned;
+  if (merge) {
+    var prevRaw = PropertiesService.getScriptProperties().getProperty(sk) || "";
+    var byKey = {};
+    if (prevRaw) {
+      try {
+        var prev = JSON.parse(prevRaw);
+        var pr = Array.isArray(prev.rows) ? prev.rows : [];
+        for (var j = 0; j < pr.length; j++) {
+          var prr = pr[j];
+          var pk = String(prr.playDate || "") + "|" + String(prr.startTime || "") + "|" + String(prr.hallName || "") + "|" + String(prr.movieTitle || "");
+          byKey[pk] = prr;
+        }
+      } catch (e0) {}
+    }
+    for (var k = 0; k < cleaned.length; k++) {
+      var cr = cleaned[k];
+      var ck = cr.playDate + "|" + cr.startTime + "|" + cr.hallName + "|" + cr.movieTitle;
+      byKey[ck] = cr;
+    }
+    rows = [];
+    for (var bk in byKey) if (byKey.hasOwnProperty(bk)) rows.push(byKey[bk]);
+    if (rows.length > 5000) rows = rows.slice(0, 5000);
+  }
+  var payload = JSON.stringify({ at: Date.now(), rows: rows, mode: merge ? "merge" : "full", source: source });
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(sk, payload);
+  props.setProperty(reportLegacyKey_(theaterId), payload);
+  Logger.log("seat-report " + source + " " + theaterId + " " + rows.length);
+  return jsonOut_({ ok: true, count: cleaned.length, stored: rows.length, merge: merge, source: source, key: sk });
+}
+
+/** G_PC / G_DS423 / G_DS225 리포트를 live 행으로 합침 (베셀 nas.server 와 동일 키) */
+function loadReporterLive_() {
+  var out = [];
+  var props = PropertiesService.getScriptProperties();
+  var theaters = CONFIG.theaters || [];
+  var sources = ["pc", "nas423", "nas225"];
+  theaters.forEach(function (theaterId) {
+    var any = false;
+    sources.forEach(function (src) {
+      var raw = props.getProperty(reportSourceKey_(src, theaterId)) || "";
+      if (!raw) return;
+      var parsed = null;
+      try { parsed = JSON.parse(raw); } catch (e) { return; }
+      if (!parsed || !Array.isArray(parsed.rows) || !parsed.at) return;
+      any = true;
+      var label = seatSourceLabel_(src);
+      var chain = String(theaterId).indexOf("cgv_") === 0 ? "cgv" : "megabox";
+      var theaterName = theaterId;
+      try {
+        if (theaterId === "cgv_yongsan") theaterName = "CGV 용산아이파크몰";
+        else if (theaterId === "cgv_yeongdeungpo") theaterName = "CGV 영등포타임스퀘어";
+        else if (theaterId === "megabox_coex") theaterName = "메가박스 코엑스";
+        else if (theaterId === "megabox_namyangju") theaterName = "메가박스 남양주";
+      } catch (e2) {}
+      parsed.rows.forEach(function (r) {
+        var movieTitle = String(r.movieTitle || "").trim();
+        var playDate = String(r.playDate || "").replace(/-/g, "").trim();
+        if (playDate.length === 10) playDate = playDate.replace(/-/g, "");
+        var startTime = String(r.startTime || "").trim();
+        var hallName = String(r.hallName || "").trim() || "일반";
+        var restSeats = Number(r.restSeats);
+        if (!movieTitle || !playDate || !startTime || !isFinite(restSeats)) return;
+        var formats = [];
+        try {
+          if (chain === "cgv") formats = cgvFormats_(hallName) || [];
+          else formats = megaFormats_(null, hallName) || [];
+        } catch (e3) {
+          formats = ["other"];
+        }
+        if (!formats.length) formats = ["other"];
+        var id = chain + ":" + theaterId + ":" + playDate + ":" + startTime + ":" + hallName + ":" + movieTitle;
+        var bookUrl = String(r.bookingUrl || "").trim();
+        if (!bookUrl) {
+          try {
+            if (chain === "cgv") bookUrl = cgvBookUrl_(theaterId, playDate, { movieNo: r.movieNo || "", scnsNo: r.scnsNo || "", scnSseq: r.scnSseq || "" }, null) || "";
+            else bookUrl = megaboxUrl_(theaterId === "megabox_coex" ? "1351" : "0019", playDate, r.movieNo || "") || "https://www.megabox.co.kr/booking";
+          } catch (e5) { bookUrl = ""; }
+        }
+        out.push({
+          id: id,
+          theaterId: theaterId,
+          theater: theaterName,
+          title: movieTitle,
+          date: playDate,
+          time: startTime,
+          hall: hallName,
+          formats: formats,
+          restSeats: restSeats,
+          totalSeats: isFinite(Number(r.totalSeats)) ? Number(r.totalSeats) : null,
+          url: bookUrl,
+          seatSource: label,
+          seatLive: true,
+        });
+      });
+    });
+    if (!any) {
+      var leg = props.getProperty(reportLegacyKey_(theaterId)) || "";
+      if (!leg) return;
+      try {
+        var p2 = JSON.parse(leg);
+        if (!p2 || !Array.isArray(p2.rows)) return;
+        var src2 = normalizeReportSource_(p2.source);
+        // re-ingest via same loop by writing back to source key once
+        props.setProperty(reportSourceKey_(src2, theaterId), leg);
+      } catch (e4) {}
+    }
+  });
+  return out;
+}
+
+function mergeReporterIntoLive_(live) {
+  var rep = loadReporterLive_();
+  if (!rep.length) return live;
+  var byId = {};
+  live.forEach(function (row) {
+    if (row && row.id) byId[row.id] = row;
+  });
+  rep.forEach(function (row) {
+    if (!row || !row.id) return;
+    var prev = byId[row.id];
+    if (!prev) {
+      byId[row.id] = row;
+      live.push(row);
+      return;
+    }
+    // 리포터 잔여석을 우선 (베셀과 동일: NAS/PC 가 최신 좌석)
+    if (typeof row.restSeats === "number") {
+      prev.restSeats = row.restSeats;
+      if (row.totalSeats != null) prev.totalSeats = row.totalSeats;
+      prev.seatSource = row.seatSource || prev.seatSource;
+      prev.seatLive = true;
+      if (row.url) prev.url = row.url;
+    }
+  });
+  return live;
+}
+
 
 function doGet(e) {
   applyLiveConfig_();
@@ -759,6 +968,12 @@ function doPost(e) {
   var p = (e && e.parameter) || {};
   if (p.op === "sync") return handleSync_(e);
   if (p.op === "upgrade") return handleUpgrade_(e);
+  try {
+    var body = JSON.parse((e.postData && e.postData.contents) || "{}");
+    if (body && body.theaterId && Array.isArray(body.showtimes)) {
+      return handleSeatReport_(body);
+    }
+  } catch (err) {}
   return doGet(e);
 }
 
