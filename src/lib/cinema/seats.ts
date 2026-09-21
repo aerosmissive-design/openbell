@@ -113,15 +113,24 @@ function sourceTimeAliases(source: string): Set<string> {
   if (s === "official" || s === "megabox" || s === "cgv") {
     out.add("official"); out.add("megabox"); out.add("cgv");
   }
+  if (s === "g-pc" || s === "pc" || s === "nas-report") {
+    out.add("g-pc"); out.add("pc"); out.add("nas-report");
+  }
+  if (s === "g-nas423+" || s === "g-ds423+" || s === "nas423" || s === "nas423+" || s === "ds423" || s === "ds423+" || s === "g-nas" || s === "nas") {
+    out.add("g-nas423+"); out.add("g-ds423+"); out.add("nas423"); out.add("nas423+"); out.add("ds423"); out.add("g-nas");
+  }
+  if (s === "g-nas225+" || s === "g-ds225+" || s === "nas225" || s === "nas225+" || s === "ds225" || s === "ds225+") {
+    out.add("g-nas225+"); out.add("g-ds225+"); out.add("nas225"); out.add("nas225+"); out.add("ds225");
+  }
   return out;
 }
 function lazySeatSourceLabel(source?: string) {
   if (!source || source === "none") return "없음";
   if (source === "official" || source === "megabox" || source === "cgv") return "공홈";
   if (source === "g-pc" || source === "pc" || source === "nas-report") return "G_PC";
-  if (source === "g-nas225+" || source === "nas225" || source === "nas225+") return "G_NAS225+";
-  if (source === "g-nas423+" || source === "nas423" || source === "nas423+") return "G_NAS423+";
-  if (source === "nas" || source === "g-nas") return "G_NAS";
+  if (source === "g-nas225+" || source === "g-ds225+" || source === "nas225" || source === "nas225+" || source === "ds225" || source === "ds225+") return "G_DS225+";
+  if (source === "g-nas423+" || source === "g-ds423+" || source === "nas423" || source === "nas423+" || source === "ds423" || source === "ds423+") return "G_DS423+";
+  if (source === "nas" || source === "g-nas") return "G_DS423+";
   if (source === "cgv-relay" || source === "relay") return "CGV 우회조회";
   if (source === "cgv-kt" || source === "kt") return "KT 우회조회";
   if (source === "mega-mobile") return "메가 우회조회";
