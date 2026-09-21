@@ -7,7 +7,7 @@
 | 저장소 | https://github.com/aerosmissive-design/openbell |
 | 프로드 | https://openbell-fawn.vercel.app |
 | 전광판 | https://openbell-fawn.vercel.app/board |
-| 스냅샷 버전 | **웹 3.9.80** (VERSION / APP_VERSION) |
+| 스냅샷 버전 | **웹 3.9.82** (VERSION / APP_VERSION) |
 | 작성·갱신 | 2026-09-21 · 버전 올릴 때마다 이 파일을 같이 갱신한다 |
 
 > **규칙:** 새 버전을 `main`에 올릴 때 `VERSION` · `src/lib/app-version.ts` · **이 문서(HANDOFF.md)** 를 함께 맞춘다.  
@@ -75,7 +75,7 @@
 
 ---
 
-## 2. 버전 스냅샷 (3.9.75 → 3.9.80)
+## 2. 버전 스냅샷 (3.9.75 → 3.9.82)
 
 | 버전 | 요지 |
 |------|------|
@@ -83,6 +83,7 @@
 | **3.9.76–78** | 출처 표·회차 카드 출처+도착시각; seatCheckedAt에 시계 now 금지 |
 | **3.9.79** | 출처 표 10칸 분리 (G_DS423+/G_DS225+/MKA/메가모바일/GAS/용아맥 등) |
 | **3.9.80** | **GAS 칸 「없음」 수정** — `readGasSourceTimes`가 `op=status`의 `gasLastRun`을 `gas-cache`에 반영. 회차 줄은 **같은 출처** 도착시각 우선 |
+| **3.9.82** | GAS `/exec` 기본 GET이 전광판 HTML. 저장만 하고 설치 안 하면 하얀 화면 `openbell` |
 
 ### 3.9.80 핵심
 
@@ -99,6 +100,7 @@
 - GUI 영화 변경 → liveConfig → 다음 스캔부터 적용.
 - `checkOpenSeats` + `ensureTrigger_()` (주기 하나).
 - 3.9.80: 베셀이 `gasLastRun`을 표 GAS 칸에 표시.
+- 3.9.82: `/exec` 또는 `?op=board` → GAS 전광판. 저장 후 **설치** 실행 필요.
 - GAS ≠ booking API. 숫자 보여도 세션 생존 신호 아님.
 
 ---

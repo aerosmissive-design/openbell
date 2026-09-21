@@ -79,7 +79,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           href="/board"
           className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong"
         >
-          전광판 열기
+          베셀 전광판 열기
           <ExternalLink className="size-3.5" aria-hidden />
         </a>
         <a
@@ -125,7 +125,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               {showGasHelp ? (
                 <ol className="mt-1 list-decimal pl-5 text-sm leading-relaxed text-muted">
                   <li>스크립트 복사를 누르세요.</li>
-                  <li>script.google.com에서 붙여넣고 저장한 뒤 설치를 실행하세요.</li>
+                  <li>script.google.com에서 전부 지우고 붙여넣은 뒤 저장하세요.</li>
+                  <li>위쪽 함수에서 설치를 실행하세요. 저장만 하면 웹앱은 예전 코드라 화면에 openbell 만 나옵니다.</li>
                   <li>배포된 /exec 주소를 아래에 붙이세요.</li>
                 </ol>
               ) : null}
@@ -190,6 +191,9 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                   GAS 전광판 열기
                   <ExternalLink className="size-3.5" aria-hidden />
                 </a>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
+                  스크립트를 붙여넣은 뒤 설치를 실행해야 이 링크가 새 전광판을 엽니다. 저장만 하면 하얀 화면에 openbell 만 나옵니다.
+                </p>
               ) : (
                 <p className="mt-2 text-xs leading-relaxed text-faint">
                   웹앱 주소를 연결하면 여기에 GAS 전광판 링크가 나타납니다. (?op=board)
@@ -202,7 +206,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                   void navigator.clipboard.writeText(currentGasScript()).then(
                     () => {
                       setConfig({ gasSourceStamp: GAS_SOURCE_STAMP });
-                      toast.success("스크립트를 복사했습니다.");
+                      toast.success("복사했습니다. 붙여넣고 저장한 뒤 설치를 실행하세요.");
                     },
                     () => toast.error("복사하지 못했습니다."),
                   );

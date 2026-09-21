@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260921-syntax3";
+export const GAS_SOURCE_STAMP = "20260921-board1";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -73,7 +73,7 @@ export function buildGasScript(config: WatchConfig, queue: BookingIntent[] = [])
  * X: ${xAccessToken ? "켜짐" : "끔"}
  *
  * 처음: 전부 지우고 붙여넣기 → 저장 → 위쪽 함수 설치 실행
- * 그다음: 오픈벨 설정만 바꾸면 이 스크립트에 반영됩니다.
+ * 저장만 하면 웹앱은 예전 코드라 화면에 openbell 만 나옵니다.
  */
 const SCRIPT_STAMP = ${JSON.stringify(GAS_SOURCE_STAMP)};
 const CONFIG = {
@@ -980,7 +980,7 @@ function gasBoardHtml_() {
   var html = "";
   html += "<!DOCTYPE html><html><head><meta charset=utf-8>";
   html += "<meta name=viewport content=" + "'" + "width=device-width,initial-scale=1" + "'" + ">";
-  html += "<title>OpenBell GAS Board</title><style>";
+  html += "<title>오픈벨 전광판</title><style>";
   html += "body{font-family:system-ui,sans-serif;background:#0b0f14;color:#e8eef6;margin:0;padding:16px}";
   html += "h1{font-size:1.2rem;margin:0 0 8px}h2{font-size:1rem;margin:20px 0 8px;color:#9ecbff}";
   html += ".meta{opacity:.85;font-size:.85rem;line-height:1.5}";
@@ -988,7 +988,7 @@ function gasBoardHtml_() {
   html += "th,td{border:1px solid #243044;padding:6px 8px;text-align:left}";
   html += "th{background:#152033}tr:nth-child(even){background:#101820}";
   html += ".ok{color:#5dffa8}.bad{color:#ff7b7b}</style></head><body>";
-  html += "<h1>OpenBell GAS Board</h1>";
+  html += "<h1>오픈벨 전광판</h1>";
   html += "<div class=meta>stamp: <b>" + escapeHtml_(stamp) + "</b><br>";
   html += "last scan: <span class=" + aliveCls + ">" + escapeHtml_(ageGas) + aliveTxt + "</span><br>";
   html += "showcache: " + shows.length + " · " + escapeHtml_(showAge) + "<br>";
@@ -1000,14 +1000,20 @@ function gasBoardHtml_() {
   html += rowsHtml + "</tbody></table>";
   html += "<script>setTimeout(function(){location.reload()},60000);</script></body></html>";
   return HtmlService.createHtmlOutput(html)
-    .setTitle("OpenBell GAS Board")
+    .setTitle("오픈벨 전광판")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function doGet(e) {
   applyLiveConfig_();
   var p = (e && e.parameter) || {};
-  var op = p.op;
+  var op = String(p.op || "");
+  try {
+    if (!op && e && e.parameters && e.parameters.op && e.parameters.op[0]) {
+      op = String(e.parameters.op[0]);
+    }
+  } catch (opErr) {}
+  op = String(op || "").trim();
   if (op === "ping") {
     if (p.callback || p.cb) return jsonpOut_(grokStatus_(), p.callback || p.cb);
     return ContentService.createTextOutput("ok");
@@ -1027,8 +1033,19 @@ function doGet(e) {
   if (op === "status") {
     return jsonpOut_(grokStatus_(), p.callback || p.cb);
   }
-  if (op === "board") {
-    return gasBoardHtml_();
+  if (op === "board" || !op) {
+    try {
+      return gasBoardHtml_();
+    } catch (boardErr) {
+      var boardMsg = String(boardErr && boardErr.message ? boardErr.message : boardErr);
+      return HtmlService.createHtmlOutput(
+        "<!DOCTYPE html><html><head><meta charset=utf-8><title>오픈벨 전광판</title></head><body style='font-family:sans-serif;background:#0b0f14;color:#e8eef6;padding:16px'><h1>오픈벨 전광판</h1><p>표시에 실패했습니다. 스크립트를 저장한 뒤 설치를 다시 실행하세요.</p><pre>" +
+          escapeHtml_(boardMsg) +
+          "</pre></body></html>"
+      )
+        .setTitle("오픈벨 전광판")
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    }
   }
   if (op === "install") {
     설치();
