@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260921-board2";
+export const GAS_SOURCE_STAMP = "20260921-syntax";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -54,7 +54,7 @@ export function buildGasScript(config: WatchConfig, queue: BookingIntent[] = [])
   const teleLabel = telegramChatId ? "켜짐" : "끔";
   const kakaoLabel = kakaoRefreshToken ? "켜짐" : "끔";
   const liveOrigin =
-    typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
+    typeof window !== "undefined" ? window.location.origin : "";
   const appUrl =
     liveOrigin.startsWith("https://") && !/localhost|127\.0\.0\.1/.test(liveOrigin)
       ? liveOrigin
@@ -415,8 +415,9 @@ function 설치() {
 
 function wakeVercelTick_() {
   try {
-    var base = String(CONFIG.appUrl || "https://openbell-fawn.vercel.app").replace(/\/$/, "");
-    if (!/^https:\/\//.test(base)) base = "https://openbell-fawn.vercel.app";
+    var base = String(CONFIG.appUrl || "https://openbell-fawn.vercel.app");
+    while (base.length && base.charAt(base.length - 1) === "/") base = base.slice(0, -1);
+    if (base.indexOf("https://") !== 0) base = "https://openbell-fawn.vercel.app";
     UrlFetchApp.fetch(base + "/api/watch-tick?src=gas", {
       method: "get",
       muteHttpExceptions: true,
