@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260921-board";
+export const GAS_SOURCE_STAMP = "20260921-board2";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -911,79 +911,96 @@ function gasBoardHtml_() {
   var shows = [];
   try {
     var sc = loadShowcache_();
-    shows = Array.isArray(sc) ? sc : (sc && sc.rows) ? sc.rows : [];
+    if (Object.prototype.toString.call(sc) === "[object Array]") shows = sc;
+    else if (sc && sc.rows) shows = sc.rows;
   } catch (e0) {
-    try {
-      shows = JSON.parse(props.getProperty("showcache") || "[]");
-    } catch (e1) { shows = []; }
+    try { shows = JSON.parse(props.getProperty("showcache") || "[]"); } catch (e1) { shows = []; }
   }
+  if (!shows) shows = [];
   var showAt = Number(props.getProperty("showcacheAt") || 0);
   var reps = reporterSummary_();
   var bySrc = {};
-  shows.forEach(function (r) {
-    var s = String((r && r.seatSource) || "scrape");
-    bySrc[s] = (bySrc[s] || 0) + 1;
-  });
-  var stamp = (typeof SCRIPT_STAMP !== "undefined" ? SCRIPT_STAMP : "") || "";
-  var rowsHtml = shows.slice(0, 400).map(function (r) {
-    return "<tr>"
-      + "<td>" + escapeHtml_(r.theater || r.theaterId) + "</td>"
-      + "<td>" + escapeHtml_(r.title) + "</td>"
-      + "<td>" + escapeHtml_(r.date) + " " + escapeHtml_(r.time) + "</td>"
-      + "<td>" + escapeHtml_(r.hall) + "</td>"
-      + "<td>" + escapeHtml_(r.restSeats != null ? r.restSeats : "—") + "</td>"
-      + "<td>" + escapeHtml_((r.formats || []).join(",")) + "</td>"
-      + "<td>" + escapeHtml_(r.seatSource || "scrape") + "</td>"
-      + "</tr>";
-  }).join("");
-  var repHtml = reps.map(function (x) {
-    var age = x.ageMs != null ? Math.round(x.ageMs / 60000) + "분 전" : "—";
-    return "<tr><td>" + escapeHtml_(x.label) + "</td><td>" + escapeHtml_(x.theaterId)
+  var i;
+  for (i = 0; i < shows.length; i++) {
+    var r0 = shows[i] || {};
+    var s0 = String(r0.seatSource || "scrape");
+    bySrc[s0] = (bySrc[s0] || 0) + 1;
+  }
+  var stamp = "";
+  try { stamp = String(SCRIPT_STAMP || ""); } catch (e2) { stamp = ""; }
+  var rowsHtml = "";
+  var limit = shows.length < 400 ? shows.length : 400;
+  for (i = 0; i < limit; i++) {
+    var r = shows[i] || {};
+    var fmt = "";
+    try { fmt = (r.formats || []).join(","); } catch (e3) { fmt = ""; }
+    rowsHtml += "<tr><td>" + escapeHtml_(r.theater || r.theaterId)
+      + "</td><td>" + escapeHtml_(r.title)
+      + "</td><td>" + escapeHtml_(r.date) + " " + escapeHtml_(r.time)
+      + "</td><td>" + escapeHtml_(r.hall)
+      + "</td><td>" + escapeHtml_(r.restSeats != null ? r.restSeats : "-")
+      + "</td><td>" + escapeHtml_(fmt)
+      + "</td><td>" + escapeHtml_(r.seatSource || "scrape")
+      + "</td></tr>";
+  }
+  if (!rowsHtml) {
+    rowsHtml = "<tr><td colspan=7>데이터 없음 - 설치 후 트리거 실행 또는 op=shows&fresh=1</td></tr>";
+  }
+  var repHtml = "";
+  for (i = 0; i < reps.length; i++) {
+    var x = reps[i];
+    var age = "-";
+    if (x.ageMs != null) age = Math.round(x.ageMs / 60000) + "min";
+    repHtml += "<tr><td>" + escapeHtml_(x.label) + "</td><td>" + escapeHtml_(x.theaterId)
       + "</td><td>" + x.count + "</td><td>" + escapeHtml_(age) + "</td></tr>";
-  }).join("") || "<tr><td colspan=4>리포트 없음 (G_PC/423/225 미수신)</td></tr>";
-  var srcHtml = Object.keys(bySrc).map(function (k) {
-    return "<li><b>" + escapeHtml_(k) + "</b>: " + bySrc[k] + "</li>";
-  }).join("") || "<li>캐시 비어 있음</li>";
-  var ageGas = status.gasAgeMs != null ? Math.round(status.gasAgeMs / 1000) + "s" : "—";
-  var html = "<!DOCTYPE html><html><head><meta charset=utf-8>"
-    + "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-    + "<title>오픈벨 GAS 전광판</title>"
-    + "<style>"
-    + "body{font-family:system-ui,sans-serif;background:#0b0f14;color:#e8eef6;margin:0;padding:16px}"
-    + "h1{font-size:1.2rem;margin:0 0 8px}h2{font-size:1rem;margin:20px 0 8px;color:#9ecbff}"
-    + ".meta{opacity:.85;font-size:.85rem;line-height:1.5}"
-    + "table{border-collapse:collapse;width:100%;font-size:.8rem}"
-    + "th,td{border:1px solid #243044;padding:6px 8px;text-align:left}"
-    + "th{background:#152033;position:sticky;top:0}"
-    + "tr:nth-child(even){background:#101820}"
-    + ".ok{color:#5dffa8}.bad{color:#ff7b7b}a{color:#9ecbff}"
-    + "ul{margin:4px 0 0 18px}"
-    + "</style></head><body>"
-    + "<h1>오픈벨 GAS 전광판</h1>"
-    + "<div class=meta>"
-    + "stamp: <b>" + escapeHtml_(stamp) + "</b><br>"
-    + "마지막 스캔: <span class=" + (status.gasAlive ? "ok" : "bad") + ">" + escapeHtml_(ageGas)
-    + (status.gasAlive ? " (생존)" : " (오래됨/미실행)") + "</span><br>"
-    + "showcache: " + shows.length + "건 · "
-    + (showAt ? Math.round((Date.now() - showAt) / 1000) + "s 전" : "시각 없음") + "<br>"
-    + "감시 극장: " + escapeHtml_((CONFIG.theaters || []).join(", ")) + "<br>"
-    + "자동 새로고침 60초"
-    + "</div>"
-    + "<h2>출처 합계 (showcache)</h2><ul>" + srcHtml + "</ul>"
-    + "<h2>리포터 수신 (G_PC / G_DS423 / G_DS225)</h2>"
-    + "<table><thead><tr><th>출처</th><th>극장</th><th>건수</th><th>수신</th></tr></thead><tbody>"
-    + repHtml + "</tbody></table>"
-    + "<h2>상영 캐시 (최대 400)</h2>"
-    + "<table><thead><tr><th>극장</th><th>영화</th><th>일시</th><th>관</th><th>잔여</th><th>포맷</th><th>출처</th></tr></thead><tbody>"
-    + (rowsHtml || "<tr><td colspan=7>데이터 없음 — 설치 후 트리거 실행 또는 ?op=shows&fresh=1</td></tr>")
-    + "</tbody></table>"
-    + "<script>setTimeout(function(){location.reload()},60000);</script>"
-    + "</body></html>";
+  }
+  if (!repHtml) {
+    repHtml = "<tr><td colspan=4>리포트 없음 (G_PC/423/225 미수신)</td></tr>";
+  }
+  var srcHtml = "";
+  var keys = Object.keys(bySrc);
+  for (i = 0; i < keys.length; i++) {
+    srcHtml += "<li><b>" + escapeHtml_(keys[i]) + "</b>: " + bySrc[keys[i]] + "</li>";
+  }
+  if (!srcHtml) srcHtml = "<li>캐시 비어 있음</li>";
+  var ageGas = "-";
+  if (status.gasAgeMs != null) ageGas = Math.round(status.gasAgeMs / 1000) + "s";
+  var aliveCls = status.gasAlive ? "ok" : "bad";
+  var aliveTxt = status.gasAlive ? " (alive)" : " (stale)";
+  var showAge = showAt ? (Math.round((Date.now() - showAt) / 1000) + "s ago") : "n/a";
+  var theaters = "";
+  try { theaters = (CONFIG.theaters || []).join(", "); } catch (e4) { theaters = ""; }
+  var html = "";
+  html += "<!DOCTYPE html><html><head><meta charset=utf-8>";
+  html += "<meta name=viewport content=\"width=device-width,initial-scale=1\">";
+  html += "<title>OpenBell GAS Board</title>";
+  html += "<style>";
+  html += "body{font-family:system-ui,sans-serif;background:#0b0f14;color:#e8eef6;margin:0;padding:16px}";
+  html += "h1{font-size:1.2rem;margin:0 0 8px}h2{font-size:1rem;margin:20px 0 8px;color:#9ecbff}";
+  html += ".meta{opacity:.85;font-size:.85rem;line-height:1.5}";
+  html += "table{border-collapse:collapse;width:100%;font-size:.8rem}";
+  html += "th,td{border:1px solid #243044;padding:6px 8px;text-align:left}";
+  html += "th{background:#152033}tr:nth-child(even){background:#101820}";
+  html += ".ok{color:#5dffa8}.bad{color:#ff7b7b}";
+  html += "</style></head><body>";
+  html += "<h1>OpenBell GAS Board</h1>";
+  html += "<div class=meta>stamp: <b>" + escapeHtml_(stamp) + "</b><br>";
+  html += "last scan: <span class=" + aliveCls + ">" + escapeHtml_(ageGas) + aliveTxt + "</span><br>";
+  html += "showcache: " + shows.length + " · " + escapeHtml_(showAge) + "<br>";
+  html += "theaters: " + escapeHtml_(theaters) + "<br>auto refresh 60s</div>";
+  html += "<h2>Sources</h2><ul>" + srcHtml + "</ul>";
+  html += "<h2>Reporters (G_PC / G_DS423 / G_DS225)</h2>";
+  html += "<table><thead><tr><th>src</th><th>theater</th><th>n</th><th>age</th></tr></thead><tbody>";
+  html += repHtml + "</tbody></table>";
+  html += "<h2>Showtimes (max 400)</h2>";
+  html += "<table><thead><tr><th>theater</th><th>title</th><th>when</th><th>hall</th><th>rest</th><th>fmt</th><th>src</th></tr></thead><tbody>";
+  html += rowsHtml + "</tbody></table>";
+  html += "<script>setTimeout(function(){location.reload()},60000);</script>";
+  html += "</body></html>";
   return HtmlService.createHtmlOutput(html)
-    .setTitle("오픈벨 GAS 전광판")
+    .setTitle("OpenBell GAS Board")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
-
 
 function doGet(e) {
   applyLiveConfig_();
@@ -1008,7 +1025,7 @@ function doGet(e) {
   if (op === "status") {
     return jsonpOut_(grokStatus_(), p.callback || p.cb);
   }
-  if (op === "board" || !op) {
+  if (op === "board") {
     return gasBoardHtml_();
   }
   if (op === "install") {
