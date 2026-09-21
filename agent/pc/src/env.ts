@@ -66,3 +66,13 @@ export function resolveExistingStorageState(
   return existsFn(resolved) ? resolved : undefined;
 }
 
+/** Read package.json version via PC_ROOT; fallback when missing/unreadable. */
+export function agentVersion(fallback = "2.0.17"): string {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(PC_ROOT, "package.json"), "utf8")) as { version?: string };
+    if (pkg.version?.trim()) return pkg.version.trim();
+  } catch {
+    // keep fallback
+  }
+  return fallback;
+}

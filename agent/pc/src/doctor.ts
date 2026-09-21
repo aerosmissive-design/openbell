@@ -10,7 +10,7 @@ import {
   isExactCgvBookingUrl,
   isOfficialOpenBellUrl,
 } from "./safety.js";
-import { PC_ROOT, isFalseyFlag, loadEnvFile } from "./env.js";
+import { PC_ROOT, agentVersion, isFalseyFlag, loadEnvFile } from "./env.js";
 
 function present(value: string | undefined) {
   return Boolean(value?.trim());
@@ -28,8 +28,10 @@ function check(label: string, pass: boolean, hint?: string) {
   lines.push(`[${mark}] ${label}${hint ? ` — ${hint}` : ""}`);
 }
 
+const version = agentVersion();
+
 console.log("========================================");
-console.log("OpenBell PC Agent doctor");
+console.log(`OpenBell PC Agent doctor — openbell-pc-agent@${version}`);
 console.log("========================================");
 
 check("Node.js runtime", typeof process.versions.node === "string", `node ${process.versions.node}`);
@@ -119,7 +121,7 @@ if (isFalseyFlag(hardStop)) {
   lines.push("[OK] PAYMENT_HARD_STOP locked (payment is never clicked)");
 }
 
-lines.push("[INFO] PAYMENT_READY_TTL_MS is display-only; server TTL is 10 minutes until this PR is merged");
+lines.push("[INFO] PAYMENT_READY_TTL_MS is display-only; server TTL is 10 minutes");
 
 for (const line of lines) console.log(line);
 

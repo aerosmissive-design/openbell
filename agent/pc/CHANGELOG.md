@@ -1,5 +1,24 @@
 # Changelog — OpenBell PC Agent
 
+## 2.0.16 — 2026-09-20
+
+### Docs / operator
+
+- `START.txt` / `START-ko.txt`: agent is on main (v2.0.15+); Windows headed dry-run result **B** remains required before trusting CGV DOM in real bookings (no longer “do not merge”).
+- README package tree lists real files (`cli.ts`, `doctor.ts`, `save-login.ts`, cmd 3/4/5, `START-ko.txt`, …).
+- Doctor banner: `openbell-pc-agent@2.0.16`.
+
+### Safety / API callback
+
+- Export `safeBrowserAccessUrl(url)` — returns the URL only if it is an exact CGV movie-book URL; otherwise `""`. Wired into `notifyPaymentReady` so Telegram never gets a payment-page URL.
+- Unit tests for `looksLikeLoginPage`, `looksLoggedInCgv`, `isSafeDialogLabel`, `isBookingDate` / `isBookingShowtime` / `isOfficialOpenBellUrl`, and `safeBrowserAccessUrl`.
+
+### Ranker
+
+- Preferred-row comparison is case-insensitive (`e` vs `E`).
+
+Safety unchanged (no payment click, no CAPTCHA bypass). **Windows headed dry-run B still the confidence gate.**
+
 ## 2.0.15 — 2026-09-19
 
 ### Fix

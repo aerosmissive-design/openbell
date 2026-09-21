@@ -18,4 +18,6 @@ OpenBell PC Agent - 시작 안내
    에이전트는 결제를 클릭하지 않습니다. CAPTCHA를 우회하지 않습니다.
 
 한글 파일명의 .bat 은 쓰지 마세요 (Windows에서 깨집니다).
-Windows headed dry-run 결과 B 확인 전에는 머지하지 마세요.
+
+에이전트는 main(v2.0.15+)에 있습니다. 실제 예매에서 CGV DOM을 신뢰하기
+전에 Windows headed dry-run 결과 B 가 여전히 필요합니다.
