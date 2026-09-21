@@ -28,20 +28,35 @@ export const DEFAULT_SCAN_SOURCES: ScanSources = { official: true, naver: true, 
 export function normalizeScanSources(raw?: Partial<ScanSources> | null): ScanSources { const next: ScanSources = { official: raw?.official ?? true, naver: raw?.naver ?? true, gas: raw?.gas ?? true }; if (!next.official && !next.naver && !next.gas) return { ...DEFAULT_SCAN_SOURCES }; return next; }
 
 export function sourceLabel(source: string) { return sourcePlace(source) || "연결됨"; }
+/** UI-LOCK: 설정 표 칸. 지시 없이 빼지 말 것. 칸을 늘리는 것만 허용. */
+export const SEAT_SOURCE_COLUMNS: { id: string; label: string; keys: string[] }[] = [
+  { id: "official", label: "공홈", keys: ["official", "megabox", "cgv"] },
+  { id: "g-pc", label: "G_PC", keys: ["g-pc", "pc", "nas-report"] },
+  { id: "g-ds423", label: "G_DS423+", keys: ["g-ds423+", "g-nas423+", "nas423", "nas423+", "ds423", "ds423+", "g_ds423+", "g-nas"] },
+  { id: "g-ds225", label: "G_DS225+", keys: ["g-ds225+", "g-nas225+", "nas225", "nas225+", "ds225", "ds225+", "g_ds225+"] },
+  { id: "kt", label: "KT 우회", keys: ["cgv-kt", "kt"] },
+  { id: "mega-mobile", label: "메가 모바일우회", keys: ["mega-mobile"] },
+  { id: "mka", label: "MKA 우회", keys: ["cgv-relay", "relay", "mka", "mcp-aka"] },
+  { id: "naver", label: "네이버", keys: ["naver"] },
+  { id: "yong-imax", label: "용아맥채널", keys: ["yong-imax", "yongsan-imax", "imax-channel"] },
+  { id: "gas", label: "GAS", keys: ["gas-cache", "gas"] },
+];
+
 export function sourcePlace(source: string) {
-  if (source === "official" || source === "megabox" || source === "cgv") return "공홈";
-  if (source === "g-pc" || source === "pc" || source === "nas-report") return "G_PC";
-  if (source === "g-nas225+" || source === "nas225" || source === "nas225+") return "G_NAS225+";
-  if (source === "g-nas423+" || source === "nas423" || source === "nas423+") return "G_NAS423+";
-  if (source === "cgv-relay" || source === "relay") return "CGV 우회조회";
-  if (source === "cgv-kt" || source === "kt") return "KT 우회조회";
-  if (source === "nas" || source === "g-nas") return "G_NAS";
-  if (source === "mega-mobile") return "메가 우회조회";
-  if (source === "gas-cache" || source === "gas") return "GAS";
-  if (source === "naver") return "네이버";
-  if (source === "yong-imax" || source === "yongsan-imax" || source === "imax-channel") return "용아맥채널";
-  if (source === "last-known") return "마지막 확인";
-  if (source === "none") return "없음";
+  const s = String(source || "").toLowerCase();
+  if (s === "official" || s === "megabox" || s === "cgv") return "공홈";
+  if (s === "g-pc" || s === "pc" || s === "nas-report") return "G_PC";
+  if (s === "g-ds225+" || s === "g-nas225+" || s === "nas225" || s === "nas225+" || s === "ds225" || s === "ds225+" || s === "g_ds225+") return "G_DS225+";
+  if (s === "g-ds423+" || s === "g-nas423+" || s === "nas423" || s === "nas423+" || s === "ds423" || s === "ds423+" || s === "g_ds423+") return "G_DS423+";
+  if (s === "cgv-relay" || s === "relay" || s === "mka" || s === "mcp-aka") return "MKA 우회";
+  if (s === "cgv-kt" || s === "kt") return "KT 우회";
+  if (s === "nas" || s === "g-nas") return "G_DS423+";
+  if (s === "mega-mobile") return "메가 모바일우회";
+  if (s === "gas-cache" || s === "gas") return "GAS";
+  if (s === "naver") return "네이버";
+  if (s === "yong-imax" || s === "yongsan-imax" || s === "imax-channel") return "용아맥채널";
+  if (s === "last-known") return "마지막 확인";
+  if (s === "none") return "없음";
   return source || "";
 }
 export function timetableSourceLabel(source: string, ok: boolean) { if (!ok) return "실패"; return sourcePlace(source) || "없음"; }
@@ -53,14 +68,14 @@ export function mailEnabled(config: Pick<WatchConfig, "email" | "emailNotify" | 
 }
 
 export const SEAT_HELP = [
-  { step: "1", title: "극장 공홈", body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 서버에서 막혀 건너뛁니다." },
-  { step: "2", title: "G_PC / G_NAS", body: "PC 또는 NAS가 집 인터넷으로 CGV 공홈 잔여석을 읽어 오픈벨에 올립니다. 공홈 다음 2순위입니다. IMAX는 더 자주 확인합니다." },
-  { step: "3", title: "CGV 우회조회", body: "집 리포터가 없거나 끊기면 우회조회·KT 순으로 붙입니다. 구글스크립트는 없어도 됩니다." },
+  { step: "1", title: "극장 공홈", body: "메가박스는 공식 좌석 숫자를 붙입니다. CGV 공홈 좌석은 이 서버에서 막혀 건너뛅니다." },
+  { step: "2", title: "G_PC / G_DS423+ / G_DS225+", body: "PC와 시놀로지 DS423+·DS225+가 집 인터넷으로 공홈 잔여석을 읽어 베셀에 올립니다. 기기별로 칸이 갈립니다." },
+  { step: "3", title: "우회·GAS", body: "집 리포터가 없으면 KT 우회, 메가 모바일우회, MKA(mcp.aka.page), 용아맥채널, GAS 순으로 베셀에 잔여석을 붙입니다." },
   { step: "4", title: "마지막 확인", body: "공홈·집 리포터·우회가 모두 실패하면, 마지막으로 성공한 숫자를 ‘N분 전 확인’으로 보여 줍니다. 이번 조회에서 받은 숫자는 ‘실시간’입니다." },
 ];
 
 export const CHART_HELP = [
   { step: "1", title: "메가박스 차트", body: "무비차트 9칸과 현재상영작 9칸은 메가박스 공식 영화 목록(예매율·개봉일)에서 받습니다." },
   { step: "2", title: "시간표로 채움", body: "차트 호출이 실패하면 극장 시간표에 잡힌 제목으로 칸을 채웁니다." },
-  { step: "3", title: "직접 추가", body: "돋보기는 메가박스 공홈(현재+예정)을 먼저 보고, CGV는 공홈 → 네이버 → 우회 순입니다. 네 극장 시간표 제목도 합칩니다. 제목만 추가해 두면 나중에 예매가 열려도 다시 고를 필요 없습니다." },
+  { step: "3", title: "직접 추가", body: "돋보기는 메가박스 공홈(현재+예정)을 먼저 보고, CGV는 공홈 → 네이버 → 우회 순입니다. 네 극장 시간표 제목도 합칩니다. 제목만 추가해 두면 나중에 예매가 열려도 다시 골를 필요 없습니다." },
 ];
