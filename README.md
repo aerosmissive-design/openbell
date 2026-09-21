@@ -1,10 +1,18 @@
-# 오픈벨 (Openbell) v3.9.79
+# 오픈벨 (Openbell) v3.9.80
 
 CGV·메가박스 특별관 예매 오픈·잔여석 알림 웹앱입니다.
 
 웹: https://openbell-fawn.vercel.app  
-전광판: https://openbell-fawn.vercel.app/board
+전광판: https://openbell-fawn.vercel.app/board  
 저장소: https://github.com/aerosmissive-design/openbell
+
+**모든 AI·개발자 인수인계:** [HANDOFF.md](./HANDOFF.md) (버전 올릴 때마다 함께 갱신)
+
+## v3.9.80에서 달라진 점
+
+- 설정 출처 표 **GAS 칸**이 항상 「없음」이던 버그 수정. GAS `op=status`의 `gasLastRun`을 `gas-cache`로 반영.
+- 회차 카드 조회 시각은 **같은 출처** 도착 시각을 우선한다. 현재 시계 「기준」 금지 유지.
+- 통합 인수인계서 `HANDOFF.md` 추가.
 
 ## v3.9.79에서 달라진 점
 
