@@ -179,21 +179,23 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                 script.google.com 열기
               </a>
               {config.gasWebUrl.trim() ? (
-                <a
-                  href={(() => {
-                    const base = config.gasWebUrl.trim().replace(/\/$/, "");
-                    return base.includes("?") ? `${base}&op=board` : `${base}?op=board`;
-                  })()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong"
-                >
-                  GAS 전광판 열기
-                  <ExternalLink className="size-3.5" aria-hidden />
-                </a>
-                <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
-                  스크립트를 붙여넣은 뒤 설치를 실행해야 이 링크가 새 전광판을 엽니다. 저장만 하면 하얀 화면에 openbell 만 나옵니다.
-                </p>
+                <>
+                  <a
+                    href={(() => {
+                      const base = config.gasWebUrl.trim().replace(/\/$/, "");
+                      return base.includes("?") ? `${base}&op=board` : `${base}?op=board`;
+                    })()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong"
+                  >
+                    GAS 전광판 열기
+                    <ExternalLink className="size-3.5" aria-hidden />
+                  </a>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
+                    스크립트를 붙여넣은 뒤 설치를 실행해야 이 링크가 새 전광판을 엽니다. 저장만 하면 하얀 화면에 openbell 만 나옵니다.
+                  </p>
+                </>
               ) : (
                 <p className="mt-2 text-xs leading-relaxed text-faint">
                   웹앱 주소를 연결하면 여기에 GAS 전광판 링크가 나타납니다. (?op=board)
