@@ -18,32 +18,18 @@ export function mergeShowtimes(primary: Showtime[], extra: Showtime[] = []): Sho
   }
   return out;
 }
-export function sameShowtime(a: Showtime, b: Showtime): boolean {
-  if (a.theaterId !== b.theaterId) return false;
-  if (canonDate(a.playDate) !== canonDate(b.playDate)) return false;
-  if (normTime(a.startTime) !== normTime(b.startTime)) return false;
+function sameShowtime(a: Showtime, b: Showtime): boolean {
+  if (a.theaterId !== b.theaterId || a.playDate !== b.playDate || normTime(a.startTime) !== normTime(b.startTime) || !hallsMatch(a.hallName, b.hallName)) return false;
   const ai = stableShowtimeId(a), bi = stableShowtimeId(b);
-  if (ai && bi && ai === bi) return true;
-  if (!hallsCompatible(a.hallName, b.hallName)) return false;
+  if (ai || bi) { if (ai && bi) return ai === bi; if (a.movieNo && b.movieNo) return a.movieNo === b.movieNo; return normalizeTitle(a.movieTitle) === normalizeTitle(b.movieTitle); }
   if (a.movieNo && b.movieNo) return a.movieNo === b.movieNo;
-  return titlesMatch(a.movieTitle, b.movieTitle);
+  return normalizeTitle(a.movieTitle) === normalizeTitle(b.movieTitle);
 }
-export function dedupeShowtimes(rows: Showtime[]): Showtime[] {
-  const out: Showtime[] = [];
-  for (const row of rows) {
-    const index = out.findIndex((candidate) => sameShowtime(row, candidate));
-    if (index < 0) { out.push(row); continue; }
-    const prev = out[index];
-    out[index] = { ...prev, ...row, restSeats: row.restSeats ?? prev.restSeats, totalSeats: row.totalSeats ?? prev.totalSeats, bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl), movieNo: row.movieNo || prev.movieNo, hallName: row.hallName || prev.hallName, seatLive: row.restSeats != null ? (row.seatLive ?? true) : prev.seatLive, seatCheckedAt: row.seatCheckedAt ?? prev.seatCheckedAt, seatSource: row.seatSource && row.seatSource !== "none" ? row.seatSource : prev.seatSource };
-  }
-  return out;
-}
-function canonDate(value: string) { const digits = String(value || "").replace(/\D/g, ""); return digits.length >= 8 ? digits.slice(0, 8) : String(value || "").trim(); }
-function hallsCompatible(a: string, b: string) { if (!String(a || "").trim() || !String(b || "").trim()) return true; return hallsMatch(a, b); }
 function stableShowtimeId(row: Showtime): string {
-  const url = String(row.bookingUrl || "");
+  const url = String(row.bookingUrl || '');
   const mega = url.match(/[?&]playSchdlNo=([^&#]+)/i)?.[1]; if (mega) return `mega:${decodeURIComponent(mega)}`;
   const cgv = url.match(/[?&](?:scnSseq|scnsNo)=([^&#]+)/i)?.[1]; if (cgv) return `cgv:${decodeURIComponent(cgv)}`;
-  return row.movieNo ? `movie:${row.movieNo}` : "";
+  return row.movieNo ? `movie:${row.movieNo}` : '';
 }
-function betterBookingUrl(a: string, b: string): string { const score = (url: string) => { const u = String(url || "").trim(); if (!u) return 0; if (/megabox\.co\.kr\/booking\/seat\?[^#]*playSchdlNo=|PcntSeatChoi\/selectPcntSeatChoi\.do\?[^#]*playSchdlNo=/i.test(u)) return 100; if (/cgv\.co\.kr\/cnm\/movieBook\/(?:movie|cinema)\?[^#]*(?:scnSseq|scnsNo)=/i.test(u) && /movNo=/i.test(u)) return 95; if (/cgv\.co\.kr\/cnm\/movieBook\/movie\?[^#]*movNo=/i.test(u)) return 75; if (/cgv\.co\.kr\/cnm\/movieBook\/cinema\?/i.test(u)) return 20; if (/megabox\.co\.kr\/booking\?/i.test(u)) return 20; return 10; }; return score(a) >= score(b) ? String(a || "").trim() : String(b || "").trim(); }
+
+function betterBookingUrl(a: string, b: string): string { const score = (url: string) => { const u = String(url || '').trim(); if (!u) return 0; if (/megabox\.co\.kr\/booking\/seat\?[^#]*playSchdlNo=|PcntSeatChoi\/selectPcntSeatChoi\.do\?[^#]*playSchdlNo=/i.test(u)) return 100; if (/cgv\.co\.kr\/cnm\/movieBook\/(?:movie|cinema)\?[^#]*(?:scnSseq|scnsNo)=/i.test(u) && /movNo=/i.test(u)) return 95; if (/cgv\.co\.kr\/cnm\/movieBook\/movie\?[^#]*movNo=/i.test(u)) return 75; if (/cgv\.co\.kr\/cnm\/movieBook\/cinema\?/i.test(u)) return 20; if (/megabox\.co\.kr\/booking\?/i.test(u)) return 20; return 10; }; return score(a) >= score(b) ? String(a || '').trim() : String(b || '').trim(); }
