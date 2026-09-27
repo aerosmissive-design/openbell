@@ -1,6 +1,7 @@
 import { normalizeTitle } from "@/lib/utils";
+import { titlesMatch } from "./match";
 import type { Showtime } from "./types";
-import { hallsMatch, normTime } from "./seats-lookup";
+import { clockVariants, hallsMatch, normTime } from "./seats-lookup";
 
 export type { SeatHit, SeatHitMap } from "./seats-lookup";
 export {
@@ -44,30 +45,45 @@ export function describeSeatPing(result: { status: string; count: number; cgvCou
 }
 
 export function mergeShowtimes(primary: Showtime[], extra: Showtime[] = []): Showtime[] {
-  if (!extra.length) return primary;
-  const out = [...extra];
-  for (const row of primary) {
+  const out: Showtime[] = [];
+  for (const row of [...extra, ...primary]) {
     const index = out.findIndex((candidate) => sameShowtime(row, candidate));
-    if (index < 0) { out.push(row); continue; }
-    const prev = out[index];
-    out[index] = { ...prev, ...row, restSeats: row.restSeats ?? prev.restSeats, totalSeats: row.totalSeats ?? prev.totalSeats, bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl), movieNo: row.movieNo || prev.movieNo, seatLive: row.restSeats != null ? (row.seatLive ?? true) : prev.seatLive, seatCheckedAt: row.seatCheckedAt ?? prev.seatCheckedAt, seatSource: row.seatSource && row.seatSource !== "none" ? row.seatSource : prev.seatSource };
+    if (index < 0) {
+      out.push(row);
+      continue;
+    }
+    const prev = out[index]!;
+    out[index] = {
+      ...prev,
+      ...row,
+      restSeats: row.restSeats ?? prev.restSeats,
+      totalSeats: row.totalSeats ?? prev.totalSeats,
+      bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl),
+      movieNo: row.movieNo || prev.movieNo,
+      seatLive: row.restSeats != null ? (row.seatLive ?? true) : prev.seatLive,
+      seatCheckedAt: row.seatCheckedAt ?? prev.seatCheckedAt,
+      seatSource: row.seatSource && row.seatSource !== "none" ? row.seatSource : prev.seatSource,
+    };
   }
   return out;
 }
 
+/** 극장·시각·관이 같으면 한 회차. 예약 URL의 스케줄 번호가 달라도 합친다. */
 function sameShowtime(a: Showtime, b: Showtime): boolean {
-  if (a.theaterId !== b.theaterId || a.playDate !== b.playDate || normTime(a.startTime) !== normTime(b.startTime) || !hallsMatch(a.hallName, b.hallName)) return false;
-  const ai = stableShowtimeId(a), bi = stableShowtimeId(b);
-  if (ai || bi) { if (ai && bi) return ai === bi; if (a.movieNo && b.movieNo) return a.movieNo === b.movieNo; return normalizeTitle(a.movieTitle) === normalizeTitle(b.movieTitle); }
-  if (a.movieNo && b.movieNo) return a.movieNo === b.movieNo;
-  return normalizeTitle(a.movieTitle) === normalizeTitle(b.movieTitle);
+  if (a.theaterId !== b.theaterId || !clocksMatch(a, b) || !hallsMatch(a.hallName, b.hallName)) return false;
+  const left = normalizeTitle(a.movieTitle);
+  const right = normalizeTitle(b.movieTitle);
+  if (left && right && !titlesMatch(a.movieTitle, b.movieTitle)) return false;
+  return true;
 }
 
-function stableShowtimeId(row: Showtime): string {
-  const url = String(row.bookingUrl || "");
-  const mega = url.match(/[?&]playSchdlNo=([^&#]+)/i)?.[1]; if (mega) return `mega:${decodeURIComponent(mega)}`;
-  const cgv = url.match(/[?&](?:scnSseq|scnsNo)=([^&#]+)/i)?.[1]; if (cgv) return `cgv:${decodeURIComponent(cgv)}`;
-  return row.movieNo ? `movie:${row.movieNo}` : "";
+function clocksMatch(a: Showtime, b: Showtime): boolean {
+  const left = clockVariants(a.playDate, a.startTime);
+  const right = clockVariants(b.playDate, b.startTime);
+  if (left.length && right.length) {
+    return left.some((x) => right.some((y) => x.playDate === y.playDate && x.startTime === y.startTime));
+  }
+  return a.playDate === b.playDate && normTime(a.startTime) === normTime(b.startTime);
 }
 
 function betterBookingUrl(a: string, b: string): string {
