@@ -53,6 +53,8 @@ export async function watchTickHealth() {
     `last_notify_${host}`,
     "github_watch_at",
     "external_watch_at",
+    "gas_watch_at",
+    "vercel_watch_at",
     "cgv_relay_watch",
   ]);
   const stored = Number(bag[`watch_last_run_${host}`]);
@@ -70,6 +72,10 @@ export async function watchTickHealth() {
   const externalAt = Number(bag.external_watch_at);
   const externalWakeAt =
     Number.isFinite(externalAt) && externalAt > 0 ? externalAt : 0;
+  const gasAt = Number(bag.gas_watch_at);
+  const gasWakeAt = Number.isFinite(gasAt) && gasAt > 0 ? gasAt : 0;
+  const vercelAt = Number(bag.vercel_watch_at);
+  const vercelWakeAt = Number.isFinite(vercelAt) && vercelAt > 0 ? vercelAt : 0;
   const { cgvRelayWatchPublic, parseCgvRelayWatch } = await import("./relay-watch");
   let relayRaw: unknown = null;
   try {
@@ -96,6 +102,12 @@ export async function watchTickHealth() {
     externalWakeAgeMs: externalWakeAt ? Date.now() - externalWakeAt : null,
     externalWakeAlive:
       externalWakeAt > 0 && Date.now() - externalWakeAt < 15 * 60 * 1000,
+    gasWakeAt,
+    gasWakeAgeMs: gasWakeAt ? Date.now() - gasWakeAt : null,
+    gasWakeAlive: gasWakeAt > 0 && Date.now() - gasWakeAt < 15 * 60 * 1000,
+    vercelWakeAt,
+    vercelWakeAgeMs: vercelWakeAt ? Date.now() - vercelWakeAt : null,
+    vercelWakeAlive: vercelWakeAt > 0 && Date.now() - vercelWakeAt < 15 * 60 * 1000,
     cgvRelay: cgvRelayWatchPublic(parseCgvRelayWatch(relayRaw)),
   };
 }

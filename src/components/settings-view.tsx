@@ -71,29 +71,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-xl bg-surface p-4 shadow-border">
-        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">예매 전광판</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          PC·NAS·우회·공홈 등 여러 출처 잔여석·상영을 한 화면에 합쳐 봅니다. Neon 로그인 없이도 열 수 있습니다.
-        </p>
-        <a
-          href="/board"
-          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong"
-        >
-          베셀 전광판 열기
-          <ExternalLink className="size-3.5" aria-hidden />
-        </a>
-        <a
-          href="https://openbell-fawn.vercel.app/board"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-bg px-3 text-sm text-muted ring-1 ring-border"
-        >
-          새 탭 · 프로드 전광판
-          <ExternalLink className="size-3.5" aria-hidden />
-        </a>
-      </section>
-
-      <section className="rounded-xl bg-surface p-4 shadow-border">
         <CloudSettingsCard />
         <div className="mt-5 border-t border-border pt-4">
           <button type="button" onClick={() => setShowGasSection((v) => !v)} className="flex min-h-11 w-full items-center justify-between gap-3 text-left">
@@ -251,6 +228,29 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           <p className="text-sm leading-relaxed text-muted">Neon이 죽어도 구글스크립트가 이 주소로 메일을 보냅니다.</p>
           <GasBackupMailField />
         </ChannelCard>
+      </section>
+
+      <section className="rounded-xl bg-surface p-4 shadow-border">
+        <h2 className="text-xs font-medium tracking-[0.16em] text-muted">예매 전광판</h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          PC·NAS·우회·공홈 등 여러 출처 잔여석·상영을 한 화면에 합쳐 봅니다. Neon 로그인 없이도 열 수 있습니다.
+        </p>
+        <a
+          href="/board"
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong"
+        >
+          베셀 전광판 열기
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
+        <a
+          href="https://openbell-fawn.vercel.app/board"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-bg px-3 text-sm text-muted ring-1 ring-border"
+        >
+          새 탭 · 프로드 전광판
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">
