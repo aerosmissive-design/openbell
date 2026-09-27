@@ -1,5 +1,7 @@
 import { Trash2 } from "lucide-react";
 import { useMemo } from "react";
+import { toast } from "sonner";
+import { useAutoBook } from "@/lib/auto-book-store";
 import { THEATERS } from "@/lib/cinema/theaters";
 import { useAppStore } from "@/lib/store";
 import { cn, formatPlayDate, kstDateKeys } from "@/lib/utils";
@@ -34,6 +36,9 @@ function isPastShow(playDate: string, startTime: string) {
 export function StarsView() {
   const queue = useAppStore((s) => s.queue);
   const dequeue = useAppStore((s) => s.dequeue);
+  const shows = useAutoBook((s) => s.shows);
+  const setShow = useAutoBook((s) => s.setShow);
+  const removeShow = useAutoBook((s) => s.removeShow);
 
   const rows = useMemo(
     () =>
@@ -67,6 +72,8 @@ export function StarsView() {
         {rows.map((item) => {
           const past = isPastShow(item.playDate, item.startTime);
           const theater = THEATERS.find((t) => t.id === item.theaterId);
+          const autoId = item.showtimeId || item.id;
+          const auto = shows.find((row) => row.id === autoId);
           return (
             <li
               key={item.id}
@@ -98,6 +105,42 @@ export function StarsView() {
               >
                 예매
               </a>
+              {auto ? (
+                <label className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-open/15 px-1.5 text-[10px] font-medium text-open">
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={auto.seats}
+                    aria-label="자동예매 인원"
+                    onChange={(e) =>
+                      setShow({ ...auto, seats: Math.min(8, Math.max(1, Number(e.target.value) || 1)) })
+                    }
+                    className="w-7 bg-transparent text-center tabular-nums outline-none"
+                  />
+                  <button type="button" onClick={() => removeShow(autoId)} aria-label="자동예매 해제">×</button>
+                </label>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex h-7 shrink-0 items-center rounded-full bg-surface-2 px-2 text-[10px] font-medium text-fg"
+                  onClick={() => {
+                    setShow({
+                      id: autoId,
+                      title: item.movieTitle,
+                      theaterId: item.theaterId,
+                      playDate: item.playDate,
+                      startTime: item.startTime,
+                      hallName: item.hallName,
+                      bookingUrl: item.bookingUrl,
+                      seats: 2,
+                    });
+                    toast.success("이 회차를 자동예매합니다. 잔여석이 변하면 다시 잡습니다.");
+                  }}
+                >
+                  자동예매
+                </button>
+              )}
               <button
                 type="button"
                 className="flex size-9 shrink-0 items-center justify-center text-muted"

@@ -7,7 +7,7 @@
 | 저장소 | https://github.com/aerosmissive-design/openbell |
 | 프로드 | https://openbell-fawn.vercel.app |
 | 전광판 | https://openbell-fawn.vercel.app/board |
-| 스냅샷 버전 | **웹 3.9.87** (VERSION / APP_VERSION) |
+| 스냅샷 버전 | **웹 3.9.89** (VERSION / APP_VERSION) |
 | 작성·갱신 | 2026-09-21 · 버전 올릴 때마다 이 파일을 같이 갱신한다 |
 
 > **규칙:** 새 버전을 `main`에 올릴 때 `VERSION` · `src/lib/app-version.ts` · **이 문서(HANDOFF.md)** 를 함께 맞춘다.  
@@ -187,6 +187,7 @@ GAS POST는 302에서도 POST를 유지. 로그 `[GAS 저장] {ok:true}` 가 정
 
 | 날짜 | 버전 | 내용 |
 |------|------|------|
+| 2026-09-27 | 3.9.89 | 자동예매는 결제 직전(PAYMENT_READY)에서 멈춤. 차트 알림설정/자동예매 N명, 이름 없는 벨 탭, 별표 회차 자동예매. 황금열 없으면 차순위. 최종결제 클릭 없음 |
 | 2026-09-27 | 3.9.87 | 같은 극장·시각·관 회차는 한 줄. 예약 URL 스케줄 번호가 달라도 합침. 24:10과 다음날 00:10도 같은 회차. 관이나 영화가 다르면 유지 |
 | 2026-09-21 | 3.9.84 | 리포터 GAS dual-post · G_DS 라벨 · POST 302 유지 · 속성 청크 · 보드 G_PC/G_DS 표시 |
 | 2026-09-21 | 3.9.84 | 잘린 gas-body 조각 제거, 단일 템플릿 복구 (handleSeatReport_/G_PC/G_DS) |

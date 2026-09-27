@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ScanLine, Settings2, Star } from "lucide-react";
+import { Bell, BellRing, ScanLine, Settings2, Star } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
 import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, describeWatchChange, titleInSet, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
+import { planAutoBook } from "@/lib/cinema/auto-book-run";
+import { useAutoBook } from "@/lib/auto-book-store";
 import { enqueueNasFromAlert } from "@/lib/cinema/nas-enqueue";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, type SeatHitMap } from "@/lib/cinema/seats";
@@ -14,6 +16,7 @@ import { useAppStore } from "@/lib/store";
 import { cn, formatClock, normalizeTitle } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/app-version";
 import { AlertsView } from "./alerts-view";
+import { BellView } from "./bell-view";
 import { AuthSlot, CloudSync } from "./cloud-sync";
 import { SettingsView } from "./settings-view";
 import { StarsView } from "./stars-view";
@@ -36,7 +39,11 @@ export function CinemaApp() {
   const remember = useAppStore((s) => s.remember);
   const pushAlerts = useAppStore((s) => s.pushAlerts);
   const queue = useAppStore((s) => s.queue);
+  const autoMovies = useAutoBook((s) => s.movies);
+  const autoShows = useAutoBook((s) => s.shows);
   const replaceQueue = useAppStore((s) => s.replaceQueue);
+  const movieArmRef = useRef<Set<string> | null>(null);
+  const showArmRef = useRef<Set<string> | null>(null);
   const seenRef = useRef(seenIds);
   seenRef.current = seenIds;
   const muteWatchRef = useRef<{ keys: Set<string>; all: boolean; until: number } | null>(null);
@@ -302,6 +309,57 @@ export function CinemaApp() {
   }, [alertScan?.scannedAt, alertScan, queue, config, seatMap, replaceQueue, pushAlerts]);
 
   useEffect(() => {
+    if (!alertScan) return;
+    const live = (alertScan.theaters ?? []).flatMap((t) => t.showtimes);
+    const movieKeys = autoMovies.map((m) => normalizeTitle(m.title)).filter(Boolean);
+    const showIds = autoShows.map((s) => s.id);
+    const prevMovies = movieArmRef.current;
+    const prevShows = showArmRef.current;
+    const armMovies = new Set(prevMovies ? movieKeys.filter((key) => !prevMovies.has(key)) : []);
+    const armShows = new Set(prevShows ? showIds.filter((id) => !prevShows.has(id)) : []);
+    movieArmRef.current = new Set(movieKeys);
+    showArmRef.current = new Set(showIds);
+    let fired: Record<string, string> = {};
+    try {
+      const raw = JSON.parse(localStorage.getItem("openbell-autobook-fired") || "{}") as unknown;
+      if (raw && typeof raw === "object") fired = raw as Record<string, string>;
+    } catch {
+      fired = {};
+    }
+    const plan = planAutoBook({
+      live,
+      movies: autoMovies,
+      autoShows,
+      fired,
+      armMovies,
+      armShows,
+    });
+    try {
+      localStorage.setItem("openbell-autobook-fired", JSON.stringify(plan.fired));
+    } catch {
+      /* ignore */
+    }
+    if (!plan.jobs.length) return;
+    const items = plan.jobs.map((job) => {
+      const base = toAlert(job.show, live);
+      const id = `alert:auto:${job.key}:${job.reason}:${Date.now()}`;
+      autoPayPlan.set(id, { seats: job.seats, preferredSeats: job.preferredSeats });
+      return {
+        ...base,
+        id,
+        kind: job.reason === "seats" ? ("seat" as const) : ("open" as const),
+        title:
+          job.reason === "seats"
+            ? `${job.show.movieTitle} 잔여석 변동 · 자동 ${job.seats}명`
+            : `${job.show.movieTitle} 자동예매 ${job.seats}명`,
+        body: `${base.body} · 황금열 정중앙부터, 없으면 차순위. 결제 직전에서 멈춥니다. 결제는 직접 하세요.`,
+      };
+    });
+    pushAlerts(items);
+    announce(items, config);
+  }, [alertScan?.scannedAt, alertScan, autoMovies, autoShows, config, pushAlerts]);
+
+  useEffect(() => {
     const url = config.gasWebUrl.trim();
     if (!url || !alertScan?.scannedAt) return;
     void pingGasBeat({
@@ -373,11 +431,12 @@ export function CinemaApp() {
         ) : null}
         {tab === "alerts" ? <AlertsView /> : null}
         {tab === "star" ? <StarsView /> : null}
+        {tab === "bell" ? <BellView /> : null}
         {tab === "settings" ? <SettingsView lastScan={viewScan} /> : null}
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-lg border-t border-border-strong bg-surface px-4 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2 md:max-w-5xl">
-        <div className="grid grid-cols-4 gap-1">
+        <div className="grid grid-cols-5 gap-1">
           <NavBtn
             active={tab === "watch"}
             onClick={() => setTab("watch")}
@@ -403,6 +462,13 @@ export function CinemaApp() {
             }
             ariaLabel="별표"
             badge={queue.length}
+          />
+          <NavBtn
+            active={tab === "bell"}
+            onClick={() => setTab("bell")}
+            icon={<BellRing className="size-4" strokeWidth={1.75} />}
+            ariaLabel="자동예매 목록"
+            badge={autoMovies.length + autoShows.length}
           />
           <NavBtn
             active={tab === "settings"}
@@ -579,22 +645,30 @@ function resolveBookingUrl(show: Showtime, all: Showtime[]): string {
   return show.chain === "megabox" ? "https://www.megabox.co.kr/booking" : "";
 }
 
+const autoPayPlan = new Map<string, { seats: number; preferredSeats: string[] }>();
+
 function queueNasHoldJobs(items: AlertItem[], config: WatchConfig) {
-  if (!(config.hold as { nasAuto?: boolean } | undefined)?.nasAuto) return;
   const hold = config.hold as { seats?: unknown; zone?: unknown; nasAuto?: boolean };
+  const nasAuto = Boolean(hold?.nasAuto);
   const payload = items
     .filter((a) => a.bookingUrl)
     .slice(0, 8)
-    .map((a) => ({
-      movieTitle: a.movieTitle,
-      theaterId: a.theaterId,
-      playDate: a.playDate,
-      startTime: a.startTime,
-      hallName: a.hallName,
-      bookingUrl: a.bookingUrl,
-      seats: hold.seats,
-      zone: hold.zone,
-    }));
+    .flatMap((a) => {
+      const extra = autoPayPlan.get(a.id);
+      autoPayPlan.delete(a.id);
+      if (!extra && !nasAuto) return [];
+      return [{
+        movieTitle: a.movieTitle,
+        theaterId: a.theaterId,
+        playDate: a.playDate,
+        startTime: a.startTime,
+        hallName: a.hallName,
+        bookingUrl: a.bookingUrl,
+        seats: extra?.seats ?? (typeof hold.seats === "number" ? hold.seats : undefined),
+        zone: extra ? "center" : (typeof hold.zone === "string" ? hold.zone : undefined),
+        preferredSeats: extra?.preferredSeats,
+      }];
+    });
   if (!payload.length) return;
   void enqueueNasFromAlert({ data: { items: payload } })
     .then((res) => {

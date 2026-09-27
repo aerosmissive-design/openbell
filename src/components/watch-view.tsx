@@ -8,6 +8,7 @@ import { pullTheaterSeats, scanCinema } from "@/lib/cinema/scan";
 import { THEATERS } from "@/lib/cinema/theaters";
 import type { MovieTab, RankingMovie, ScanProps, Showtime, TheaterId } from "@/lib/cinema/types";
 import { CHART_SIZE, seatSourceLabel } from "@/lib/cinema/types";
+import { movieAutoSeats, useAutoBook } from "@/lib/auto-book-store";
 import { useAppStore } from "@/lib/store";
 import { cn, formatPlayDate, kstDateKeys, normalizeTitle } from "@/lib/utils";
 import { SourceStatus } from "./source-status";
@@ -140,22 +141,55 @@ function MovieCard({ movie, mode }: { movie: RankingMovie; mode: MovieTab }) {
   const watchTitles = useAppStore((s) => s.config.watchTitles);
   const toggleRank = useAppStore((s) => s.toggleRank);
   const toggleWatchTitle = useAppStore((s) => s.toggleWatchTitle);
+  const autoSeats = useAutoBook((s) => movieAutoSeats(movie.title, s.movies));
+  const setMovie = useAutoBook((s) => s.setMovie);
+  const removeMovie = useAutoBook((s) => s.removeMovie);
   const legacyRankPick = mode === "chart" && ranks.includes(movie.rank);
   const titlePick = watchTitles.some((t) => normalizeTitle(t) === normalizeTitle(movie.title));
   const selected = legacyRankPick || titlePick;
+  function toggleAlert() {
+    if (legacyRankPick) {
+      toggleRank(movie.rank);
+      return;
+    }
+    toggleWatchTitle(movie.title);
+  }
   return (
-    <button type="button" onClick={() => { if (legacyRankPick) { toggleRank(movie.rank); return; } toggleWatchTitle(movie.title); }} className={cn("rise-in flex flex-col rounded-lg bg-surface text-left shadow-border transition-[box-shadow,outline-color] duration-150", selected && "outline outline-2 outline-offset-2 outline-notify")}>
-      <div className="relative aspect-[3/4] min-h-[8.5rem] overflow-hidden rounded-t-lg bg-surface-2">
-        {movie.posterUrl ? <img src={movie.posterUrl} alt="" loading="lazy" className={cn("size-full object-cover outline outline-1 -outline-offset-1 outline-fg/10", !selected && "opacity-80")} /> : <div className="flex size-full items-center justify-center text-2xl font-semibold text-faint">{movie.rank || "·"}</div>}
-        <span className="absolute left-1.5 top-1.5 rounded-sm bg-bg/80 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-fg">{movie.rank}위</span>
-        {mode === "chart" && !movie.released ? <span className="absolute right-1.5 top-1.5 rounded-sm bg-wait/90 px-1.5 py-0.5 text-[10px] text-wait-fg">{releaseBadge(movie.releaseDate) ?? "개봉전"}</span> : null}
-        {selected ? <span className="absolute bottom-1.5 left-1.5 rounded-sm bg-notify px-1.5 py-0.5 text-[10px] font-medium text-notify-fg">알림설정</span> : null}
-      </div>
+    <div className={cn("rise-in flex flex-col rounded-lg bg-surface text-left shadow-border transition-[box-shadow,outline-color] duration-150", selected && "outline outline-2 outline-offset-2 outline-notify", !selected && autoSeats != null && "outline outline-2 outline-offset-2 outline-open")}>
+      <button type="button" onClick={toggleAlert} className="text-left">
+        <div className="relative aspect-[3/4] min-h-[8.5rem] overflow-hidden rounded-t-lg bg-surface-2">
+          {movie.posterUrl ? <img src={movie.posterUrl} alt="" loading="lazy" className={cn("size-full object-cover outline outline-1 -outline-offset-1 outline-fg/10", !selected && autoSeats == null && "opacity-80")} /> : <div className="flex size-full items-center justify-center text-2xl font-semibold text-faint">{movie.rank || "·"}</div>}
+          <span className="absolute left-1.5 top-1.5 rounded-sm bg-bg/80 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-fg">{movie.rank}위</span>
+          {mode === "chart" && !movie.released ? <span className="absolute right-1.5 top-1.5 rounded-sm bg-wait/90 px-1.5 py-0.5 text-[10px] text-wait-fg">{releaseBadge(movie.releaseDate) ?? "개봉전"}</span> : null}
+          {selected ? <span className="absolute bottom-1.5 left-1.5 rounded-sm bg-notify px-1.5 py-0.5 text-[10px] font-medium text-notify-fg">알림설정</span> : null}
+          {autoSeats != null ? <span className="absolute bottom-1.5 right-1.5 rounded-sm bg-open px-1.5 py-0.5 text-[10px] font-medium text-open-fg">자동 {autoSeats}</span> : null}
+        </div>
+      </button>
       <div className="px-2 py-2">
         <p className="line-clamp-2 text-[12px] font-medium leading-snug text-fg">{movie.title}</p>
         <p className="mt-1 text-[10px] tabular-nums text-muted">{movie.bookingRate != null ? `예매 ${movie.bookingRate}%` : "예매율 —"}{mode === "chart" && !movie.released ? ` · ${releaseBadge(movie.releaseDate) ?? "개봉전"}` : movie.released && movie.releaseDate ? ` · ${formatPlayDate(movie.releaseDate)}` : ""}</p>
+        <div className="mt-1.5 flex items-center gap-1">
+          <button type="button" onClick={toggleAlert} className={cn("h-7 flex-1 rounded-full text-[10px] font-medium", selected ? "bg-notify text-notify-fg" : "bg-surface-2 text-fg")}>알림설정</button>
+          {autoSeats == null ? (
+            <button type="button" onClick={() => { setMovie(movie.title, 2); toast.success(`${movie.title} 자동예매 2명. 인원은 바꿀 수 있습니다.`); }} className="h-7 flex-1 rounded-full bg-surface-2 text-[10px] font-medium text-fg">자동예매</button>
+          ) : (
+            <label className="flex h-7 flex-1 items-center justify-center gap-1 rounded-full bg-open px-1 text-[10px] font-medium text-open-fg">
+              <input
+                type="number"
+                min={1}
+                max={8}
+                value={autoSeats}
+                aria-label={`${movie.title} 자동예매 인원`}
+                onChange={(e) => setMovie(movie.title, Number(e.target.value) || 1)}
+                className="w-8 bg-transparent text-center tabular-nums outline-none"
+              />
+              명
+              <button type="button" onClick={() => removeMovie(movie.title)} className="text-open-fg/80" aria-label="자동예매 해제">×</button>
+            </label>
+          )}
+        </div>
       </div>
-    </button>
+    </div>
   );
 }
 

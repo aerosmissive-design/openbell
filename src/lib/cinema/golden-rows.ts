@@ -5,22 +5,22 @@ export const GOLDEN_ROWS: Record<TheaterId, { hallHint: string; rows: string[]; 
   cgv_yongsan: {
     hallHint: "IMAX",
     rows: ["J", "K", "I", "H", "L", "G"],
-    note: "용아맥: J~K열 중앙이 가장 많이 꼬힘. H~I는 몰입, L은 자막·편안. 번호는 중앙.",
+    note: "용산: 1순위 J·K 중앙, 없으면 I·H·L·G. 번호는 가운데부터.",
   },
   cgv_yeongdeungpo: {
     hallHint: "IMAX",
-    rows: ["H", "I", "G", "J", "F", "K"],
-    note: "영등포 특별관: 중열 중앙. 앞열·사이드는 차순위.",
+    rows: ["H", "I", "G", "J", "F"],
+    note: "영등포: 1순위 H·I 중앙, 없으면 G·J·F. 번호는 가운데부터.",
   },
   megabox_coex: {
     hallHint: "Dolby",
-    rows: ["H", "I", "G", "F", "J", "E"],
-    note: "코돌비: 화면은 G, 애트모스 명당은 H~I. F는 몰입 선호. L 뒤는 피함.",
+    rows: ["H", "I", "G", "F", "J"],
+    note: "코엑스 돌비: 1순위 H·I(애트모스)·G(화면), 없으면 F·J. 번호는 가운데부터.",
   },
   megabox_namyangju: {
     hallHint: "Dolby",
-    rows: ["H", "I", "G", "J", "F", "K"],
-    note: "남돌비: 중열 중앙. 코돌비와 같이 H~I를 1순위로 둠.",
+    rows: ["H", "I", "G", "J", "F"],
+    note: "남양주 돌비: 1순위 H·I 중앙, 없으면 G·J·F. 번호는 가운데부터.",
   },
 };
 
