@@ -1,0 +1,15 @@
+services:
+  openbell-nas-agent:
+    build:
+      context: ..
+      dockerfile: nas/Dockerfile
+    image: openbell-nas-agent
+    container_name: openbell-nas-agent
+    restart: unless-stopped
+    shm_size: "1gb"
+    ports:
+      - "6080:6080"
+    env_file:
+      - ./config.env
+    volumes:
+      - ./storage:/storage
