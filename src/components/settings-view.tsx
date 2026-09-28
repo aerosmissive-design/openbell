@@ -60,6 +60,12 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   }
 
   const gasLinked = Boolean(config.gasWebUrl.trim());
+  const gasBoardUrl = (() => {
+    const raw = config.gasWebUrl.trim();
+    if (!raw) return "";
+    const base = raw.replace(/\/$/, "");
+    return base.includes("?") ? `${base}&op=board` : `${base}?op=board`;
+  })();
 
   return (
     <div className="flex flex-col gap-6">
@@ -75,15 +81,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               <p className="mt-2 text-sm leading-relaxed text-muted">베셀·Neon이 죽어도 구글스크립트가 알림을 보냅니다.</p>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {[1, 5, 10].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => {
-                      setConfig({ intervalMin: n });
-                      void pushWatchWindow();
-                    }}
-                    className={cn("min-h-11 rounded-md text-sm tabular-nums", config.intervalMin === n ? "bg-pick text-fg ring-1 ring-border-strong" : "bg-bg text-muted")}
-                  >
+                  <button key={n} type="button" onClick={() => { setConfig({ intervalMin: n }); void pushWatchWindow(); }} className={cn("min-h-11 rounded-md text-sm tabular-nums", config.intervalMin === n ? "bg-pick text-fg ring-1 ring-border-strong" : "bg-bg text-muted")}>
                     {n}분
                   </button>
                 ))}
@@ -101,17 +99,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                 </ol>
               ) : null}
               <label className="mt-4 block text-xs text-muted">웹앱 주소</label>
-              <input
-                value={gasUrlDraft}
-                readOnly={gasLinked}
-                disabled={gasLinked}
-                onChange={(e) => setGasUrlDraft(e.target.value)}
-                placeholder="https://script.google.com/macros/s/…/exec"
-                className={cn(
-                  "mt-1.5 h-11 w-full rounded-md px-3 text-sm outline-none ring-1 ring-border",
-                  gasLinked ? "cursor-not-allowed bg-bg text-faint opacity-60" : "bg-bg text-fg focus:ring-border-strong",
-                )}
-              />
+              <input value={gasUrlDraft} readOnly={gasLinked} disabled={gasLinked} onChange={(e) => setGasUrlDraft(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" className={cn("mt-1.5 h-11 w-full rounded-md px-3 text-sm outline-none ring-1 ring-border", gasLinked ? "cursor-not-allowed bg-bg text-faint opacity-60" : "bg-bg text-fg focus:ring-border-strong")} />
               {gasLinked ? (
                 <button type="button" className="mt-2 min-h-11 w-full text-sm text-muted" onClick={() => { forgetGasLink(); setGasUrlDraft(""); void flushSettings(Boolean(loginEmail)); toast.success("웹앱 연결을 끊었습니다."); }}>연결 끊기</button>
               ) : (
@@ -126,17 +114,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                 }}>웹앱 주소 연결</button>
               )}
               <a href={gasHomeUrl(loginEmail) || "https://script.google.com"} target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">script.google.com 열기</a>
-              {config.gasWebUrl.trim() ? (
-                <>
-                  <a href={(() => { const base = config.gasWebUrl.trim().replace(/\/$/, ""); return base.includes("?") ? `${base}&op=board` : `${base}?op=board`; })()} target="_blank" rel="noopener noreferrer" className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">
-                    GAS 전광판 열기
-                    <ExternalLink className="size-3.5" aria-hidden />
-                  </a>
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-faint">스크립트를 붙여넣은 뒤 설치를 실행해야 이 링크가 새 전광판을 엽니다. 저장만 하면 하얀 화면에 openbell 만 나옵니다.</p>
-                </>
-              ) : (
-                <p className="mt-2 text-xs leading-relaxed text-faint">웹앱 주소를 연결하면 여기에 GAS 전광판 링크가 나타납니다. (?op=board)</p>
-              )}
               <button type="button" className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border" onClick={() => {
                 void navigator.clipboard.writeText(currentGasScript()).then(
                   () => { setConfig({ gasSourceStamp: GAS_SOURCE_STAMP }); toast.success("복사했습니다. 붙여넣고 저장한 뒤 설치를 실행하세요."); },
@@ -167,8 +144,18 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       <section className="rounded-xl bg-surface p-4 shadow-border">
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">예매 전광판</h2>
         <p className="mt-2 text-sm leading-relaxed text-muted">PC·NAS·우회·공홈 등 여러 출처 잔여석·상영을 한 화면에 합쳐 봅니다. Neon 로그인 없이도 열 수 있습니다.</p>
-        <a href="/board" className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">베셀 전광판 열기 <ExternalLink className="size-3.5" aria-hidden /></a>
-        <a href="https://openbell-fawn.vercel.app/board" target="_blank" rel="noopener noreferrer" className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-bg px-3 text-sm text-muted ring-1 ring-border">새 탭 · 프로드 전광판 <ExternalLink className="size-3.5" aria-hidden /></a>
+        <a href="/board" target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">
+          베셀 전광판 열기
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
+        {gasBoardUrl ? (
+          <a href={gasBoardUrl} target="_blank" rel="noopener noreferrer" className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-bg px-3 text-sm text-muted ring-1 ring-border">
+            GAS 전광판 열기
+            <ExternalLink className="size-3.5" aria-hidden />
+          </a>
+        ) : (
+          <p className="mt-2 text-xs leading-relaxed text-faint">GAS 전광판은 위에서 웹앱 주소를 연결하면 나타납니다.</p>
+        )}
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-border">
