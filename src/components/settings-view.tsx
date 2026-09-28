@@ -148,6 +148,10 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           베셀 전광판 열기
           <ExternalLink className="size-3.5" aria-hidden />
         </a>
+        <a href="https://openbell-fawn.vercel.app/board" target="_blank" rel="noopener noreferrer" className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">
+          새 탭 · 프로드 전광판
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
         {gasBoardUrl ? (
           <a href={gasBoardUrl} target="_blank" rel="noopener noreferrer" className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-bg px-3 text-sm text-muted ring-1 ring-border">
             GAS 전광판 열기
