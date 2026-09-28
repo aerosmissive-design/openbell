@@ -113,7 +113,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                   toast.success("주소를 저장했습니다.");
                 }}>웹앱 주소 연결</button>
               )}
-              <a href={gasHomeUrl(loginEmail) || "https://script.google.com"} target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">script.google.com 열기</a>
+              <a href={gasHomeUrl(loginEmail) || "https://script.google.com"} target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center rounded-md bg-black px-3 text-sm text-white">script.google.com 열기</a>
               <button type="button" className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border" onClick={() => {
                 void navigator.clipboard.writeText(currentGasScript()).then(
                   () => { setConfig({ gasSourceStamp: GAS_SOURCE_STAMP }); toast.success("복사했습니다. 붙여넣고 저장한 뒤 설치를 실행하세요."); },
@@ -144,12 +144,17 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
       <section className="rounded-xl bg-surface p-4 shadow-border">
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">예매 전광판</h2>
         <p className="mt-2 text-sm leading-relaxed text-muted">PC·NAS·우회·공홈 등 여러 출처 잔여석·상영을 한 화면에 합쳐 봅니다. Neon 로그인 없이도 열 수 있습니다.</p>
-        <a href="/board" target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">
+        <a
+          href="/board"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => {
+            e.preventDefault();
+            window.open("/board", "_blank", "noopener,noreferrer");
+          }}
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-black px-3 text-sm text-white"
+        >
           베셀 전광판 열기
-          <ExternalLink className="size-3.5" aria-hidden />
-        </a>
-        <a href="https://openbell-fawn.vercel.app/board" target="_blank" rel="noopener noreferrer" className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-pick px-3 text-sm text-fg ring-1 ring-border-strong">
-          새 탭 · 프로드 전광판
           <ExternalLink className="size-3.5" aria-hidden />
         </a>
         {gasBoardUrl ? (
