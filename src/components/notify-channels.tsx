@@ -2,15 +2,11 @@ import { ExternalLink } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { extractKakaoCode, kakaoRedirectUri } from "@/lib/cinema/kakao";
-import { describeGasPush, flushSettings } from "./cloud-sync";
-import { exchangeKakaoCode, peekTelegramChat, sendAlertEmail, sendGasTest } from "@/lib/cinema/scan";
-import { sendReservationTest } from "@/lib/cinema/reservation-test";
-import { mailEnabled } from "@/lib/cinema/types";
+import { exchangeKakaoCode, peekTelegramChat } from "@/lib/cinema/scan";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { useAppStore } from "@/lib/store";
 import { GasBackupMailField } from "./gas-backup-mail";
 import { Button } from "./ui/button";
-import { Switch } from "./ui/switch";
 
 function ChannelCard({ title, summary, open, onToggle, children }: { title: string; summary: string; open: boolean; onToggle: () => void; children: ReactNode }) {
   return (
@@ -30,9 +26,7 @@ function ChannelCard({ title, summary, open, onToggle, children }: { title: stri
 export function NotifyChannelCards() {
   const config = useAppStore((s) => s.config);
   const setConfig = useAppStore((s) => s.setConfig);
-  const pushAlerts = useAppStore((s) => s.pushAlerts);
   const { user } = useCurrentUserState();
-  const loginEmail = user?.primaryEmail?.trim() ?? "";
   const [showMail, setShowMail] = useState(!user);
   const [showKakao, setShowKakao] = useState(false);
   const [showTelegram, setShowTelegram] = useState(() =>
@@ -40,7 +34,6 @@ export function NotifyChannelCards() {
   );
   const [kakaoCode, setKakaoCode] = useState("");
   const [redirectUri, setRedirectUri] = useState("");
-  const [sendingTest, setSendingTest] = useState(false);
   useEffect(() => setRedirectUri(kakaoRedirectUri()), []);
 
   return (
