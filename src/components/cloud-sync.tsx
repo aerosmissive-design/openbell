@@ -47,7 +47,7 @@ export function describeGasPush(gas: GasPushResult | undefined): string | null {
 export async function flushSettings(signedIn: boolean): Promise<GasPushResult> {
   const snap = withSyncKey(localSnapshot());
   const payload = {
-    config: snap.config,
+    config: { ...snap.config, updatedAt: new Date().toISOString() },
     queue: snap.queue,
     alerts: snap.alerts,
     onlyAlerted: snap.onlyAlerted,
@@ -56,16 +56,14 @@ export async function flushSettings(signedIn: boolean): Promise<GasPushResult> {
     seenDates: snap.seenDates,
     watchSig: snap.watchSig,
   };
+  const published = await publishToGas({ data: payload }).catch(() => null);
   if (signedIn) {
-    try {
-      const res = await saveCloudSettings({ data: payload });
-      if (res?.gas) return res.gas;
-    } catch {
-      /* Neon이 막혀도 GAS 반영은 시도 */
-    }
+    void Promise.race([
+      saveCloudSettings({ data: payload }),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]).catch(() => {});
   }
-  const res = await publishToGas({ data: payload });
-  return res.gas;
+  return published?.gas ?? { status: "error", message: "gas" };
 }
 
 export async function importNotifyFromGas(mode: "fill" | "prefer-gas") {

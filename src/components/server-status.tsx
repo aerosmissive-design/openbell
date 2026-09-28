@@ -38,7 +38,9 @@ export function ServerStatus() {
   useEffect(() => {
     let stop = false;
     const load = () => {
-      void fetch("/api/watch-alive")
+      if (typeof document !== "undefined" && document.hidden) return;
+      const q = gasUrl.trim() ? `?gas=${encodeURIComponent(gasUrl.trim())}` : "";
+      void fetch(`/api/watch-alive${q}`)
         .then((res) => (res.ok ? res.json() : null))
         .then((json) => {
           if (!stop && json) setAlive(json as Alive);
@@ -47,11 +49,16 @@ export function ServerStatus() {
     };
     load();
     const timer = window.setInterval(load, 60_000);
+    const onVis = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       stop = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
     };
-  }, []);
+  }, [gasUrl]);
 
   useEffect(() => {
     const url = gasUrl.trim();

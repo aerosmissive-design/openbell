@@ -15,6 +15,9 @@ let metaSql: Sql | null = null;
 let metaReady = false;
 const mem = new Map<string, string>();
 let lastDbQuota = false;
+let quotaUntil = 0;
+
+export type MetaWriteResult = { ok: true } | { ok: false; reason: "dbQuota" | "error" };
 
 export function isDbQuotaError(err: unknown) {
   const e = err as { code?: string; message?: string };
@@ -47,6 +50,11 @@ async function ensureMeta() {
 export async function readAppMetas(keys: string[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   if (!keys.length) return out;
+  if (Date.now() < quotaUntil) {
+    lastDbQuota = true;
+    for (const key of keys) out[key] = mem.get(key) ?? "";
+    return out;
+  }
   try {
     const sql = await ensureMeta();
     const rows = await sql.query<{ key: string; value: string }>(
@@ -63,7 +71,12 @@ export async function readAppMetas(keys: string[]): Promise<Record<string, strin
     }
     return out;
   } catch (err) {
-    if (isDbQuotaError(err)) lastDbQuota = true;
+    if (isDbQuotaError(err)) {
+      lastDbQuota = true;
+      quotaUntil = Date.now() + 15 * 60 * 1000;
+      metaSql = null;
+      metaReady = false;
+    }
     for (const key of keys) out[key] = mem.get(key) ?? "";
     return out;
   }
@@ -74,8 +87,12 @@ export async function readAppMeta(key: string) {
   return bag[key] ?? "";
 }
 
-export async function writeAppMeta(key: string, value: string) {
-  if (mem.get(key) === value) return;
+export async function writeAppMeta(key: string, value: string): Promise<MetaWriteResult> {
+  if (Date.now() < quotaUntil) {
+    lastDbQuota = true;
+    return { ok: false, reason: "dbQuota" };
+  }
+  if (mem.get(key) === value && !lastDbQuota) return { ok: true };
   try {
     const sql = await ensureMeta();
     await sql.query(
@@ -86,8 +103,16 @@ export async function writeAppMeta(key: string, value: string) {
     );
     mem.set(key, value);
     lastDbQuota = false;
+    return { ok: true };
   } catch (err) {
-    if (isDbQuotaError(err)) lastDbQuota = true;
+    if (isDbQuotaError(err)) {
+      lastDbQuota = true;
+      quotaUntil = Date.now() + 15 * 60 * 1000;
+      metaSql = null;
+      metaReady = false;
+      return { ok: false, reason: "dbQuota" };
+    }
+    return { ok: false, reason: "error" };
   }
 }
 

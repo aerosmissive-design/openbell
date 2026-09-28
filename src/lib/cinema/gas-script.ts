@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260921-gds2";
+export const GAS_SOURCE_STAMP = "20260929-neonmin3";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -776,6 +776,58 @@ function loadReporterPayload_(props, sk) {
   return parsed;
 }
 
+function handleJob_(p, body) {
+  var props = PropertiesService.getScriptProperties();
+  var jobs = [];
+  try { jobs = JSON.parse(props.getProperty("openbell_jobs") || "[]"); } catch (e) { jobs = []; }
+  if (!Array.isArray(jobs)) jobs = [];
+  var action = String((body && body.action) || (p && p.action) || "");
+  if (String(p && p.claim || "") === "1" || action === "claim") {
+    var i;
+    for (i = 0; i < jobs.length; i++) {
+      if (jobs[i] && jobs[i].status === "pending") {
+        jobs[i].status = "running";
+        jobs[i].updatedAt = new Date().toISOString();
+        props.setProperty("openbell_jobs", JSON.stringify(jobs).slice(0, 8000));
+        return jsonOut_({ ok: true, job: jobs[i] });
+      }
+    }
+    return jsonOut_({ ok: true, job: null });
+  }
+  if (action === "ack") {
+    var ackKey = String((body && body.idempotencyKey) || (p && p.key) || "");
+    var j;
+    for (j = 0; j < jobs.length; j++) {
+      if (jobs[j] && jobs[j].idempotencyKey === ackKey) jobs[j].status = "running";
+    }
+    props.setProperty("openbell_jobs", JSON.stringify(jobs).slice(0, 8000));
+    return jsonOut_({ ok: true });
+  }
+  var job = body && body.job ? body.job : body;
+  if (!job || !job.bookingUrl) return jsonOut_({ ok: false, error: "job" });
+  var idem = String(job.idempotencyKey || [job.theaterId, job.playDate, job.startTime, job.hallName, job.bookingUrl].join("|"));
+  var k;
+  for (k = 0; k < jobs.length; k++) {
+    if (jobs[k] && jobs[k].idempotencyKey === idem) return jsonOut_({ ok: true, duplicate: true });
+  }
+  jobs.push({
+    id: String(job.id || ("gas_" + Date.now())),
+    idempotencyKey: idem,
+    status: "pending",
+    theaterId: String(job.theaterId || ""),
+    movieTitle: String(job.movieTitle || ""),
+    playDate: String(job.playDate || ""),
+    startTime: String(job.startTime || ""),
+    hallName: String(job.hallName || ""),
+    bookingUrl: String(job.bookingUrl || ""),
+    seats: Number(job.seats) || 2,
+    createdAt: new Date().toISOString()
+  });
+  if (jobs.length > 40) jobs = jobs.slice(jobs.length - 40);
+  props.setProperty("openbell_jobs", JSON.stringify(jobs).slice(0, 8000));
+  return jsonOut_({ ok: true });
+}
+
 function handleSeatReport_(body) {
   applyLiveConfig_();
   var expected = String(CONFIG.syncKey || PropertiesService.getScriptProperties().getProperty("syncKey") || "").trim();
@@ -1211,6 +1263,18 @@ function doGet(e) {
       xRefreshToken: CONFIG.xRefreshToken || "",
     });
   }
+  if (op === "clock") {
+    var cprops = PropertiesService.getScriptProperties();
+    var ckind = String(p.kind || "external");
+    if (p.at) {
+      cprops.setProperty("last_" + ckind + "_at", String(p.at));
+      if (ckind === "external") cprops.setProperty("last_external_at", String(p.at));
+      return jsonOut_({ ok: true, gasClock: "ok", at: Number(p.at), kind: ckind });
+    }
+    var cat = Number(cprops.getProperty("last_external_at") || 0);
+    return jsonOut_({ ok: cat > 0, gasClock: cat > 0 ? "ok" : "fail", at: cat });
+  }
+  if (op === "job") return handleJob_(p, null);
   return ContentService.createTextOutput("openbell");
 }
 
@@ -1220,6 +1284,7 @@ function doPost(e) {
   if (p.op === "upgrade") return handleUpgrade_(e);
   try {
     var body = JSON.parse((e.postData && e.postData.contents) || "{}");
+    if (body && (body.op === "job" || p.op === "job")) return handleJob_(p, body);
     if (body && body.theaterId && Array.isArray(body.showtimes)) {
       return handleSeatReport_(body);
     }

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { readAppMeta, writeAppMeta } from "@/lib/cinema/app-meta.server";
+import { relaySeatToGas } from "@/lib/cinema/gas-fallback.server";
 
 const ALLOWED = new Set([
   "cgv_yongsan",
@@ -204,10 +205,33 @@ async function handlePost(request: Request) {
     mode: merge ? "merge" : "full",
     source: storageSource,
   });
-  await writeAppMeta(sk, payload);
-  await writeAppMeta(legacyKey(theaterId), payload);
+  const sourceWrite = await writeAppMeta(sk, payload);
+  const legacyWrite = await writeAppMeta(legacyKey(theaterId), payload);
+  const dbOk = sourceWrite.ok && legacyWrite.ok;
+  let gas: "ok" | "fail" | "skip" = "skip";
+  if (!dbOk) {
+    const relayed = await relaySeatToGas({
+      ...(record as object),
+      source: storageSource,
+      measuredAt: Date.now(),
+      idempotencyKey: `${storageSource}|${theaterId}|${Date.now()}`,
+    });
+    gas = relayed === "ok" ? "ok" : "fail";
+  }
+  if (!dbOk && gas !== "ok") {
+    return json({
+      ok: false,
+      db: "dbQuota",
+      gas,
+      count: incoming.length,
+      stored: rows.length,
+      source: storageSource,
+    });
+  }
   return json({
     ok: true,
+    db: dbOk ? "ok" : "dbQuota",
+    gas,
     count: incoming.length,
     stored: rows.length,
     merge,

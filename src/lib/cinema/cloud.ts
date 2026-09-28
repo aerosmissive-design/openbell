@@ -159,6 +159,7 @@ function gasPayload(config: WatchConfig, queue: BookingIntent[]) {
     intervalMin: config.intervalMin <= 1 ? 1 : config.intervalMin <= 5 ? 5 : 10,
     scanSources: normalizeScanSources(config.scanSources),
     syncKey: config.gasSyncKey,
+    updatedAt: new Date().toISOString(),
     queued: queue.slice(0, 20).map((q) => ({
       id: q.showtimeId,
       title: q.movieTitle,
@@ -282,6 +283,8 @@ async function pushGasConfig(
 ): Promise<GasPushResult> {
   const raw = config.gasWebUrl.trim();
   if (!raw) return { status: "skipped", reason: "no-url" };
+  const { rememberGasExec } = await import("./gas-fallback.server");
+  rememberGasExec(raw, config.gasSyncKey || "");
   if (!config.gasSyncKey) return { status: "skipped", reason: "no-key" };
   let target: URL;
   try {

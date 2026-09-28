@@ -100,6 +100,11 @@ if (present(openbell) && !isOfficialOpenBellUrl(openbell!.trim())) {
   lines.push("[WARN] OPENBELL_URL is not https://openbell-fawn.vercel.app — production alias must not change");
 }
 console.log(`[INFO] NAS_WORKER_TOKEN: ${maskStatus(token)}`);
+const gasUrl = env.GAS_WEB_URL ?? process.env.GAS_WEB_URL;
+console.log(`[INFO] GAS_WEB_URL: ${maskStatus(gasUrl)}`);
+if (!present(gasUrl)) {
+  lines.push("[WARN] GAS 없음 — 폰에서 켠 잡은 Neon 죽음 때 못 받음");
+}
 console.log(
   `[INFO] Mode: ${present(openbell) && present(token) ? "linked (callbacks on)" : "dry-run (no callbacks)"}`,
 );

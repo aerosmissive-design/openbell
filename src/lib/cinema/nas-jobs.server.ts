@@ -125,6 +125,9 @@ export async function enqueueNasJob(
   const jobs = await loadJobs();
   jobs.push(job);
   await saveJobs(jobs);
+  void import("./gas-fallback.server")
+    .then(({ relayJobToGas }) => relayJobToGas(job))
+    .catch(() => {});
   return job;
 }
 

@@ -7,8 +7,8 @@
 | 저장소 | https://github.com/aerosmissive-design/openbell |
 | 프로드 | https://openbell-fawn.vercel.app |
 | 전광판 | https://openbell-fawn.vercel.app/board |
-| 스냅샷 버전 | **웹 3.9.90** (VERSION / APP_VERSION) |
-| 작성·갱신 | 2026-09-21 · 버전 올릴 때마다 이 파일을 같이 갱신한다 |
+| 스냅샷 버전 | **웹 3.9.94** (VERSION / APP_VERSION) |
+| 작성·갱신 | 2026-09-29 · Neon 살아 있으면 Neon. 쿼터면 베셀이 GAS로 시계·좌석 1회. 결제 자동화 없음. |
 
 > **규칙:** 새 버전을 `main`에 올릴 때 `VERSION` · `src/lib/app-version.ts` · **이 문서(HANDOFF.md)** 를 함께 맞춘다.  
 > AI는 작업 전 `https://raw.githubusercontent.com/aerosmissive-design/openbell/main/HANDOFF.md` 와 `VERSION` 을 읽는다.

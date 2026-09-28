@@ -22,6 +22,7 @@ import {
 } from "./match";
 import { runScan } from "./scan-impl.server";
 import { alertBookingUrl, diffStarSeats, notifyBatches, notifyCopy, seatChangeAlert, showAlertBody } from "./seats";
+import { isStaleSeat, STALE_MS } from "./stale";
 import { THEATERS } from "./theaters";
 import type { AlertItem, BookingIntent, Showtime, TheaterId, WatchConfig } from "./types";
 import { mailEnabled } from "./types";
@@ -70,8 +71,18 @@ export async function watchTickHealth() {
   const githubAt = Number(bag.github_watch_at);
   const githubWakeAt = Number.isFinite(githubAt) && githubAt > 0 ? githubAt : 0;
   const externalAt = Number(bag.external_watch_at);
-  const externalWakeAt =
-    Number.isFinite(externalAt) && externalAt > 0 ? externalAt : 0;
+  let externalWakeAt = Number.isFinite(externalAt) && externalAt > 0 ? externalAt : 0;
+  let gasClock: "ok" | "fail" | "skip" = "skip";
+  if (!externalWakeAt || Date.now() - externalWakeAt > STALE_MS) {
+    const { readGasExternalAt } = await import("./gas-fallback.server");
+    const gasAtClock = await readGasExternalAt();
+    if (gasAtClock > 0) {
+      externalWakeAt = gasAtClock;
+      gasClock = "ok";
+    } else if (!externalWakeAt) {
+      gasClock = "fail";
+    }
+  }
   const gasAt = Number(bag.gas_watch_at);
   const gasWakeAt = Number.isFinite(gasAt) && gasAt > 0 ? gasAt : 0;
   const vercelAt = Number(bag.vercel_watch_at);
@@ -91,9 +102,10 @@ export async function watchTickHealth() {
   return {
     lastRunAt: last,
     ageMs: last ? Date.now() - last : null,
-    alive: last > 0 && Date.now() - last < 10 * 60 * 1000,
     db,
     dbQuota: db === "neon-quota",
+    gasClock,
+    alive: (last > 0 && Date.now() - last < 10 * 60 * 1000) || externalWakeAt > 0,
     lastNotify: notify,
     githubWakeAt,
     githubWakeAgeMs: githubWakeAt ? Date.now() - githubWakeAt : null,
@@ -487,7 +499,7 @@ export async function runWatchTick() {
       nextSig = sig;
     }
     const seen = new Set([...hostSeen, ...extraSeen]);
-    const fresh = watched.filter((s) => !seen.has(s.id));
+    const fresh = watched.filter((s) => !seen.has(s.id) && (s.restSeats == null || !isStaleSeat(s.seatCheckedAt)));
     const nextSeen = uniqueCap(
       [...hostSeen, ...extraSeen, ...fresh.map((s) => s.id)],
       2500,
@@ -495,7 +507,7 @@ export async function runWatchTick() {
     const { nextQueue, changes } = diffStarSeats(snap.queue, allShows);
     const items = [
       ...fresh.map((show) => toAlert(show, allShows)),
-      ...changes.map((change) => seatChangeAlert(change, allShows)),
+      ...changes.filter((change) => !isStaleSeat(change.show.seatCheckedAt)).map((change) => seatChangeAlert(change, allShows)),
     ];
     if (items.length) {
       await notifyChannels(config, items);

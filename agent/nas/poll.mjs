@@ -12,6 +12,32 @@ const token = String(process.env.NAS_WORKER_TOKEN || process.env.NAS_REPORT_TOKE
 const pollMs = Math.max(3000, Number(process.env.POLL_MS || 5000) || 5000);
 const workerName = String(process.env.WORKER_NAME || "nas").trim();
 const enabled = /^(1|true|yes|on)$/i.test(String(process.env.AGENT_ENABLED || "0").trim());
+const gasExec = String(process.env.GAS_WEB_URL || "").trim();
+const seenJobKeys = new Set();
+
+function jobKey(job) {
+  if (!job) return "";
+  return job.idempotencyKey || [job.theaterId, job.playDate, job.startTime, job.hallName, job.bookingUrl].join("|");
+}
+
+async function claimGasJob() {
+  if (!gasExec) return null;
+  const target = new URL(gasExec);
+  target.searchParams.set("op", "job");
+  target.searchParams.set("claim", "1");
+  const res = await fetch(target, { signal: AbortSignal.timeout(3000) });
+  const data = await res.json();
+  return data && data.job ? data.job : null;
+}
+
+async function ackGasJob(key) {
+  if (!gasExec || !key) return;
+  const target = new URL(gasExec);
+  target.searchParams.set("op", "job");
+  target.searchParams.set("action", "ack");
+  target.searchParams.set("key", key);
+  await fetch(target, { signal: AbortSignal.timeout(3000) }).catch(() => {});
+}
 const mode = String(process.env.AGENT_MODE || "poll").trim().toLowerCase();
 
 function enabledFlag(name, fallback) {
@@ -146,11 +172,29 @@ async function main() {
   }
   for (;;) {
     let job = null;
+    let claimFailed = false;
     try {
-      const data = await api("/api/nas-jobs?claim=1");
+      const data = await Promise.race([
+        api("/api/nas-jobs?claim=1"),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+      ]);
       job = data.job || null;
     } catch (error) {
+      claimFailed = true;
       console.warn(`[claim] ${error instanceof Error ? error.message : error}`);
+    }
+    if (!job && (claimFailed || !job)) {
+      try {
+        job = await claimGasJob();
+      } catch (error) {
+        console.warn(`[claim-gas] ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    const key = jobKey(job);
+    if (job && key && seenJobKeys.has(key)) job = null;
+    if (job && key) {
+      seenJobKeys.add(key);
+      void ackGasJob(key);
     }
     if (!job) {
       await new Promise((resolve) => setTimeout(resolve, pollMs));
