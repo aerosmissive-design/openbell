@@ -37,8 +37,18 @@ async function handle(request: Request) {
   if (kind && db !== "ok") return Response.json(clockBody(kind, db, gasClock));
   try {
     const result = await runWatchTick();
+    if ("degraded" in result && result.degraded) {
+      if (kind) void clockPushGas(Date.now(), "delegate");
+      return Response.json({
+        ok: false,
+        degraded: result.degraded,
+        db: result.degraded === "quota_exceeded" ? "dbQuota" : "dbConn",
+        gasClock,
+        ...result,
+      });
+    }
     if (kind) return Response.json({ ...clockBody(kind, "ok", gasClock), ...result, ok: true, skipped: result.skipped });
-    return Response.json({ ok: true, db: result.dbQuota ? "dbQuota" : "ok", gas: "skip", ...result });
+    return Response.json({ ok: true, db: "ok", gas: "skip", ...result });
   } catch (err) {
     return Response.json(
       { ok: false, db: "error", gasClock: kind ? gasClock : "skip", error: err instanceof Error ? err.message : "tick failed" },

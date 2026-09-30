@@ -26,6 +26,7 @@ function ago(ms: number | null | undefined): string {
 function dbLabel(db?: string): string {
   if (db === "neon") return "Neon";
   if (db === "neon-quota") return "Neon 쿼터";
+  if (db === "neon-conn") return "Neon 연결";
   if (db === "pglite") return "로컬 DB";
   return "없음";
 }

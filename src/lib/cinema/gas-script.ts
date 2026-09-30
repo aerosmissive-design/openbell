@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20260929-neonmin3";
+export const GAS_SOURCE_STAMP = "20261001-esc1";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -25,6 +25,176 @@ export function buildGasManifest(): string {
       "https://www.googleapis.com/auth/script.deployments",
     ],
   });
+}
+
+/** 생성 GAS 소스의 문자열 안에 섞인 제어문자를 \\n \\t \\uXXXX 로 바꾼다.
+ * 정규식 리터럴의 따옴표는 문자열이 아니다. String.fromCharCode 는 쓰지 않는다. */
+export function sealGasSource(code: string): string {
+  let out = "";
+  let i = 0;
+  let state: "code" | "sq" | "dq" | "tmpl" | "line" | "block" | "re" = "code";
+  let last: "value" | "op" = "op";
+  const markValue = () => {
+    last = "value";
+  };
+  const markOp = () => {
+    last = "op";
+  };
+  while (i < code.length) {
+    const c = code[i]!;
+    const n = code[i + 1];
+    if (state === "line") {
+      out += c;
+      if (c === "\n") state = "code";
+      i += 1;
+      continue;
+    }
+    if (state === "block") {
+      if (c === "*" && n === "/") {
+        out += "*/";
+        i += 2;
+        state = "code";
+        continue;
+      }
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (state === "re") {
+      if (c === "\\") {
+        out += c + (n ?? "");
+        i += n ? 2 : 1;
+        continue;
+      }
+      if (c === "[") {
+        out += c;
+        i += 1;
+        while (i < code.length && code[i] !== "]") {
+          if (code[i] === "\\") {
+            out += code[i]! + (code[i + 1] ?? "");
+            i += code[i + 1] ? 2 : 1;
+            continue;
+          }
+          if (code[i] === "\n") {
+            throw new Error("GAS 생성 코드의 정규식에 줄바꿈이 있습니다.");
+          }
+          out += code[i];
+          i += 1;
+        }
+        if (code[i] === "]") {
+          out += "]";
+          i += 1;
+        }
+        continue;
+      }
+      if (c === "/") {
+        out += c;
+        i += 1;
+        while (i < code.length && /[a-z]/i.test(code[i]!)) {
+          out += code[i];
+          i += 1;
+        }
+        state = "code";
+        markValue();
+        continue;
+      }
+      if (c === "\n") {
+        throw new Error("GAS 생성 코드의 정규식에 줄바꿈이 있습니다.");
+      }
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (state === "sq" || state === "dq" || state === "tmpl") {
+      const q = state === "sq" ? "'" : state === "dq" ? '"' : "`";
+      if (c === "\\") {
+        out += c + (n ?? "");
+        i += n ? 2 : 1;
+        continue;
+      }
+      if (c === q) {
+        out += c;
+        i += 1;
+        state = "code";
+        markValue();
+        continue;
+      }
+      if (state !== "tmpl") {
+        const cp = c.charCodeAt(0);
+        if (cp < 32) {
+          if (c === "\n") out += "\\n";
+          else if (c === "\r") out += "\\r";
+          else if (c === "\t") out += "\\t";
+          else out += "\\u" + cp.toString(16).padStart(4, "0");
+          i += 1;
+          continue;
+        }
+      }
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === "/" && n === "/") {
+      out += c;
+      i += 1;
+      state = "line";
+      continue;
+    }
+    if (c === "/" && n === "*") {
+      out += "/*";
+      i += 2;
+      state = "block";
+      continue;
+    }
+    if (c === "/" && last === "op") {
+      out += c;
+      i += 1;
+      state = "re";
+      continue;
+    }
+    if (c === "'") {
+      out += c;
+      i += 1;
+      state = "sq";
+      continue;
+    }
+    if (c === '"') {
+      out += c;
+      i += 1;
+      state = "dq";
+      continue;
+    }
+    if (c === "`") {
+      out += c;
+      i += 1;
+      state = "tmpl";
+      continue;
+    }
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (/[A-Za-z0-9_$]/.test(c) || c === ")" || c === "]") markValue();
+    else markOp();
+    out += c;
+    i += 1;
+  }
+  if (state === "sq" || state === "dq") {
+    throw new Error("GAS 생성 코드의 문자열이 닫히지 않았습니다.");
+  }
+  assertGasSyntax(out);
+  return out;
+}
+
+function assertGasSyntax(code: string) {
+  try {
+    new Function(code);
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      throw new Error(`GAS 문법 검사 실패: ${err.message}`);
+    }
+  }
 }
 
 export function buildGasScript(config: WatchConfig, queue: BookingIntent[] = []): string {
@@ -59,7 +229,7 @@ export function buildGasScript(config: WatchConfig, queue: BookingIntent[] = [])
     liveOrigin.startsWith("https://") && !/localhost|127\.0\.0\.1/.test(liveOrigin)
       ? liveOrigin
       : "https://openbell-fawn.vercel.app";
-  return `/**
+  return sealGasSource(`/**
  * 오픈벨
  *
  * 주기: ${minutes}분마다
@@ -709,16 +879,16 @@ function saveReporterPayload_(props, sk, payloadObj) {
     lines.push([
       r.playDate || "",
       r.startTime || "",
-      String(r.hallName || "").replace(/\t/g, " "),
-      String(r.movieTitle || "").replace(/\t/g, " "),
+      String(r.hallName || "").replace(/\\t/g, " "),
+      String(r.movieTitle || "").replace(/\\t/g, " "),
       r.restSeats,
       r.totalSeats == null ? "" : r.totalSeats,
       r.movieNo || "",
       r.scnsNo || "",
       r.scnSseq || ""
-    ].join("\t"));
+    ].join("\\t"));
   }
-  var blob = lines.join("\n");
+  var blob = lines.join("\\n");
   var chunk = reporterChunkSize_();
   var n = blob.length ? Math.ceil(blob.length / chunk) : 0;
   props.setProperty(sk, JSON.stringify({
@@ -752,10 +922,10 @@ function loadReporterPayload_(props, sk) {
   var blob = parts.join("");
   var rows = [];
   if (blob) {
-    var lines = blob.split("\n");
+    var lines = blob.split("\\n");
     for (var i = 0; i < lines.length; i++) {
       if (!lines[i]) continue;
-      var cols = lines[i].split("\t");
+      var cols = lines[i].split("\\t");
       var rest = Number(cols[4]);
       if (!isFinite(rest)) continue;
       var tot = cols[5] === "" ? undefined : Number(cols[5]);
@@ -2693,7 +2863,7 @@ function megaboxUrl_(brch, playDate, movieNo, playSchdlNo) {
 }
 
 function setup() { 설치(); }
-`;
+`);
 }
 
 export const DEFAULT_WATCH: WatchConfig = {

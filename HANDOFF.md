@@ -7,8 +7,8 @@
 | 저장소 | https://github.com/aerosmissive-design/openbell |
 | 프로드 | https://openbell-fawn.vercel.app |
 | 전광판 | https://openbell-fawn.vercel.app/board |
-| 스냅샷 버전 | **웹 3.9.95** (VERSION / APP_VERSION) |
-| 작성·갱신 | 2026-09-29 · Neon 살아 있으면 Neon. 쿼터면 베셀이 GAS로 시계·좌석 1회. 결제 자동화 없음. |
+| 스냅샷 버전 | **웹 3.9.96** (VERSION / APP_VERSION) |
+| 작성·갱신 | 2026-10-01 · GAS 생성 문자열 이스케이프. Neon 장애는 500 대신 degraded. 알림 위임은 설계만. |
 
 > **규칙:** 새 버전을 `main`에 올릴 때 `VERSION` · `src/lib/app-version.ts` · **이 문서(HANDOFF.md)** 를 함께 맞춘다.  
 > AI는 작업 전 `https://raw.githubusercontent.com/aerosmissive-design/openbell/main/HANDOFF.md` 와 `VERSION` 을 읽는다.
@@ -187,6 +187,7 @@ GAS POST는 302에서도 POST를 유지. 로그 `[GAS 저장] {ok:true}` 가 정
 
 | 날짜 | 버전 | 내용 |
 |------|------|------|
+| 2026-10-01 | 3.9.96 | GAS 템플릿 제어문자 이스케이프+문법검사. tick JSONB 부분갱신. Neon quota/conn 분리, 연결은 백오프 후 500 대신 degraded. GAS 알림 위임은 미구현(docs/p0-2b-idempotency.md). DB가 설정의 원본 |
 | 2026-09-27 | 3.9.90 | 베셀/GAS 서버 status. 깨움 4종 분리(깃허브·외부 크론·GAS 깨움·베셀 크론). src=external 을 GAS로 넣지 않음. 전광판은 배경 바로 위. 자동예매·황금열은 유지 |
 | 2026-09-27 | 3.9.89 | 자동예매는 결제 직전(PAYMENT_READY)에서 멈춤. 차트 알림설정/자동예매 N명, 이름 없는 벨 탭, 별표 회차 자동예매. 황금열 없으면 차순위. 최종결제 클릭 없음 |
 | 2026-09-27 | 3.9.87 | 같은 극장·시각·관 회차는 한 줄. 예약 URL 스케줄 번호가 달라도 합침. 24:10과 다음날 00:10도 같은 회차. 관이나 영화가 다르면 유지 |

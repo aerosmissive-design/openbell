@@ -1,4 +1,4 @@
-import { dbSource } from "@/lib/db";
+import { dbSource, isTransientDbError } from "@/lib/db";
 
 export type ChannelSendLog = {
   at: number;
@@ -14,18 +14,66 @@ type Sql = Awaited<ReturnType<(typeof import("@/lib/db"))["getSql"]>>;
 let metaSql: Sql | null = null;
 let metaReady = false;
 const mem = new Map<string, string>();
-let lastDbQuota = false;
+export type DbDegraded = "quota_exceeded" | "conn_failed";
+let degraded: DbDegraded | null = null;
 let quotaUntil = 0;
+let lastConnProbe = 0;
 
-export type MetaWriteResult = { ok: true } | { ok: false; reason: "dbQuota" | "error" };
+export type MetaWriteResult =
+  | { ok: true }
+  | { ok: false; reason: "dbQuota" | "dbConn" | "error" };
 
 export function isDbQuotaError(err: unknown) {
   const e = err as { code?: string; message?: string };
   return e?.code === "53000" || /exceeded the quota/i.test(String(e?.message || err));
 }
 
+export function dbDegraded(): DbDegraded | null {
+  if (degraded === "quota_exceeded" && Date.now() >= quotaUntil) {
+    degraded = null;
+    quotaUntil = 0;
+  }
+  return degraded;
+}
+
 export function lastMetaDbQuota() {
-  return lastDbQuota;
+  return dbDegraded() === "quota_exceeded";
+}
+
+function markQuota() {
+  degraded = "quota_exceeded";
+  quotaUntil = Date.now() + 15 * 60 * 1000;
+  metaSql = null;
+  metaReady = false;
+}
+
+function markConn() {
+  degraded = "conn_failed";
+  lastConnProbe = Date.now();
+  metaSql = null;
+  metaReady = false;
+}
+
+function clearDegraded() {
+  degraded = null;
+  quotaUntil = 0;
+  lastConnProbe = 0;
+}
+
+async function probeDb(): Promise<boolean> {
+  lastConnProbe = Date.now();
+  try {
+    const { getSql } = await import("@/lib/db");
+    const sql = await getSql();
+    await sql.query("select 1 as ok");
+    clearDegraded();
+    metaSql = sql;
+    return true;
+  } catch (err) {
+    if (isDbQuotaError(err)) markQuota();
+    else if (isTransientDbError(err)) markConn();
+    return false;
+  }
 }
 
 async function ensureMeta() {
@@ -43,17 +91,25 @@ async function ensureMeta() {
     metaReady = true;
   }
   metaSql = sql;
-  lastDbQuota = false;
+  clearDegraded();
   return sql;
+}
+
+function fromMem(keys: string[]) {
+  const out: Record<string, string> = {};
+  for (const key of keys) out[key] = mem.get(key) ?? "";
+  return out;
 }
 
 export async function readAppMetas(keys: string[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   if (!keys.length) return out;
-  if (Date.now() < quotaUntil) {
-    lastDbQuota = true;
-    for (const key of keys) out[key] = mem.get(key) ?? "";
-    return out;
+  const state = dbDegraded();
+  if (state === "quota_exceeded") return fromMem(keys);
+  if (state === "conn_failed") {
+    if (Date.now() - lastConnProbe < 30_000) return fromMem(keys);
+    const ok = await probeDb();
+    if (!ok) return fromMem(keys);
   }
   try {
     const sql = await ensureMeta();
@@ -61,7 +117,7 @@ export async function readAppMetas(keys: string[]): Promise<Record<string, strin
       "select key, value from app_meta where key = any($1::text[])",
       [keys],
     );
-    lastDbQuota = false;
+    clearDegraded();
     for (const row of rows) {
       out[row.key] = row.value;
       mem.set(row.key, row.value);
@@ -71,14 +127,9 @@ export async function readAppMetas(keys: string[]): Promise<Record<string, strin
     }
     return out;
   } catch (err) {
-    if (isDbQuotaError(err)) {
-      lastDbQuota = true;
-      quotaUntil = Date.now() + 15 * 60 * 1000;
-      metaSql = null;
-      metaReady = false;
-    }
-    for (const key of keys) out[key] = mem.get(key) ?? "";
-    return out;
+    if (isDbQuotaError(err)) markQuota();
+    else if (isTransientDbError(err)) markConn();
+    return fromMem(keys);
   }
 }
 
@@ -88,11 +139,14 @@ export async function readAppMeta(key: string) {
 }
 
 export async function writeAppMeta(key: string, value: string): Promise<MetaWriteResult> {
-  if (Date.now() < quotaUntil) {
-    lastDbQuota = true;
-    return { ok: false, reason: "dbQuota" };
+  const state = dbDegraded();
+  if (state === "quota_exceeded") return { ok: false, reason: "dbQuota" };
+  if (state === "conn_failed") {
+    if (Date.now() - lastConnProbe < 30_000) return { ok: false, reason: "dbConn" };
+    const ok = await probeDb();
+    if (!ok) return { ok: false, reason: dbDegraded() === "quota_exceeded" ? "dbQuota" : "dbConn" };
   }
-  if (mem.get(key) === value && !lastDbQuota) return { ok: true };
+  if (mem.get(key) === value && !dbDegraded()) return { ok: true };
   try {
     const sql = await ensureMeta();
     await sql.query(
@@ -102,15 +156,16 @@ export async function writeAppMeta(key: string, value: string): Promise<MetaWrit
       [key, value],
     );
     mem.set(key, value);
-    lastDbQuota = false;
+    clearDegraded();
     return { ok: true };
   } catch (err) {
     if (isDbQuotaError(err)) {
-      lastDbQuota = true;
-      quotaUntil = Date.now() + 15 * 60 * 1000;
-      metaSql = null;
-      metaReady = false;
+      markQuota();
       return { ok: false, reason: "dbQuota" };
+    }
+    if (isTransientDbError(err)) {
+      markConn();
+      return { ok: false, reason: "dbConn" };
     }
     return { ok: false, reason: "error" };
   }

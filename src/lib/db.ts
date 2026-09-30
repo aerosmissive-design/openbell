@@ -69,6 +69,46 @@ const identity = (v: string) => v;
 
 type Run = <T>(text: string, params: unknown[]) => Promise<T[]>;
 
+const TRANSIENT_DB_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "57P01",
+  "57P03",
+  "08000",
+  "08001",
+  "08003",
+  "08006",
+  "53300",
+]);
+
+export function isTransientDbError(err: unknown) {
+  const e = err as { code?: string; message?: string };
+  if (e?.code === "53000" || /exceeded the quota/i.test(String(e?.message || err))) return false;
+  if (e?.code && TRANSIENT_DB_CODES.has(e.code)) return true;
+  return /timeout|ECONNREFUSED|ECONNRESET|Connection terminated|too many clients|connect ECONN/i.test(
+    String(e?.message || err),
+  );
+}
+
+async function withDbBackoff<T>(fn: () => Promise<T>): Promise<T> {
+  let wait = 200;
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      last = err;
+      if (!isTransientDbError(err) || attempt === 2) throw err;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      wait *= 3;
+    }
+  }
+  throw last;
+}
+
 /** Wrap a query runner in the tagged-template + `.query()` `Sql` surface. */
 function toSql(run: Run): Sql {
   const sql = (async <T = Record<string, unknown>>(
@@ -93,10 +133,18 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({ connectionString: databaseUrl });
+    const pool = new Pool({
+      connectionString: databaseUrl,
+      max: 4,
+      connectionTimeoutMillis: 8000,
+      idleTimeoutMillis: 20_000,
+      query_timeout: 12_000,
+    });
     return toSql(async <T>(text: string, params: unknown[]) => {
-      const res = await pool.query(text, params);
-      return res.rows as T[];
+      return withDbBackoff(async () => {
+        const res = await pool.query(text, params);
+        return res.rows as T[];
+      });
     });
   })().catch((err) => {
     globalRef.__pgSqlPromise__ = undefined;

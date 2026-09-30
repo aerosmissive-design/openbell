@@ -356,6 +356,40 @@ async function pushGasConfig(
   }
 }
 
+/** DB가 설정 원본. GAS push 실패는 버전으로만 표시하고 다음 tick에서 한 번 더 보낸다. */
+async function pushGasConfigOwned(
+  userId: string,
+  config: WatchConfig,
+  queue: BookingIntent[],
+): Promise<GasPushResult> {
+  const { writeAppMeta } = await import("./app-meta.server");
+  const rev = String(Date.now());
+  await writeAppMeta(`gas_cfg_rev:${userId}`, rev);
+  const gas = await pushGasConfig(config, queue);
+  if (gas.status === "ok") {
+    await writeAppMeta(`gas_cfg_pushed:${userId}`, rev);
+    await writeAppMeta(`gas_cfg_pending:${userId}`, "");
+  } else if (gas.status !== "skipped") {
+    await writeAppMeta(`gas_cfg_pending:${userId}`, rev);
+  }
+  return gas;
+}
+
+export async function retryPendingGasConfig(
+  userId: string,
+  config: WatchConfig,
+  queue: BookingIntent[],
+): Promise<void> {
+  const { readAppMeta, writeAppMeta } = await import("./app-meta.server");
+  const pending = (await readAppMeta(`gas_cfg_pending:${userId}`)).trim();
+  if (!pending) return;
+  const gas = await pushGasConfig(config, queue);
+  if (gas.status === "ok") {
+    await writeAppMeta(`gas_cfg_pushed:${userId}`, pending);
+    await writeAppMeta(`gas_cfg_pending:${userId}`, "");
+  }
+}
+
 async function chunkGasOp(
   raw: string,
   key: string,
@@ -632,7 +666,7 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
         JSON.stringify(prefs),
       ],
     );
-    const gas = await pushGasConfig(snapshot.config, snapshot.queue);
+    const gas = await pushGasConfigOwned(context.userId, snapshot.config, snapshot.queue);
     return { ok: true as const, gas };
   });
 

@@ -1,10 +1,10 @@
 import { getSql } from "@/lib/db";
-import { snapshotFromRow, pingGasHeartbeat, type CloudSnapshot } from "./cloud";
+import { snapshotFromRow, pingGasHeartbeat } from "./cloud";
 import { ensureUserSettingsSchema } from "./settings-schema.server";
 import {
+  dbDegraded,
   dbLabel,
   isDbQuotaError,
-  lastMetaDbQuota,
   readAppMetas,
   readLastNotify,
   readWatchLastRun,
@@ -13,6 +13,7 @@ import {
   writeWatchLastRun,
   type ChannelSendLog,
 } from "./app-meta.server";
+import { isTransientDbError } from "@/lib/db";
 import { revealConfigSecrets } from "./secret-box.server";
 import {
   filterWatched,
@@ -94,11 +95,15 @@ export async function watchTickHealth() {
   } catch {
     relayRaw = null;
   }
-  const db = lastMetaDbQuota()
-    ? "neon-quota"
-    : dbLabel() !== "neon"
-      ? "pglite"
-      : "neon";
+  const degraded = dbDegraded();
+  const db =
+    degraded === "quota_exceeded"
+      ? "neon-quota"
+      : degraded === "conn_failed"
+        ? "neon-conn"
+        : dbLabel() !== "neon"
+          ? "pglite"
+          : "neon";
   return {
     lastRunAt: last,
     ageMs: last ? Date.now() - last : null,
@@ -345,60 +350,58 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
 
 async function persistWatch(
   userId: string,
-  snap: CloudSnapshot,
   extras: {
     primed: boolean;
     seenIds: string[];
     seenDates: string[];
     watchSig: string;
-    alerts: AlertItem[];
+    newAlerts: AlertItem[];
     queue: BookingIntent[];
   },
 ) {
   const sql = await getSql();
-  const prevRows = await sql.query<{ prefs: unknown }>(
-    "select prefs from user_settings where user_id = $1 limit 1",
-    [userId],
-  );
-  let prevByHost: Record<string, string[]> = {};
-  try {
-    const raw = prevRows[0]?.prefs;
-    const parsed =
-      typeof raw === "string"
-        ? JSON.parse(raw)
-        : raw && typeof raw === "object"
-          ? raw
-          : {};
-    const bag = (parsed as { seenByHost?: Record<string, unknown> }).seenByHost;
-    if (bag && typeof bag === "object") {
-      prevByHost = Object.fromEntries(
-        Object.entries(bag).map(([key, val]) => [
-          key,
-          Array.isArray(val) ? val.map(String) : [],
-        ]),
-      );
-    }
-  } catch {
-    prevByHost = {};
-  }
-  const prefs = {
-    onlyAlerted: snap.onlyAlerted,
-    primed: extras.primed,
-    seenIds: uniqueCap(extras.seenIds, 2500),
-    seenDates: uniqueCap(extras.seenDates, 40),
-    watchSig: extras.watchSig,
-    seenByHost: {
-      ...prevByHost,
-      [watchHost()]: uniqueCap(extras.seenIds, 2500),
-    },
-  };
+  const seenIds = uniqueCap(extras.seenIds, 2500);
+  const seenDates = uniqueCap(extras.seenDates, 40);
   await sql.query(
     `update user_settings
-     set alerts = $1::jsonb, prefs = $2::jsonb, queue = $3::jsonb, updated_at = now()
-     where user_id = $4`,
+     set alerts = (
+           select coalesce(jsonb_agg(elem order by ord), '[]'::jsonb)
+           from (
+             select elem, ord
+             from jsonb_array_elements($1::jsonb || coalesce(alerts, '[]'::jsonb))
+               with ordinality as t(elem, ord)
+             where ord <= 2000
+           ) s
+         ),
+         prefs = jsonb_set(
+           jsonb_set(
+             jsonb_set(
+               jsonb_set(
+                 jsonb_set(
+                   coalesce(prefs, '{}'::jsonb),
+                   '{primed}', to_jsonb($2::boolean), true
+                 ),
+                 '{watchSig}', to_jsonb($3::text), true
+               ),
+               '{seenDates}', $4::jsonb, true
+             ),
+             '{seenIds}', $5::jsonb, true
+           ),
+           '{seenByHost}',
+           coalesce(prefs->'seenByHost', '{}'::jsonb) || jsonb_build_object($6::text, $7::jsonb),
+           true
+         ),
+         queue = $8::jsonb,
+         updated_at = now()
+     where user_id = $9`,
     [
-      JSON.stringify(extras.alerts.slice(0, 2000)),
-      JSON.stringify(prefs),
+      JSON.stringify(extras.newAlerts),
+      extras.primed,
+      extras.watchSig,
+      JSON.stringify(seenDates),
+      JSON.stringify(seenIds),
+      watchHost(),
+      JSON.stringify(seenIds),
       JSON.stringify(extras.queue.slice(0, 40)),
       userId,
     ],
@@ -479,12 +482,12 @@ export async function runWatchTick() {
     const sig = watchSignature(config);
     if (!hostSeen.length) {
       const primedQueue = diffStarSeats(snap.queue, allShows).nextQueue;
-      await persistWatch(userId, snap, {
+      await persistWatch(userId, {
         primed: true,
         seenIds: uniqueCap(watched.map((s) => s.id), 2500),
         seenDates: snap.seenDates,
         watchSig: sig,
-        alerts: snap.alerts,
+        newAlerts: [],
         queue: primedQueue,
       });
       continue;
@@ -513,7 +516,7 @@ export async function runWatchTick() {
       await notifyChannels(config, items);
       sent += items.length;
     }
-    await persistWatch(userId, snap, {
+    await persistWatch(userId, {
       primed: true,
       seenIds: nextSeen,
       seenDates: uniqueCap(
@@ -521,7 +524,7 @@ export async function runWatchTick() {
         40,
       ),
       watchSig: nextSig,
-      alerts: [...items, ...snap.alerts],
+      newAlerts: items,
       queue: nextQueue,
     });
   }
@@ -538,13 +541,21 @@ export async function runWatchTick() {
         return pingGasHeartbeat(url, key, "tick");
       }),
     );
+    const { retryPendingGasConfig } = await import("./cloud");
+    await Promise.all(
+      accounts.map((a) =>
+        retryPendingGasConfig(a.userId, a.snap.config, a.snap.queue).catch(() => undefined),
+      ),
+    );
     return { skipped: false as const, users: accounts.length, sent };
   } catch (err) {
-    if (isDbQuota(err)) {
-      lastRunAt = 0;
-      return { skipped: true as const, users: 0, sent: 0, dbQuota: true as const };
-    }
     lastRunAt = 0;
+    if (isDbQuota(err)) {
+      return { skipped: true as const, users: 0, sent: 0, degraded: "quota_exceeded" as const };
+    }
+    if (isTransientDbError(err)) {
+      return { skipped: true as const, users: 0, sent: 0, degraded: "conn_failed" as const };
+    }
     await writeWatchLastRun(0);
     throw err;
   }
