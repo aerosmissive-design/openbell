@@ -148,10 +148,6 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           href="/board"
           target="_blank"
           rel="noopener noreferrer"
-          onClick={(e) => {
-            e.preventDefault();
-            window.open("/board", "_blank", "noopener,noreferrer");
-          }}
           className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-black px-3 text-sm text-white"
         >
           베셀 전광판 열기

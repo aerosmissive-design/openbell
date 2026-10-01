@@ -8,6 +8,7 @@ import {
   isPaymentStageSignal,
   looksLikeCaptchaChallenge,
   showtimeClickLabels,
+  assertPaymentHardStop,
 } from "./safety.js";
 
 test("isExactCgvBookingUrl requires https + path + four query keys", () => {
@@ -28,6 +29,27 @@ test("isExactCgvBookingUrl requires https + path + four query keys", () => {
       "https://cgv.co.kr/cnm/movieBook/payment?movNo=1&scnYmd=20260920&scnsNo=2&scnSseq=3",
     ),
     false,
+  );
+});
+
+test("assertPaymentHardStop rejects any payment click", () => {
+  assert.throws(
+    () =>
+      assertPaymentHardStop({
+        url: "https://cgv.co.kr/cnm/movieBook/payment",
+        visibleText: "최종결제금액",
+        paymentClicks: 1,
+        state: "PAYMENT_READY",
+      }),
+    /payment click count/,
+  );
+  assert.doesNotThrow(() =>
+    assertPaymentHardStop({
+      url: "https://cgv.co.kr/cnm/movieBook/payment",
+      visibleText: "결제하기",
+      paymentClicks: 0,
+      state: "WAITING_USER",
+    }),
   );
 });
 

@@ -125,6 +125,22 @@ export async function enqueueNasJob(
   const jobs = await loadJobs();
   jobs.push(job);
   await saveJobs(jobs);
+  void import("./booking-jobs.server")
+    .then(({ insertBookingJob }) =>
+      insertBookingJob({
+        id: job.id,
+        movieTitle: job.movieTitle,
+        theaterId: job.theaterId,
+        playDate: job.playDate,
+        startTime: job.startTime,
+        hallName: job.hallName,
+        bookingUrl: job.bookingUrl,
+        seats: job.seats,
+        zone: job.zone,
+        preferredSeats: job.preferredSeats,
+      }),
+    )
+    .catch(() => {});
   void import("./gas-fallback.server")
     .then(({ relayJobToGas }) => relayJobToGas(job))
     .catch(() => {});

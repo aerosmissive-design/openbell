@@ -1,5 +1,6 @@
 // OpenBell Windows PC seat reporter + GUI + real Edge/CGV browser capture
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import net from "node:net";
@@ -77,7 +78,8 @@ const GUI_PORT_START = Number(process.env.GUI_PORT || 17653);
 const GUI_HOST = (process.env.GUI_HOST || "0.0.0.0").trim() || "0.0.0.0";
 let GUI_PORT = GUI_PORT_START;
 const CGV_WAIT_MS = Math.max(3000, Number(process.env.CGV_WAIT_MS || 6000));
-const VERSION = "11.26";
+const VERSION = "11.27";
+const INSTANCE_ID = process.env.REPORTER_INSTANCE || os.hostname() || "unknown";
 
 const ALL_SITES = {
   cgv_yongsan: { chain:"cgv", siteNo: "0013", theaterName: "CGV 용산아이파크몰" },
@@ -171,14 +173,20 @@ function pruneOldCaches(){
 function log(message) { const line=`[${new Date().toLocaleTimeString("ko-KR",{hour12:false})}] ${message}`; console.log(line); state.logs.push(line); if(state.logs.length>160) state.logs.shift(); }
 function kstDateKeys(days) { const out=[]; const now=new Date(Date.now()+9*60*60*1000); for(let i=0;i<days;i++){const d=new Date(now);d.setUTCDate(d.getUTCDate()+i);out.push(`${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,"0")}${String(d.getUTCDate()).padStart(2,"0")}`);} return out; }
 function decodeHtml(s){
-  return String(s||"")
-    .replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>String.fromCharCode(parseInt(h,16)))
-    .replace(/&quot;/g,'"')
-    .replace(/&lt;/g,"<")
-    .replace(/&gt;/g,">")
-    .replace(/&#39;|&apos;/g,"'")
-    .replace(/&amp;/g,"&");
+  let cur = String(s || "");
+  for (let pass = 0; pass < 4; pass++) {
+    const next = cur
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&#39;|&apos;/g, "'")
+      .replace(/&amp;/g, "&");
+    if (next === cur) break;
+    cur = next;
+  }
+  return cur;
 }
 function fmtShowDate(playDate){
   const s=String(playDate||"").trim();
@@ -434,7 +442,7 @@ async function selectDate(p,ymd){
     }catch{}
   }
   // Fallback: click day number via evaluate
-  return await p.evaluate((day, ymd)=>{
+  return await p.evaluate(({day, ymd})=>{
     const nodes=[...document.querySelectorAll("button,a,li,div,span,td")];
     for(const el of nodes){
       const d=el.getAttribute("data-date")||el.getAttribute("data-ymd")||"";
@@ -445,7 +453,7 @@ async function selectDate(p,ymd){
       if(t===day && t.length<=2){ try{el.click();return true;}catch{} }
     }
     return false;
-  }, day, ymd);
+  }, {day, ymd});
 }
 
 // One browser job at a time. CGV navigation cancels concurrent navigations, which caused the old ERR_ABORTED loop.
@@ -736,7 +744,7 @@ async function postReport(theaterId,showtimes,mode="full"){
   for(let i=0;i<chunks.length;i++){
     const chunkMode=mode==="full" && i>0 ? "merge" : mode;
     let lastErr=null;
-    const payload={theaterId,mode:chunkMode,source:reportSource,showtimes:chunks[i]};
+    const payload={theaterId,mode:chunkMode,source:reportSource,instanceId:INSTANCE_ID,showtimes:chunks[i].map((r)=>({...r,status:Number(r.restSeats)>0?"available":"soldout"}))};
     if(gasSyncKey) payload.key=gasSyncKey;
     for(let attempt=1; attempt<=2; attempt++){
       try{
@@ -746,7 +754,7 @@ async function postReport(theaterId,showtimes,mode="full"){
             authorization:`Bearer ${TOKEN}`,
             "content-type":"application/json",
             accept:"application/json",
-            "user-agent":"openbell-reporter/11.26"
+            "user-agent":"openbell-reporter/11.27"
           },
           body:JSON.stringify(payload),
           signal:AbortSignal.timeout(15000)
@@ -790,7 +798,8 @@ async function fullTick(){
   state.running=true;
   const targets = selectedTheaters.slice();
   state.queue = targets.length ? `병렬 수집 ${targets.length}곳` : "대기";
-  log(`[스케줄러] 병렬 수집 시작 · ${targets.join(", ") || "없음"}`);
+  log(`[스케줄러] 병렬 수집 시작 · ${targets.join(", ") || "없음"} · ${INSTANCE_ID}`);
+  try { await fetch(`${OPENBELL_URL}/api/seat-report`, { method:"POST", headers:{ authorization:`Bearer ${TOKEN}`, "content-type":"application/json", "user-agent":"openbell-reporter/11.27" }, body: JSON.stringify({ source:reportSource, instanceId:INSTANCE_ID, heartbeat:true }), signal: AbortSignal.timeout(8000) }); } catch {}
   try{
     // 4개 극장을 동시에 돌린다.
     // - 메가박스: 순수 HTTP → 진짜 병렬
@@ -805,7 +814,10 @@ async function fullTick(){
         return {id, ok:true, count:rows.length};
       }catch(e){
         state.errors++;
-        log(`[${id}/full] 실패: ${e.message||e}`);
+        log(`[${id}/full] 조회 실패: ${e.message||e}`);
+        try {
+          await fetch(`${OPENBELL_URL}/api/seat-report`, { method:"POST", headers:{ authorization:`Bearer ${TOKEN}`, "content-type":"application/json", "user-agent":"openbell-reporter/11.27" }, body: JSON.stringify({ theaterId:id, source:reportSource, instanceId:INSTANCE_ID, status:"scrape_failed" }), signal: AbortSignal.timeout(8000) });
+        } catch {}
         return {id, ok:false, error:String(e.message||e)};
       }
     }));
@@ -824,7 +836,7 @@ const html=`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta nam
 :root{color-scheme:dark}*{box-sizing:border-box}body{font-family:Segoe UI,Malgun Gothic,sans-serif;background:#090d16;color:#eef2f8;margin:0}.wrap{max-width:1320px;margin:0 auto;padding:22px}.card{background:#111827;border:1px solid #25324b;border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 8px 28px #0005}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.title{font-size:25px;font-weight:800}.sub{color:#94a3b8;font-size:13px;margin-top:5px}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.stat{background:#0d1422;border:1px solid #202b41;border-radius:12px;padding:13px}.label{color:#8fa0b8;font-size:11px}.value{font-size:21px;font-weight:800;margin-top:5px}.ok{color:#62e6a1}.warn{color:#ffd166}.bad{color:#ff6b7a}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.toolbar select,.toolbar input{background:#0b1220;color:#e8edf5;border:1px solid #31405d;border-radius:9px;padding:9px 11px}.toolbar input{min-width:230px}.toolbar label{display:flex;align-items:center;gap:6px;color:#aab7cb;font-size:13px}button{border:0;border-radius:9px;padding:9px 13px;cursor:pointer;font-weight:800}button.primary{background:#e7edf7;color:#0a1020}button.secondary{background:#25324b;color:#e7edf7}.tablewrap{max-height:560px;overflow:auto;border:1px solid #25324b;border-radius:12px}table{width:100%;border-collapse:collapse;font-size:13px}th{position:sticky;top:0;background:#0d1422;color:#93a4bd;text-align:left;padding:10px;border-bottom:1px solid #2a3852}td{padding:9px 10px;border-bottom:1px solid #1d273a}tr.zero{background:#3a1820}tr.low{background:#342c14}tr.good{background:#10271d}.seat{font-weight:900;font-size:14px}.imax{color:#e879f9;font-weight:800}.muted{color:#8391a7}.pill{display:inline-block;padding:4px 8px;border-radius:99px;background:#202d46;margin:3px}.theaterCheck{display:flex;align-items:center;justify-content:center;gap:8px;background:#0d1422;border:2px solid #25324b;border-radius:12px;padding:16px 13px;color:#dbe4f2;font-size:14px;cursor:pointer;transition:background .12s,border-color .12s}.theaterCheck:hover{border-color:#5d769f;background:#141f34}.theaterCheck.selected{background:#18243a;border-color:#62e6a1}.theaterCheck.selected:hover{border-color:#7bf0b3}.theaterCheck:disabled{opacity:.6;cursor:wait}.theaterGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}@media(max-width:820px){.theaterGrid{grid-template-columns:repeat(2,1fr)}}@media(max-width:480px){.theaterGrid{grid-template-columns:1fr}}.checkMark{width:18px;text-align:center;font-weight:900}.legend{display:flex;gap:14px;font-size:12px;color:#9aa9be;margin-top:9px}.dot{font-weight:800}.logs{height:210px;overflow:auto;background:#070b12;border-radius:10px;padding:11px;font:11px ui-monospace,Consolas,monospace;white-space:pre-wrap;color:#b9c4d6}.count{color:#9daac0;font-size:12px;margin-left:auto}.statusline{margin-top:12px}.mobileHide{}@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:12px}.tablewrap{max-height:500px}.mobileHide{display:none}}
 .theaterBoard{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:6px}@media(max-width:1100px){.theaterBoard{grid-template-columns:repeat(2,1fr)}}@media(max-width:640px){.theaterBoard{grid-template-columns:1fr}}.theaterCol{min-width:0;background:#0d1422;border:1px solid #25324b;border-radius:12px;padding:12px;max-height:640px;overflow:auto}.theaterColHead{font-weight:800;font-size:14px;margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid #223047;position:sticky;top:-12px;background:#0d1422}.showRow{border-radius:10px;padding:9px 10px;margin-bottom:7px;background:#0b1220}.showRow.zero{background:#2a1319}.showRow.low{background:#2a2410}.showRow.good{background:#0c2118}.showTop{display:flex;justify-content:space-between;align-items:center;font-size:13px}.showTop b{font-variant-numeric:tabular-nums}.showTop .imax{color:#e879f9;font-weight:800;font-size:11px}.showTitle{margin:3px 0;font-size:12px;font-weight:600}.showBottom{display:flex;justify-content:space-between;font-size:11px;color:#c4cfe0}
 </style></head><body><div class="wrap">
-<div class="card"><div class="head"><div><div class="title">🎬 OpenBell PC Reporter <span style="font-size:14px;color:#8fa0b8;font-weight:700">v11.26</span></div><div class="sub">CGV 실제 예매 화면 + 메가박스 상영정보 기반 · 좌석 수집 현황을 자동 감시합니다.</div></div><div id="browser" class="statusline">__SERVER_STATUS__</div></div></div>
+<div class="card"><div class="head"><div><div class="title">🎬 OpenBell PC Reporter <span style="font-size:14px;color:#8fa0b8;font-weight:700">v11.27</span></div><div class="sub">CGV 실제 예매 화면 + 메가박스 상영정보 기반 · 좌석 수집 현황을 자동 감시합니다.</div></div><div id="browser" class="statusline">__SERVER_STATUS__</div></div></div>
 <div class="card"><h3 style="margin:0 0 4px">감시 극장 선택 <span class="count" id="theaterCount2"></span></h3><div class="sub">아래 극장을 눌러서 켜고 끄세요. 클릭 즉시 저장됩니다.</div><div class="theaterGrid" id="theaterChecks"></div></div>
 <div class="grid"><div class="stat"><div class="label">자동 감시 주기</div><div class="value">${INTERVAL_MS/1000}s</div></div><div class="stat"><div class="label">감시 극장</div><div class="value" id="theaterCount">${selectedTheaters.length}곳</div></div><div class="stat"><div class="label">수집 기간</div><div class="value" id="daysValue">${daysAhead}일</div></div><div class="stat"><div class="label">현재 표시 회차</div><div class="value" id="rows">__SERVER_ROWCOUNT__</div></div><div class="stat"><div class="label">누적 저장 회차</div><div class="value" id="count">__SERVER_COUNT__</div></div></div>
 <div class="card"><div class="head"><div><h2 style="margin:0">상영시간 · 잔여석</h2><div class="sub">🟢 6석 이상 · 🟡 1~5석 · 🔴 매진 · 좌석이 줄면 ▼ 표시</div></div><div id="updated" class="count">__SERVER_UPDATED__</div></div>
@@ -839,7 +851,7 @@ const html=`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta nam
 // 브라우저 쪽 코드가 서버 전용 변수를 잘못 참조하던 버그(극장 버튼이 반응 없던 원인)를 없앤다.
 const ALL_SITES=${JSON.stringify(Object.fromEntries(THEATER_ORDER.map(id=>[id,{theaterName:ALL_SITES[id].theaterName}])))};
 let latest=[];
-function decodeHtml(s){return String(s||'').replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n)).replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>String.fromCharCode(parseInt(h,16))).replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#39;|&apos;/g,"'").replace(/&amp;/g,'&');}function fmtShowDate(playDate){const s=String(playDate||'').trim();let m,d;if(/^\d{4}-\d{2}-\d{2}/.test(s)){m=+s.slice(5,7);d=+s.slice(8,10);}else if(/^\d{8}/.test(s)){m=+s.slice(4,6);d=+s.slice(6,8);}else return s;return (!m||!d)?s:(m+'/'+d);}
+function decodeHtml(s){let cur=String(s||'');for(let i=0;i<4;i++){const next=cur.replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n)).replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>String.fromCharCode(parseInt(h,16))).replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#39;|&apos;/g,"'").replace(/&amp;/g,'&');if(next===cur)break;cur=next;}return cur;}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 let theaterSaveBusy=false;
 let theaterUiState=new Map();

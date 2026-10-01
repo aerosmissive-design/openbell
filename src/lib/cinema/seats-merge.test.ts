@@ -61,4 +61,26 @@ describe("mergeShowtimes", () => {
     const otherMovie = show({ id: "m", movieTitle: "완전히다른영화", hallName: "IMAX", startTime: "19:20" });
     assert.equal(mergeShowtimes([imax, other, otherMovie]).length, 3);
   });
+
+  it("keeps official seats over a later fallback number", () => {
+    const official = show({
+      id: "off",
+      movieTitle: "테스트",
+      hallName: "IMAX",
+      startTime: "19:20",
+      restSeats: 9,
+      seatSource: "official",
+    });
+    const reporter = show({
+      id: "rep",
+      movieTitle: "테스트",
+      hallName: "IMAX관",
+      startTime: "19:20",
+      restSeats: 1,
+      seatSource: "g-pc",
+    });
+    const merged = mergeShowtimes([official, reporter]);
+    assert.equal(merged[0]?.restSeats, 9);
+    assert.equal(merged[0]?.sourceType, "official");
+  });
 });

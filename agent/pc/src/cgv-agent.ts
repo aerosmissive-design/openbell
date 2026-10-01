@@ -14,6 +14,7 @@ import {
   looksLikeCaptchaChallenge,
   looksLikeLoginPage,
   showtimeClickLabels,
+  assertPaymentHardStop,
 } from "./safety.js";
 
 export type BookingTarget = {
@@ -92,6 +93,7 @@ export class CgvBookingAgent {
   private context?: BrowserContext;
   private page?: Page;
   private stopped = false;
+  private paymentClicks = 0;
   private selectedSeats: string[] = [];
   private readonly options: Required<Pick<BookingAgentOptions, "headless" | "timeoutMs">> & BookingAgentOptions;
 
@@ -432,6 +434,14 @@ export class CgvBookingAgent {
     this.stopped = true;
     await this.saveFailureShot(page, "payment-ready");
     const url = page.url();
+    const visibleText = await page.locator("body").innerText().catch(() => "");
+    assertPaymentHardStop({
+      url,
+      visibleText,
+      paymentClicks: this.paymentClicks,
+      state: "PAYMENT_READY",
+    });
+    console.log("[ASSERT] WAITING_USER held. No further clicks.");
     const seats = this.selectedSeats.length ? this.selectedSeats : (target.seatIds ?? []);
     await this.options.onPaymentReady?.({ url, seats });
     return { url, seats, hardStop: true as const };

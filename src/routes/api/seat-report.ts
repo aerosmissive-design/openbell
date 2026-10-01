@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { readAppMeta, writeAppMeta } from "@/lib/cinema/app-meta.server";
 import { relaySeatToGas } from "@/lib/cinema/gas-fallback.server";
+import { normalizeSourceKey, seatReportStatus, type SeatReportStatus } from "@/lib/cinema/source-key";
 
 const ALLOWED = new Set([
   "cgv_yongsan",
@@ -51,6 +52,7 @@ type SeatRow = {
   scnSseq?: string;
   restSeats?: number;
   totalSeats?: number;
+  status?: SeatReportStatus;
 };
 function normalizeSource(source?: string): ReporterSource {
   const s = String(source || "").trim().toLowerCase();
@@ -88,6 +90,7 @@ function cleanRows(rows: SeatRow[]) {
       scnSseq: r.scnSseq ? String(r.scnSseq).trim() : "",
       restSeats,
       totalSeats: Number.isFinite(totalSeats) ? totalSeats : undefined,
+      status: seatReportStatus(restSeats, r.status),
     });
     if (out.length >= MAX_ROWS) break;
   }
@@ -99,9 +102,50 @@ function sourceKey(source: ReporterSource, theaterId: string) {
   const src = source === "nas" ? "nas423" : source;
   return `nas_seats:${src}:${theaterId}`;
 }
-/** 하위호환 레거시 키 (가장 최근 1건). */
+function instanceKey(sourceId: string, theaterId: string) {
+  return `reporter_seen:${sourceId}:${theaterId}`;
+}
 function legacyKey(theaterId: string) {
   return `nas_seats:${theaterId}`;
+}
+const OFFLINE_MS = 10 * 60 * 1000;
+async function rememberInstance(sourceId: string, displayGroup: string, status: string) {
+  const raw = await readAppMeta("reporter_instances");
+  let list: { sourceId: string; displayGroup: string; at: number; status: string }[] = [];
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    if (Array.isArray(parsed)) list = parsed;
+  } catch {
+    list = [];
+  }
+  const next = list.filter((row) => row && row.sourceId !== sourceId);
+  next.push({ sourceId, displayGroup, at: Date.now(), status });
+  await writeAppMeta("reporter_instances", JSON.stringify(next.slice(-40)));
+}
+
+async function reporterInstances() {
+  const raw = await readAppMeta("reporter_instances");
+  let list: { sourceId?: string; displayGroup?: string; at?: number; status?: string }[] = [];
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    if (Array.isArray(parsed)) list = parsed;
+  } catch {
+    list = [];
+  }
+  const now = Date.now();
+  return list.map((row) => {
+    const at = Number(row.at) || 0;
+    const ageMs = at ? now - at : null;
+    const offline = ageMs == null || ageMs > OFFLINE_MS;
+    return {
+      sourceId: row.sourceId || "",
+      displayGroup: row.displayGroup || "",
+      at,
+      ageMs,
+      status: offline ? "offline" : row.status || "available",
+      offline,
+    };
+  });
 }
 
 async function handleGet(request: Request) {
@@ -160,7 +204,7 @@ async function handleGet(request: Request) {
       };
     }
   }
-  return json({ ok: true, theaters });
+  return json({ ok: true, theaters, instances: await reporterInstances() });
 }
 
 async function handlePost(request: Request) {
@@ -176,10 +220,50 @@ async function handlePost(request: Request) {
     theaterId?: string;
     mode?: string;
     source?: string;
+    status?: string;
+    instanceId?: string;
+    heartbeat?: boolean;
     showtimes?: SeatRow[];
   };
+  const named = normalizeSourceKey(
+    record.instanceId ? `${record.source || "pc"}:${record.instanceId}` : record.source,
+  );
   const theaterId = String(record?.theaterId || "").trim();
+  if (record.heartbeat) {
+    const seen = JSON.stringify({
+      at: Date.now(),
+      sourceId: named.sourceId,
+      displayGroup: named.displayGroup,
+      status: record.status || "available",
+    });
+    await writeAppMeta(
+      ALLOWED.has(theaterId) ? instanceKey(named.sourceId, theaterId) : `reporter_seen:${named.sourceId}`,
+      seen,
+    );
+    await rememberInstance(named.sourceId, named.displayGroup, String(record.status || "available"));
+    return json({ ok: true, heartbeat: true, sourceId: named.sourceId, displayGroup: named.displayGroup });
+  }
   if (!ALLOWED.has(theaterId)) return json({ ok: false, error: "unknown theater" }, 400);
+  const reportStatus = String(record.status || "");
+  if ((reportStatus === "scrape_failed" || reportStatus === "offline") && !Array.isArray(record.showtimes)) {
+    await writeAppMeta(
+      instanceKey(named.sourceId, theaterId),
+      JSON.stringify({
+        at: Date.now(),
+        sourceId: named.sourceId,
+        displayGroup: named.displayGroup,
+        status: reportStatus,
+        count: 0,
+      }),
+    );
+    return json({
+      ok: true,
+      status: reportStatus,
+      sourceId: named.sourceId,
+      displayGroup: named.displayGroup,
+      count: 0,
+    });
+  }
   const incoming = cleanRows(Array.isArray(record?.showtimes) ? record.showtimes : []);
   if (!incoming.length) return json({ ok: false, error: "empty payload" }, 400);
   const source = normalizeSource(record.source);
@@ -204,9 +288,22 @@ async function handlePost(request: Request) {
     rows,
     mode: merge ? "merge" : "full",
     source: storageSource,
+    sourceId: named.sourceId,
+    displayGroup: named.displayGroup,
   });
   const sourceWrite = await writeAppMeta(sk, payload);
   const legacyWrite = await writeAppMeta(legacyKey(theaterId), payload);
+  await writeAppMeta(
+    instanceKey(named.sourceId, theaterId),
+    JSON.stringify({
+      at: Date.now(),
+      sourceId: named.sourceId,
+      displayGroup: named.displayGroup,
+      status: "available",
+      count: rows.length,
+    }),
+  );
+  await rememberInstance(named.sourceId, named.displayGroup, "available");
   const dbOk = sourceWrite.ok && legacyWrite.ok;
   let gas: "ok" | "fail" | "skip" = "skip";
   if (!dbOk) {
@@ -236,6 +333,8 @@ async function handlePost(request: Request) {
     stored: rows.length,
     merge,
     source: storageSource,
+    sourceId: named.sourceId,
+    displayGroup: named.displayGroup,
     key: sk,
   });
 }

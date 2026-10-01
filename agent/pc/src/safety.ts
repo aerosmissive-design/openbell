@@ -110,6 +110,33 @@ export function isBookingShowtime(value: string) {
   return /^\d{1,2}:\d{2}$/.test(value.trim());
 }
 
+const PAYMENT_URL = /\/payment|\/checkout|ticketpay|(?:^|\/)pay(?:ment)?(?:\/|$|\?)/i;
+
+/** 결제 단계 확인. 클릭 수가 0이 아니면 즉시 중단. 결제 버튼은 누르지 않는다. */
+export function assertPaymentHardStop(input: {
+  url: string;
+  visibleText: string;
+  paymentClicks: number;
+  state: "PAYMENT_READY" | "WAITING_USER";
+}) {
+  const urlHit = PAYMENT_URL.test(input.url.toLowerCase());
+  const textHit = /최종결제금액|결제수단|신용카드\s*결제|결제\s*정보\s*입력|주문서/.test(input.visibleText);
+  const selectorSeen = FORBIDDEN_CLICK_WORDS.test(input.visibleText);
+  console.log(`[ASSERT] payment_selector_seen=${selectorSeen}`);
+  console.log(`[ASSERT] payment_url=${urlHit}`);
+  console.log(`[ASSERT] state=${input.state}`);
+  console.log(`[ASSERT] payment_clicks=${input.paymentClicks}`);
+  if (input.paymentClicks !== 0) {
+    throw new Error("HARD_STOP_VIOLATION: payment click count is not 0");
+  }
+  if (input.state !== "PAYMENT_READY" && input.state !== "WAITING_USER") {
+    throw new Error("HARD_STOP_VIOLATION: state left the payment hold");
+  }
+  if (!urlHit && !textHit && !selectorSeen) {
+    throw new Error("HARD_STOP_ASSERT: payment page was not detected");
+  }
+}
+
 /** Calendar labels to try for BOOKING_DATE=YYYY-MM-DD or YYYYMMDD. */
 export function dateClickLabels(iso: string): string[] {
   const raw = iso.trim();

@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20261001-esc1";
+export const GAS_SOURCE_STAMP = "20261001-yong1";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -866,6 +866,7 @@ function seatSourceBoardLabel_(source) {
   if (s === "nas423" || s === "g-ds423+" || s === "g-nas423+" || s === "g_ds423+" || s === "ds423" || s === "ds423+") return "G_DS423+";
   if (s === "nas225" || s === "g-ds225+" || s === "g-nas225+" || s === "g_ds225+" || s === "ds225" || s === "ds225+") return "G_DS225+";
   if (s === "pc" || s === "g-pc" || s === "nas-report") return "G_PC";
+  if (s === "yong-imax" || s === "yongsan-imax" || s === "imax-channel") return "용아맥채널";
   return source || "scrape";
 }
 
@@ -2340,14 +2341,16 @@ function parseCgvTelegramAll_() {
         var time = String(mark).replace(/[^0-9:]/g, "");
         if (time.length === 4) time = "0" + time;
         if (!out[date]) out[date] = [];
-        out[date].push(cgvRow_(
+        var row = cgvRow_(
           date,
           time,
           "IMAX관",
           title,
           "",
           "cgv_yongsan"
-        ));
+        );
+        row.seatSource = "yong-imax";
+        out[date].push(row);
       });
     }
     if (!Object.keys(out).length && !CGV_ERR_) CGV_ERR_ = "용아맥 채널 시간표 없음";

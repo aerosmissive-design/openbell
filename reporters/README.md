@@ -23,7 +23,7 @@ GAS는 POST body `{ theaterId, mode, source, showtimes, key? }` 를 받아
 베셀 환경변수 토큰과 리포터 토큰이 같아야 Vercel 전송이 됩니다.
 
 
-## GUI 패키지 (실제로 쓰는 zip) v11.26
+## GUI 패키지 (실제로 쓰는 zip) v11.27
 
 - `gui-pc/` Windows 원클릭 + Edge 화면 수집. 출처 고정 G_PC.
 - `gui-nas/` 시놀로지. `REPORT_SOURCE=nas423` 또는 `nas225`.

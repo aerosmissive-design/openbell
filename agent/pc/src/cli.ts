@@ -31,6 +31,12 @@ function optionalNumber(name: string) {
 
 applyEnvFile(process.env.OPENBELL_AGENT_CONFIG || resolve(PC_ROOT, "config.env"));
 
+if ((process.env.AGENT_MODE || "local").trim().toLowerCase() === "poll") {
+  const { runJobPoll } = await import("./poll.js");
+  await runJobPoll();
+  process.exit(0);
+}
+
 const requestedSeatCount = Number(process.env.BOOKING_SEAT_COUNT || "2");
 if (!Number.isInteger(requestedSeatCount) || requestedSeatCount < 1) {
   throw new Error("INVALID_BOOKING_SEAT_COUNT");
@@ -91,6 +97,7 @@ for (const [key, value] of Object.entries(process.env)) {
 
 console.log("========================================");
 console.log("OpenBell PC Agent preflight");
+console.log(`APP_VERSION=2.0.16 BUILD_HASH=${process.env.BUILD_HASH || "dev"} AGENT_VERSION=2.0.16 mode=local`);
 console.log(`Mode: ${dryRun ? "dry-run" : "linked"}`);
 console.log(`Movie: ${target.movieTitle}`);
 console.log(`Date: ${target.playDate}`);

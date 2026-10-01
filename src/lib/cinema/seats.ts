@@ -1,6 +1,7 @@
 import { normalizeTitle } from "@/lib/utils";
 import { titlesMatch } from "./match";
 import type { Showtime } from "./types";
+import { sourceTypeOf, sourceTypeRank } from "./source-key";
 import { clockVariants, hallsMatch, normTime } from "./seats-lookup";
 
 export type { SeatHit, SeatHitMap } from "./seats-lookup";
@@ -53,16 +54,27 @@ export function mergeShowtimes(primary: Showtime[], extra: Showtime[] = []): Sho
       continue;
     }
     const prev = out[index]!;
+    const incomingSeats = row.restSeats != null;
+    const keepIncoming =
+      incomingSeats &&
+      (prev.restSeats == null || sourceTypeRank(row.seatSource) >= sourceTypeRank(prev.seatSource));
+    const restSeats = keepIncoming ? row.restSeats : prev.restSeats;
+    const seatSource = keepIncoming
+      ? row.seatSource && row.seatSource !== "none"
+        ? row.seatSource
+        : prev.seatSource
+      : prev.seatSource;
     out[index] = {
       ...prev,
       ...row,
-      restSeats: row.restSeats ?? prev.restSeats,
-      totalSeats: row.totalSeats ?? prev.totalSeats,
+      restSeats,
+      totalSeats: keepIncoming ? (row.totalSeats ?? prev.totalSeats) : (prev.totalSeats ?? row.totalSeats),
       bookingUrl: betterBookingUrl(row.bookingUrl, prev.bookingUrl),
       movieNo: row.movieNo || prev.movieNo,
-      seatLive: row.restSeats != null ? (row.seatLive ?? true) : prev.seatLive,
-      seatCheckedAt: row.seatCheckedAt ?? prev.seatCheckedAt,
-      seatSource: row.seatSource && row.seatSource !== "none" ? row.seatSource : prev.seatSource,
+      seatLive: restSeats != null ? (keepIncoming ? (row.seatLive ?? true) : (prev.seatLive ?? row.seatLive)) : prev.seatLive,
+      seatCheckedAt: keepIncoming ? (row.seatCheckedAt ?? prev.seatCheckedAt) : (prev.seatCheckedAt ?? row.seatCheckedAt),
+      seatSource,
+      sourceType: sourceTypeOf(seatSource),
     };
   }
   return out;

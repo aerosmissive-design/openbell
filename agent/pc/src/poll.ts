@@ -1,0 +1,142 @@
+import { hostname } from "node:os";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { isExactCgvBookingUrl, type BookingState } from "./cgv-agent.js";
+import { PC_ROOT } from "./env.js";
+import { createSession, notifyPaymentReady, updateState } from "./openbell-api.js";
+import { runBooking } from "./run.js";
+
+type Job = {
+  id: string;
+  movieTitle: string;
+  theaterId: string;
+  playDate: string;
+  startTime: string;
+  hallName: string;
+  bookingUrl: string;
+  seats: number;
+  preferredSeats: string[];
+};
+
+const AGENT_VERSION = "2.0.16";
+
+function required(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`MISSING_ENV:${name}`);
+  return value;
+}
+
+async function api(path: string, body: unknown) {
+  const base = required("OPENBELL_URL").replace(/\/$/, "");
+  const token = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim();
+  if (!token) throw new Error("MISSING_ENV:NAS_WORKER_TOKEN");
+  const res = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json: { ok?: boolean; reason?: string; job?: Job | null; error?: string } = {};
+  try {
+    json = JSON.parse(text) as typeof json;
+  } catch {
+    json = { ok: false, error: text.slice(0, 200) };
+  }
+  if (json.reason === "dbQuota" || json.reason === "dbConn") {
+    const err = new Error(json.reason);
+    err.name = json.reason;
+    throw err;
+  }
+  if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+export async function runJobPoll() {
+  let build = "dev";
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(PC_ROOT, "package.json"), "utf8")) as { version?: string };
+    build = pkg.version || build;
+  } catch {
+    /* keep dev */
+  }
+  const agentId = process.env.AGENT_ID?.trim() || `${hostname()}-pc`;
+  console.log(`[agent] APP_VERSION=${build} BUILD_HASH=${process.env.BUILD_HASH || "dev"} AGENT_VERSION=${AGENT_VERSION} mode=poll id=${agentId}`);
+  let backoff = 15_000;
+  for (;;) {
+    try {
+      const claimed = await api("/api/booking/jobs/claim", { agentId });
+      backoff = 15_000;
+      const job = claimed.job;
+      if (!job) {
+        await new Promise((r) => setTimeout(r, 15_000));
+        continue;
+      }
+      await runOne(agentId, job);
+    } catch (err) {
+      const name = err instanceof Error ? err.name : "";
+      if (name === "dbQuota" || name === "dbConn") {
+        console.warn(`[poll] ${name} backoff ${backoff}ms`);
+        await new Promise((r) => setTimeout(r, backoff));
+        backoff = Math.min(backoff * 2, 120_000);
+        continue;
+      }
+      console.error(err instanceof Error ? err.message : err);
+      await new Promise((r) => setTimeout(r, 15_000));
+    }
+  }
+}
+
+async function runOne(agentId: string, job: Job) {
+  const beat = setInterval(() => {
+    void api("/api/booking/jobs/heartbeat", { id: job.id, agentId }).catch((err) => {
+      console.warn(`[poll] heartbeat ${err instanceof Error ? err.message : err}`);
+    });
+  }, 3 * 60 * 1000);
+  const openbellUrl = required("OPENBELL_URL").replace(/\/$/, "");
+  const workerToken = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim() || "";
+  let status: "done" | "failed" | "need_user" = "failed";
+  let message = "";
+  try {
+    const sessionId = await createSession({
+      openbellUrl,
+      workerToken,
+      theaterId: job.theaterId || "cgv_yongsan",
+      movieTitle: job.movieTitle,
+      playDate: job.playDate,
+      showtime: job.startTime,
+      hall: job.hallName || "",
+      requestedSeatCount: job.seats || 2,
+      bookingUrl: job.bookingUrl,
+    });
+    const onState = async (state: BookingState) => {
+      await updateState({ openbellUrl, workerToken, sessionId, state });
+    };
+    await runBooking({
+      movieTitle: job.movieTitle,
+      playDate: job.playDate,
+      showtime: job.startTime,
+      requestedSeatCount: job.seats || 2,
+      bookingUrl: isExactCgvBookingUrl(job.bookingUrl) ? job.bookingUrl : undefined,
+      seatIds: job.preferredSeats?.length ? job.preferredSeats : undefined,
+      storageStatePath: process.env.CGV_STORAGE_STATE,
+      headless: /^(1|true|yes|on)$/i.test(process.env.PLAYWRIGHT_HEADLESS || ""),
+      holdAtPayment: true,
+      onStateChange: onState,
+      onPaymentReady: async ({ url, seats }) => {
+        status = "need_user";
+        message = "PAYMENT_READY hard stop";
+        const callbackUrl = isExactCgvBookingUrl(url) ? url : isExactCgvBookingUrl(job.bookingUrl) ? job.bookingUrl : "";
+        await notifyPaymentReady({ openbellUrl, workerToken, sessionId, url: callbackUrl, seats });
+      },
+    });
+    if (status !== "need_user") status = "done";
+  } catch (err) {
+    message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("PAYMENT_READY") && status !== "need_user") status = "failed";
+  } finally {
+    clearInterval(beat);
+    await api("/api/booking/jobs/complete", { id: job.id, agentId, status, resultMessage: message }).catch((err) => {
+      console.warn(`[poll] complete failed ${err instanceof Error ? err.message : err}`);
+    });
+  }
+}

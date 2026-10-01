@@ -41,6 +41,7 @@ export async function runBooking(input: RunBookingInput) {
     const result = await agent.goToPaymentPage(input);
     if (holdAtPayment) {
       await input.onStateChange?.("WAITING_USER");
+      console.log("[ASSERT] WAITING_USER maintained. payment_clicks=0");
       console.log("Payment hard stop reached. Browser remains open for manual completion.");
       await agent.waitForBrowserClose();
     } else {
