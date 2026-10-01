@@ -78,7 +78,7 @@ const GUI_PORT_START = Number(process.env.GUI_PORT || 17653);
 const GUI_HOST = (process.env.GUI_HOST || "0.0.0.0").trim() || "0.0.0.0";
 let GUI_PORT = GUI_PORT_START;
 const CGV_WAIT_MS = Math.max(3000, Number(process.env.CGV_WAIT_MS || 6000));
-const VERSION = "11.27";
+const VERSION = "11.28";
 const INSTANCE_ID = process.env.REPORTER_INSTANCE || os.hostname() || "unknown";
 
 const ALL_SITES = {
