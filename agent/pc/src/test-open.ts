@@ -1,51 +1,72 @@
-import { chromium, type Page } from "playwright";
-import { createInterface } from "node:readline/promises";
-import { stdin, stdout } from "node:process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { PC_ROOT } from "./env.js";
+import { runBooking, runMegabox } from "./run.js";
 
-async function clickFirst(page: Page, names: string[]) {
-  for (const name of names) {
-    const button = page.getByRole("button", { name }).first();
-    if (await button.count()) {
-      await button.click({ timeout: 4000 }).catch(() => undefined);
-      return name;
+function envFile() {
+  const out: Record<string, string> = {};
+  try {
+    for (const line of readFileSync(resolve(PC_ROOT, "config.env"), "utf8").split(/\r?\n/)) {
+      const m = line.match(/^([^#=]+)=(.*)$/);
+      if (m) out[m[1].trim()] = m[2].trim();
     }
-  }
-  return "";
+  } catch { /* empty */ }
+  return out;
 }
 
-async function show(page: Page, label: string) {
-  console.log(`[화면] ${label} ${page.url()}`);
-  await page.waitForTimeout(2000);
+const env = envFile();
+const base = (env.OPENBELL_URL || process.env.OPENBELL_URL || "https://openbell-fawn.vercel.app").replace(/\/$/, "");
+const token = env.NAS_WORKER_TOKEN || process.env.NAS_WORKER_TOKEN || "99159915";
+
+async function api(path: string, body?: unknown) {
+  const res = await fetch(`${base}${path}`, {
+    method: body ? "POST" : "GET",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json() as Promise<{ ok?: boolean; job?: any; cgv?: any; megabox?: any; error?: string }>;
 }
 
-const browser = await chromium.launch({ headless: false });
-const page = await browser.newPage();
-
-console.log("[CGV] 로그인 화면");
-await page.goto("https://cgv.co.kr/mem/login?returnUrl=%2Fcnm%2FselectVisitorCnt&nmbrAtktFlag=Y", { waitUntil: "domcontentloaded" });
-await show(page, "CGV 로그인");
-console.log("[CGV] 인원 선택 화면으로 이동");
-await page.goto("https://cgv.co.kr/cnm/selectVisitorCnt", { waitUntil: "domcontentloaded" }).catch(() => undefined);
-await show(page, "CGV 인원");
-const cgvCount = await clickFirst(page, ["2", "일반 2", "성인 2"]);
-console.log(cgvCount ? `[CGV] 인원 버튼 ${cgvCount}` : "[CGV] 인원 버튼을 못 찾음. 화면을 직접 확인.");
-const cgvNext = await clickFirst(page, ["선택완료", "좌석선택", "다음"]);
-console.log(cgvNext ? `[CGV] ${cgvNext} 클릭. 결제는 안 누름.` : "[CGV] 좌석 이동 버튼을 못 찾음.");
-await show(page, "CGV 좌석 시도 후");
-
-console.log("[메가박스] 홈");
-await page.goto("https://www.megabox.co.kr/booking", { waitUntil: "domcontentloaded" }).catch(async () => {
-  await page.goto("https://www.megabox.co.kr/", { waitUntil: "domcontentloaded" });
-});
-await show(page, "메가박스 예매");
-const megaCount = await clickFirst(page, ["2", "일반2", "성인2"]);
-console.log(megaCount ? `[메가박스] 인원 버튼 ${megaCount}` : "[메가박스] 인원 버튼을 못 찾음. 화면을 직접 확인.");
-const megaNext = await clickFirst(page, ["좌석선택", "좌석 선택", "다음"]);
-console.log(megaNext ? `[메가박스] ${megaNext} 클릭. 결제는 안 누름.` : "[메가박스] 좌석 이동 버튼을 못 찾음.");
-await show(page, "메가박스 좌석 시도 후");
-console.log("결제 버튼은 누르지 않았다. Enter를 누르면 닫는다.");
-const rl = createInterface({ input: stdin, output: stdout });
-await rl.question("");
-rl.close();
-await browser.close();
+const shows = await api("/api/booking/test-shows");
+if (!shows.cgv || !shows.megabox) {
+  console.log("[FAIL] 전광판에 CGV 또는 메가박스 실제 회차가 없다. 리포터가 좌석을 보낸 뒤 다시 실행.");
+  console.log(JSON.stringify(shows));
+  process.exit(1);
+}
+const seats = 1 + Math.floor(Math.random() * 4);
+async function make(show: any) {
+  const created = await api("/api/booking/jobs", {
+    movieTitle: show.movieTitle,
+    theaterId: show.theaterId,
+    playDate: show.playDate,
+    startTime: show.startTime,
+    hallName: show.hallName || "",
+    bookingUrl: show.bookingUrl,
+    seats,
+  });
+  if (!created.job) throw new Error(created.error || "job create failed");
+  console.log(`[JOB] ${show.theaterId} ${created.job.movieTitle} ${created.job.playDate} ${created.job.startTime} ${created.job.seats}명`);
+  return created.job;
+}
+const cgv = await make(shows.cgv);
+const mega = await make(shows.megabox);
+console.log("CGV 창과 메가박스 창을 따로 연다. 결제 버튼은 안 누른다.");
+await Promise.all([
+  runBooking({
+    movieTitle: cgv.movieTitle,
+    playDate: cgv.playDate,
+    showtime: cgv.startTime,
+    requestedSeatCount: cgv.seats,
+    bookingUrl: cgv.bookingUrl,
+    holdAtPayment: true,
+    onPaymentReady: async () => console.log("[CGV] PAYMENT_READY hard stop"),
+  }),
+  runMegabox({
+    movieTitle: mega.movieTitle,
+    playDate: mega.playDate,
+    showtime: mega.startTime,
+    bookingUrl: mega.bookingUrl,
+    onPaymentReady: async () => console.log("[메가박스] PAYMENT_READY hard stop"),
+  }),
+]);
 console.log("TEST_DONE");
