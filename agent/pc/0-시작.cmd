@@ -3,7 +3,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 title OpenBell PC Agent
 echo ========================================
-echo OpenBell PC Agent 2.0.17
+echo OpenBell PC Agent 2.0.18
 echo one click: install, check, poll
 echo payment button is never clicked
 echo ========================================

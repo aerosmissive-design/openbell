@@ -10,6 +10,20 @@ export type RunBookingInput = BookingTarget & {
 };
 
 /** Runs the full non-payment portion of a CGV booking. */
+export async function runMegabox(input: { movieTitle: string; playDate: string; showtime: string; bookingUrl?: string; onPaymentReady?: (info: { url: string; seats: string[] }) => Promise<void> }) {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: false });
+  const page = await browser.newPage();
+  const url = input.bookingUrl && /megabox/i.test(input.bookingUrl) ? input.bookingUrl : "https://www.megabox.co.kr/";
+  console.log(`[megabox] open ${input.movieTitle} ${input.playDate} ${input.showtime}`);
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  console.log("[megabox] login/seat DOM unverified. Stop before payment.");
+  await input.onPaymentReady?.({ url: page.url(), seats: [] });
+  console.log("PAYMENT_READY hard stop. Pay yourself. Payment button was not clicked.");
+  await new Promise((r) => setTimeout(r, 10 * 60 * 1000));
+  await browser.close().catch(() => undefined);
+}
+
 export async function runBooking(input: RunBookingInput) {
   const headless = input.headless ?? false;
   const holdAtPayment = input.holdAtPayment ?? !headless;

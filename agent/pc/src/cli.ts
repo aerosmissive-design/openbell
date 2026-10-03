@@ -97,7 +97,7 @@ for (const [key, value] of Object.entries(process.env)) {
 
 console.log("========================================");
 console.log("OpenBell PC Agent preflight");
-console.log(`APP_VERSION=2.0.17 BUILD_HASH=${process.env.BUILD_HASH || "dev"} AGENT_VERSION=2.0.17 mode=local`);
+console.log(`APP_VERSION=2.0.18 BUILD_HASH=${process.env.BUILD_HASH || "dev"} AGENT_VERSION=2.0.18 mode=local`);
 console.log(`Mode: ${dryRun ? "dry-run" : "linked"}`);
 console.log(`Movie: ${target.movieTitle}`);
 console.log(`Date: ${target.playDate}`);

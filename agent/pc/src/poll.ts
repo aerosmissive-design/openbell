@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { isExactCgvBookingUrl, type BookingState } from "./cgv-agent.js";
 import { PC_ROOT } from "./env.js";
 import { createSession, notifyPaymentReady, updateState } from "./openbell-api.js";
-import { runBooking } from "./run.js";
+import { runBooking, runMegabox } from "./run.js";
 
 type Job = {
   id: string;
@@ -20,7 +20,7 @@ type Job = {
   source?: "vessel" | "gas";
 };
 
-const AGENT_VERSION = "2.0.17";
+const AGENT_VERSION = "2.0.18";
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -188,6 +188,20 @@ async function runOne(agentId: string, job: Job) {
     const onState = async (state: BookingState) => {
       await updateState({ openbellUrl, workerToken, sessionId, state });
     };
+    if (/megabox/i.test(job.theaterId || "") || /megabox/i.test(job.bookingUrl || "")) {
+      await runMegabox({
+        movieTitle: job.movieTitle,
+        playDate: job.playDate,
+        showtime: job.startTime,
+        bookingUrl: job.bookingUrl,
+        onPaymentReady: async ({ url, seats }) => {
+          status = "need_user";
+          message = "PAYMENT_READY hard stop";
+          await notifyPaymentReady({ openbellUrl, workerToken, sessionId, url: "", seats });
+        },
+      });
+      if (status !== "need_user") status = "done";
+    } else {
     await runBooking({
       movieTitle: job.movieTitle,
       playDate: job.playDate,
@@ -207,6 +221,7 @@ async function runOne(agentId: string, job: Job) {
       },
     });
     if (status !== "need_user") status = "done";
+    }
   } catch (err) {
     message = err instanceof Error ? err.message : String(err);
     if (!message.includes("PAYMENT_READY") && status !== "need_user") status = "failed";

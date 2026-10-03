@@ -2,7 +2,9 @@
  * Operator doctor — checks install/config without printing secret values.
  * Usage: npx tsx src/doctor.ts
  */
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
+import { stdin, stdout } from "node:process";
 import { resolve } from "node:path";
 import {
   isBookingDate,
@@ -103,6 +105,20 @@ const token = env.NAS_WORKER_TOKEN ?? process.env.NAS_WORKER_TOKEN ?? process.en
 console.log(`[INFO] OPENBELL_URL: ${maskStatus(openbell)}`);
 if (present(openbell) && !isOfficialOpenBellUrl(openbell!.trim())) {
   lines.push("[WARN] OPENBELL_URL is not https://openbell-fawn.vercel.app — production alias must not change");
+}
+if (poll && (!present(openbell) || !present(token))) {
+  const rl = createInterface({ input: stdin, output: stdout });
+  if (!present(openbell)) {
+    const v = (await rl.question("OPENBELL_URL이 비어 있습니다. 입력하세요: ")).trim() || "https://openbell-fawn.vercel.app";
+    writeFileSync(configPath, `OPENBELL_URL=${v}\n`, { flag: "a" });
+    console.log("[OK] OPENBELL_URL saved");
+  }
+  if (!present(token)) {
+    const v = (await rl.question("NAS_WORKER_TOKEN이 비어 있습니다. 입력하세요 (Enter=99159915): ")).trim() || "99159915";
+    writeFileSync(configPath, `NAS_WORKER_TOKEN=${v}\n`, { flag: "a" });
+    console.log("[OK] NAS_WORKER_TOKEN saved");
+  }
+  rl.close();
 }
 console.log(`[INFO] NAS_WORKER_TOKEN: ${maskStatus(token)}`);
 const gasUrl = env.GAS_WEB_URL ?? process.env.GAS_WEB_URL;
