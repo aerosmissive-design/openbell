@@ -101,6 +101,20 @@ function vesselDown(err: unknown) {
   return /fetch|network|ECONN|ENOTFOUND|ETIMEDOUT|HTTP 5/.test(msg);
 }
 
+async function loadGasFromVessel() {
+  if (process.env.GAS_WEB_URL?.trim()) return;
+  const base = process.env.OPENBELL_URL?.trim()?.replace(/\/$/, "");
+  const token = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim();
+  if (!base || !token) return;
+  const res = await fetch(`${base}/api/booking/gas-url`, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) return;
+  const json = await res.json() as { gasWebUrl?: string };
+  const url = json.gasWebUrl?.trim();
+  if (!url) return;
+  process.env.GAS_WEB_URL = url;
+  console.log("[poll] GAS_WEB_URL loaded from vessel");
+}
+
 export async function runJobPoll() {
   let build = "dev";
   try {
@@ -110,6 +124,7 @@ export async function runJobPoll() {
     /* keep dev */
   }
   const agentId = process.env.AGENT_ID?.trim() || `${hostname()}-pc`;
+  await loadGasFromVessel().catch((err) => console.warn(`[poll] gas url ${err instanceof Error ? err.message : err}`));
   console.log(`[agent] APP_VERSION=${build} BUILD_HASH=${process.env.BUILD_HASH || "dev"} AGENT_VERSION=${AGENT_VERSION} mode=poll id=${agentId}`);
   let backoff = 15_000;
   for (;;) {

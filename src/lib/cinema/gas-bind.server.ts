@@ -105,3 +105,10 @@ export async function claimGasBind(key: string, email?: string) {
     createdAt: row.created_at || "",
   };
 }
+export async function latestGasWebUrl() {
+  const sql = await ensureBindTable();
+  const rows = await sql.query<{ url: string }>(
+    `select url from gas_binds where url <> '' order by created_at desc limit 1`,
+  );
+  return rows[0]?.url || "";
+}
