@@ -11,7 +11,7 @@ import { chromium } from "playwright";
 import { looksLikeLoginPage, looksLoggedInCgv } from "./safety.js";
 import { PC_ROOT, applyEnvFile } from "./env.js";
 
-const CGV_HOME = "https://cgv.co.kr/cnm/movieBook/movie";
+const CGV_HOME = "https://cgv.co.kr/mem/login?returnUrl=%2Fcnm%2FselectVisitorCnt&nmbrAtktFlag=Y";
 
 applyEnvFile();
 
@@ -28,25 +28,8 @@ console.log("========================================");
 const browser = await chromium.launch({ headless: false });
 const context = await browser.newContext({ locale: "ko-KR", timezoneId: "Asia/Seoul" });
 const page = await context.newPage();
-page.on("dialog", (dialog) => {
-  console.log(`[CGV] ${dialog.message()}`);
-  console.log("로그인 팝업이 떠 있습니다. 확인을 직접 누르세요. 프로그램은 확인/비밀번호/결제를 누르지 않습니다.");
-});
 await page.goto(CGV_HOME, { waitUntil: "domcontentloaded" });
-await page.waitForTimeout(1500);
-const theater = page.locator("button, a, li, div").filter({ hasText: /CGV/ }).first();
-if (await theater.count()) {
-  await theater.click({ timeout: 5000 }).catch(() => undefined);
-  console.log("극장을 하나 눌렀습니다.");
-}
-const confirm = page.getByRole("button", { name: /^확인$/ }).first();
-if (await confirm.count()) {
-  await confirm.click({ timeout: 5000 }).catch(() => undefined);
-  console.log("확인을 눌렀습니다. 로그인 팝업을 기다리세요.");
-} else {
-  console.log("확인 버튼을 못 찾았습니다. 화면에서 극장과 확인을 직접 누르세요.");
-}
-
+console.log("CGV 로그인 화면을 열었습니다. 직접 로그인하세요.");
 
 const rl = createInterface({ input: stdin, output: stdout });
 await rl.question("After you are logged in, press Enter here to save (or Ctrl+C to cancel)...\n");
