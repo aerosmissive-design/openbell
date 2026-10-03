@@ -11,7 +11,7 @@ import { chromium } from "playwright";
 import { looksLikeLoginPage, looksLoggedInCgv } from "./safety.js";
 import { PC_ROOT, applyEnvFile } from "./env.js";
 
-const CGV_HOME = "https://www.cgv.co.kr/user/login/";
+const CGV_HOME = "https://cgv.co.kr/cnm/movieBook/movie";
 
 applyEnvFile();
 
@@ -28,11 +28,11 @@ console.log("========================================");
 const browser = await chromium.launch({ headless: false });
 const context = await browser.newContext({ locale: "ko-KR", timezoneId: "Asia/Seoul" });
 const page = await context.newPage();
+page.once("dialog", (dialog) => {
+  console.log(`[CGV] ${dialog.message()}`);
+});
 await page.goto(CGV_HOME, { waitUntil: "domcontentloaded" });
-if (!/login/i.test(page.url())) {
-  const login = page.getByRole("link", { name: /로그인/ }).first();
-  if (await login.count()) await login.click().catch(() => undefined);
-}
+console.log("예매 화면을 열었습니다. '로그인 하시겠습니까?'가 보이면 확인을 직접 누르고 로그인하세요.");
 
 
 const rl = createInterface({ input: stdin, output: stdout });
