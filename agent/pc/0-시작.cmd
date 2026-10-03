@@ -1,15 +1,60 @@
 @echo off
+setlocal
 cd /d "%~dp0"
-where node >nul 2>&1 || (
-  echo Node.js가 없습니다. https://nodejs.org
+title OpenBell PC Agent
+echo ========================================
+echo OpenBell PC Agent 2.0.17
+echo one click: install, check, poll
+echo payment button is never clicked
+echo ========================================
+echo.
+echo [1/4] Node.js
+where node >nul 2>&1
+if errorlevel 1 (
+  echo [FAIL] Node.js missing. Opening https://nodejs.org
+  start https://nodejs.org/
   pause
   exit /b 1
 )
+echo Node.js OK.
+echo.
+echo [2/4] dependencies
 if not exist node_modules (
-  call npm ci
+  if exist package-lock.json (
+    call npm ci
+  ) else (
+    echo package-lock.json missing. npm install
+    call npm install
+  )
+  if errorlevel 1 (
+    echo [FAIL] dependency install failed.
+    pause
+    exit /b 1
+  )
+) else (
+  echo node_modules exists. skip install.
 )
+echo.
+echo [3/4] doctor
+call npx tsx src/doctor.ts
+if errorlevel 1 (
+  echo [FAIL] doctor failed. Read the lines above.
+  pause
+  exit /b 1
+)
+if not exist cgv-storage.json (
+  echo [LOGIN] No saved CGV session.
+  echo A browser will open. Log in yourself. This program does not type the password.
+  echo After login, press Enter in that window, then this continues.
+  call "%~dp0advanced\4-save-login.cmd"
+)
+echo.
+echo [4/4] poll
+echo Waiting for a job from the website. GAS is used only if GAS_WEB_URL is set and the website has no job.
+echo Do not run the NAS booker on the same show.
 set AGENT_MODE=poll
-echo AGENT_MODE=poll  APP_VERSION=2.0.16
-echo 기존 1~5 실행 파일은 이 폴더에 그대로 있습니다. 고급 실행은 advanced\ 를 보세요.
-node node_modules\tsx\dist\cli.mjs src\cli.ts
+call npx tsx src/cli.ts
+echo.
+echo Agent stopped. Copy this window if it failed.
 pause
+exit /b %ERRORLEVEL%

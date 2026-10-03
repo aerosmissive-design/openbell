@@ -18,7 +18,7 @@ type Job = {
   preferredSeats: string[];
 };
 
-const AGENT_VERSION = "2.0.16";
+const AGENT_VERSION = "2.0.17";
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -51,6 +51,21 @@ async function api(path: string, body: unknown) {
   return json;
 }
 
+
+async function claimGas(): Promise<Job | null> {
+  const url = process.env.GAS_WEB_URL?.trim();
+  if (!url) return null;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "claim", claim: "1" }),
+  });
+  const text = await res.text();
+  let json: { ok?: boolean; job?: Job | null } = {};
+  try { json = JSON.parse(text) as typeof json; } catch { return null; }
+  return json.job || null;
+}
+
 export async function runJobPoll() {
   let build = "dev";
   try {
@@ -66,11 +81,13 @@ export async function runJobPoll() {
     try {
       const claimed = await api("/api/booking/jobs/claim", { agentId });
       backoff = 15_000;
-      const job = claimed.job;
+      let job = claimed.job;
+      if (!job) job = await claimGas();
       if (!job) {
         await new Promise((r) => setTimeout(r, 15_000));
         continue;
       }
+      console.log(`[poll] job ${job.id || "gas"} ${job.movieTitle || ""} ${job.playDate || ""} ${job.startTime || ""}`);
       await runOne(agentId, job);
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
