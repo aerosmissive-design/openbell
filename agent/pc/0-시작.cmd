@@ -46,7 +46,7 @@ if errorlevel 1 >>config.env echo OPENBELL_URL=https://openbell-fawn.vercel.app
 echo.
 echo [3/4] doctor
 set AGENT_MODE=poll
-call npx tsx src/doctor.ts
+call node_modules\.bin\tsx.cmd src\doctor.ts
 if errorlevel 1 (
   echo [FAIL] doctor failed. Read the lines above.
   pause
@@ -61,7 +61,7 @@ echo.
 echo [4/4] poll
 echo Waiting for a job from the website.
 set AGENT_MODE=poll
-call npx tsx src/cli.ts
+call node_modules\.bin\tsx.cmd src\cli.ts
 echo.
 echo Agent stopped. Copy this window if it failed.
 pause
