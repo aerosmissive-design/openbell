@@ -24,7 +24,11 @@ async function api(path: string, body?: unknown) {
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return res.json() as Promise<{ ok?: boolean; job?: any; cgv?: any; megabox?: any; error?: string }>;
+  const text = await res.text();
+  if (text.trim().startsWith("<")) {
+    throw new Error("베셀이 JSON이 아니라 웹 화면을 줬다. 새 API가 아직 배포되지 않았다.");
+  }
+  return JSON.parse(text) as { ok?: boolean; job?: any; cgv?: any; megabox?: any; error?: string };
 }
 
 const shows = await api("/api/booking/test-shows");
