@@ -12,7 +12,7 @@ const token = String(process.env.NAS_WORKER_TOKEN || process.env.NAS_REPORT_TOKE
 const pollMs = Math.max(3000, Number(process.env.POLL_MS || 5000) || 5000);
 const workerName = String(process.env.WORKER_NAME || "nas").trim();
 const enabled = /^(1|true|yes|on)$/i.test(String(process.env.AGENT_ENABLED || "0").trim());
-const gasExec = String(process.env.GAS_WEB_URL || "").trim();
+let gasExec = String(process.env.GAS_WEB_URL || "").trim();
 const seenJobKeys = new Set();
 
 function jobKey(job) {
@@ -106,7 +106,9 @@ async function saveLogin() {
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({ locale: "ko-KR", timezoneId: "Asia/Seoul" });
   const page = await context.newPage();
-  await page.goto("https://www.cgv.co.kr/", { waitUntil: "domcontentloaded" });
+  console.log("noVNC http://<nas-ip>:6080/vnc.html");
+  console.log("Log in yourself in that window. Password is not typed. Payment is not clicked.");
+  await page.goto("https://cgv.co.kr/mem/login?returnUrl=%2Fcnm%2FselectVisitorCnt&nmbrAtktFlag=Y", { waitUntil: "domcontentloaded" });
   const deadline = Date.now() + 10 * 60 * 1000;
   while (Date.now() < deadline) {
     const body = await page.locator("body").innerText().catch(() => "");
@@ -158,12 +160,28 @@ function runJob(job) {
   });
 }
 
+async function loadGasUrl() {
+  if (gasExec) return;
+  try {
+    const data = await api("/api/booking/gas-url");
+    if (data.gasWebUrl) {
+      gasExec = String(data.gasWebUrl).trim();
+      console.log("[gas] loaded from vessel");
+    } else {
+      console.warn("[gas] vessel has no saved GAS URL");
+    }
+  } catch (error) {
+    console.warn(`[gas] load failed ${error instanceof Error ? error.message : error}`);
+  }
+}
+
 async function main() {
   if (!base || !token) throw new Error("OPENBELL_URL and NAS_WORKER_TOKEN are required");
-  console.log(`[${workerName}] mode=${mode} claim=${enabled} headless=${enabledFlag("PLAYWRIGHT_HEADLESS", false)}`);
+  console.log(`[${workerName}] mode=poll claim=${enabled} headless=${enabledFlag("PLAYWRIGHT_HEADLESS", false)}`);
+  console.log("noVNC http://<nas-ip>:6080/vnc.html");
+  await loadGasUrl();
   if (mode === "login") {
     await saveLogin();
-    return;
   }
   if (!enabled) {
     console.log(`[${workerName}] AGENT_ENABLED=0. Reporter may run. This container will not claim jobs.`);
@@ -183,19 +201,16 @@ async function main() {
       claimFailed = true;
       console.warn(`[claim] ${error instanceof Error ? error.message : error}`);
     }
-    if (!job && (claimFailed || !job)) {
+    if (!job && claimFailed) {
       try {
         job = await claimGasJob();
+        if (job) job.fromGas = true;
       } catch (error) {
         console.warn(`[claim-gas] ${error instanceof Error ? error.message : error}`);
       }
     }
     const key = jobKey(job);
     if (job && key && seenJobKeys.has(key)) job = null;
-    if (job && key) {
-      seenJobKeys.add(key);
-      void ackGasJob(key);
-    }
     if (!job) {
       await new Promise((resolve) => setTimeout(resolve, pollMs));
       continue;
@@ -206,6 +221,15 @@ async function main() {
       continue;
     }
     const result = await runJob(job);
+    if (/LOGIN_REQUIRED|login/i.test(result.output) && !result.output.includes("PAYMENT_READY")) {
+      console.log("CGV session missing. Open noVNC http://<nas-ip>:6080/vnc.html and log in. No restart.");
+      await saveLogin();
+      continue;
+    }
+    if (job.fromGas && key) {
+      seenJobKeys.add(key);
+      await ackGasJob(key);
+    }
     const ready = result.output.includes("PAYMENT_READY");
     if (ready) {
       await finish(job.id, "need_user", `PAYMENT_READY hard stop. Pay in noVNC. worker=${workerName}`);
