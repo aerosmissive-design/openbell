@@ -11,7 +11,7 @@ import { chromium } from "playwright";
 import { looksLikeLoginPage, looksLoggedInCgv } from "./safety.js";
 import { PC_ROOT, applyEnvFile } from "./env.js";
 
-const CGV_HOME = "https://www.cgv.co.kr/";
+const CGV_HOME = "https://www.cgv.co.kr/user/login/";
 
 applyEnvFile();
 
@@ -29,6 +29,11 @@ const browser = await chromium.launch({ headless: false });
 const context = await browser.newContext({ locale: "ko-KR", timezoneId: "Asia/Seoul" });
 const page = await context.newPage();
 await page.goto(CGV_HOME, { waitUntil: "domcontentloaded" });
+if (!/login/i.test(page.url())) {
+  const login = page.getByRole("link", { name: /로그인/ }).first();
+  if (await login.count()) await login.click().catch(() => undefined);
+}
+
 
 const rl = createInterface({ input: stdin, output: stdout });
 await rl.question("After you are logged in, press Enter here to save (or Ctrl+C to cancel)...\n");
