@@ -108,7 +108,8 @@ console.log(`[INFO] NAS_WORKER_TOKEN: ${maskStatus(token)}`);
 const gasUrl = env.GAS_WEB_URL ?? process.env.GAS_WEB_URL;
 console.log(`[INFO] GAS_WEB_URL: ${maskStatus(gasUrl)}`);
 if (!present(gasUrl)) {
-  lines.push("[WARN] GAS 없음 — 폰에서 켠 잡은 Neon 죽음 때 못 받음");
+  if (poll) lines.push("[WARN] GAS_WEB_URL 없음 — 베셀 잡만 받는다");
+  else lines.push("[WARN] GAS 없음 — 폰에서 켠 잡은 Neon 죽음 때 못 받음");
 }
 console.log(
   `[INFO] Mode: ${present(openbell) && present(token) ? "linked (callbacks on)" : "dry-run (no callbacks)"}`,
