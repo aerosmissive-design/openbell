@@ -30,11 +30,19 @@ if not exist node_modules (
   echo node_modules exists. skip install.
 )
 if not exist config.env (
-  echo OPENBELL_URL=https://openbell-fawn.vercel.app> config.env
-  echo NAS_WORKER_TOKEN=99159915>> config.env
-  echo AGENT_MODE=poll>> config.env
+  >config.env echo OPENBELL_URL=https://openbell-fawn.vercel.app
+  >>config.env echo NAS_WORKER_TOKEN=99159915
+  >>config.env echo AGENT_MODE=poll
+  echo [OK] config.env created with token 99159915
 )
-powershell -NoProfile -Command "$p='config.env'; $m=@{}; if(Test-Path $p){ Get-Content $p | ForEach-Object { if($_ -match '^([^#=]+)=(.*)$'){ $m[$matches[1].Trim()]=$matches[2] } } }; if(-not $m['OPENBELL_URL']){ $m['OPENBELL_URL']='https://openbell-fawn.vercel.app' }; if(-not $m['NAS_WORKER_TOKEN']){ $v=Read-Host 'NAS_WORKER_TOKEN empty. Enter token (Enter keeps 99159915)'; if(-not $v){ $v='99159915' }; $m['NAS_WORKER_TOKEN']=$v }; if(-not $m['GAS_WEB_URL']){ $g=Read-Host 'GAS_WEB_URL empty. Paste GAS /exec URL or press Enter to skip'; if($g){ $m['GAS_WEB_URL']=$g } }; $m['AGENT_MODE']='poll'; $lines=@(); foreach($k in $m.Keys){ $lines += ($k+'='+$m[$k]) }; Set-Content -Path $p -Value $lines -Encoding ascii; Write-Host '[OK] config.env saved' }"
+findstr /B /C:"NAS_WORKER_TOKEN=" config.env >nul
+if errorlevel 1 (
+  set /p TOKEN=NAS_WORKER_TOKEN empty. Type token or press Enter for 99159915:
+  if not defined TOKEN set TOKEN=99159915
+  >>config.env echo NAS_WORKER_TOKEN=%TOKEN%
+)
+findstr /B /C:"OPENBELL_URL=" config.env >nul
+if errorlevel 1 >>config.env echo OPENBELL_URL=https://openbell-fawn.vercel.app
 echo.
 echo [3/4] doctor
 set AGENT_MODE=poll
@@ -51,7 +59,7 @@ if not exist cgv-storage.json (
 )
 echo.
 echo [4/4] poll
-echo Waiting for a job from the website, then GAS if GAS_WEB_URL is set.
+echo Waiting for a job from the website.
 set AGENT_MODE=poll
 call npx tsx src/cli.ts
 echo.

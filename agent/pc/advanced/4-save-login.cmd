@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title OpenBell PC Agent - Save CGV login
 
 where node >nul 2>&1
@@ -14,7 +14,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "%~dp0node_modules\playwright" (
+if not exist "%~dp0..\node_modules\playwright" (
   echo Dependencies missing. Run 1-install.cmd first.
   pause
   exit /b 1
@@ -25,7 +25,7 @@ echo Log in to CGV yourself. This script does not type passwords.
 echo This script does not click payment.
 echo After login, return here and press Enter.
 echo.
-call npx tsx "%~dp0src\save-login.ts"
+call npx tsx src\save-login.ts
 set "ERR=%ERRORLEVEL%"
 echo.
 pause
