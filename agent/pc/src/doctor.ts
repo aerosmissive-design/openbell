@@ -58,13 +58,18 @@ if (playwright) {
 
 const configPath = resolve(PC_ROOT, "config.env");
 const hasConfig = existsSync(configPath);
-check("config.env exists", hasConfig, hasConfig ? "found" : "run 1-install.cmd then edit config.env");
+const poll = (process.env.AGENT_MODE || "").trim().toLowerCase() === "poll";
+check("config.env exists", hasConfig || poll, hasConfig ? "found" : poll ? "poll can create it" : "missing");
 
 const env = hasConfig ? loadEnvFile(configPath) : {};
 const requiredKeys = ["BOOKING_MOVIE", "BOOKING_DATE", "BOOKING_SHOWTIME", "BOOKING_SEAT_COUNT"] as const;
-for (const key of requiredKeys) {
-  const value = env[key] ?? process.env[key];
-  check(`${key}`, present(value), present(value) ? "set" : "missing");
+if (!poll) {
+  for (const key of requiredKeys) {
+    const value = env[key] ?? process.env[key];
+    check(`${key}`, present(value), present(value) ? "set" : "missing");
+  }
+} else {
+  lines.push("[INFO] poll mode — movie/date/showtime come from the web job, not config.env");
 }
 
 const seatCountRaw = env.BOOKING_SEAT_COUNT ?? process.env.BOOKING_SEAT_COUNT;

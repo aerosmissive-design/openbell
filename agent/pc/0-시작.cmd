@@ -34,8 +34,17 @@ if not exist node_modules (
 ) else (
   echo node_modules exists. skip install.
 )
+if not exist config.env (
+  echo OPENBELL_URL=https://openbell-fawn.vercel.app> config.env
+  echo NAS_WORKER_TOKEN=99159915>> config.env
+  echo AGENT_MODE=poll>> config.env
+  echo [OK] config.env created
+) else (
+  echo config.env exists. left as-is.
+)
 echo.
 echo [3/4] doctor
+set AGENT_MODE=poll
 call npx tsx src/doctor.ts
 if errorlevel 1 (
   echo [FAIL] doctor failed. Read the lines above.
@@ -50,7 +59,7 @@ if not exist cgv-storage.json (
 )
 echo.
 echo [4/4] poll
-echo Waiting for a job from the website. GAS is used only if GAS_WEB_URL is set and the website has no job.
+echo Waiting for a job from the website.
 echo Do not run the NAS booker on the same show.
 set AGENT_MODE=poll
 call npx tsx src/cli.ts
