@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { readFileSync } from "node:fs";
+import { readFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { isExactCgvBookingUrl, type BookingState } from "./cgv-agent.js";
 import { PC_ROOT } from "./env.js";
@@ -16,6 +16,8 @@ type Job = {
   bookingUrl: string;
   seats: number;
   preferredSeats: string[];
+  idempotencyKey?: string;
+  source?: "vessel" | "gas";
 };
 
 const AGENT_VERSION = "2.0.17";
@@ -52,6 +54,17 @@ async function api(path: string, body: unknown) {
 }
 
 
+function jobKey(job: Job) {
+  return job.idempotencyKey || [job.theaterId, job.playDate, job.startTime, job.hallName, job.bookingUrl].join("|");
+}
+function seenPath() { return resolve(PC_ROOT, "logs", "gas-seen.txt"); }
+function alreadySeen(key: string) {
+  try { return readFileSync(seenPath(), "utf8").split(/\r?\n/).includes(key); } catch { return false; }
+}
+function remember(key: string) {
+  mkdirSync(resolve(PC_ROOT, "logs"), { recursive: true });
+  appendFileSync(seenPath(), key + "\n");
+}
 async function claimGas(): Promise<Job | null> {
   const url = process.env.GAS_WEB_URL?.trim();
   if (!url) return null;
@@ -63,7 +76,29 @@ async function claimGas(): Promise<Job | null> {
   const text = await res.text();
   let json: { ok?: boolean; job?: Job | null } = {};
   try { json = JSON.parse(text) as typeof json; } catch { return null; }
-  return json.job || null;
+  const job = json.job;
+  if (!job) return null;
+  const key = jobKey(job);
+  if (alreadySeen(key)) {
+    await ackGas(key);
+    return null;
+  }
+  job.source = "gas";
+  job.idempotencyKey = key;
+  return job;
+}
+async function ackGas(key: string) {
+  const url = process.env.GAS_WEB_URL?.trim();
+  if (!url || !key) return;
+  await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "ack", idempotencyKey: key, key }),
+  }).catch(() => undefined);
+}
+function vesselDown(err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /fetch|network|ECONN|ENOTFOUND|ETIMEDOUT|HTTP 5/.test(msg);
 }
 
 export async function runJobPoll() {
@@ -81,13 +116,13 @@ export async function runJobPoll() {
     try {
       const claimed = await api("/api/booking/jobs/claim", { agentId });
       backoff = 15_000;
-      let job = claimed.job;
-      if (!job) job = await claimGas();
+      const job = claimed.job;
       if (!job) {
         await new Promise((r) => setTimeout(r, 15_000));
         continue;
       }
-      console.log(`[poll] job ${job.id || "gas"} ${job.movieTitle || ""} ${job.playDate || ""} ${job.startTime || ""}`);
+      job.source = "vessel";
+      console.log(`[poll] vessel ${job.id} ${job.movieTitle || ""} ${job.playDate || ""} ${job.startTime || ""}`);
       await runOne(agentId, job);
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
@@ -97,7 +132,17 @@ export async function runJobPoll() {
         backoff = Math.min(backoff * 2, 120_000);
         continue;
       }
-      console.error(err instanceof Error ? err.message : err);
+      if (vesselDown(err)) {
+        console.warn(`[poll] vessel down, GAS fallback: ${err instanceof Error ? err.message : err}`);
+        const job = await claimGas().catch(() => null);
+        if (job) {
+          console.log(`[poll] gas ${job.idempotencyKey}`);
+          await runOne(agentId, job);
+          continue;
+        }
+      } else {
+        console.error(err instanceof Error ? err.message : err);
+      }
       await new Promise((r) => setTimeout(r, 15_000));
     }
   }
@@ -152,8 +197,14 @@ async function runOne(agentId: string, job: Job) {
     if (!message.includes("PAYMENT_READY") && status !== "need_user") status = "failed";
   } finally {
     clearInterval(beat);
-    await api("/api/booking/jobs/complete", { id: job.id, agentId, status, resultMessage: message }).catch((err) => {
-      console.warn(`[poll] complete failed ${err instanceof Error ? err.message : err}`);
-    });
+    if (job.source === "gas") {
+      const key = jobKey(job);
+      remember(key);
+      await ackGas(key);
+    } else {
+      await api("/api/booking/jobs/complete", { id: job.id, agentId, status, resultMessage: message }).catch((err) => {
+        console.warn(`[poll] complete failed ${err instanceof Error ? err.message : err}`);
+      });
+    }
   }
 }
