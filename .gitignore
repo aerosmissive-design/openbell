@@ -20,4 +20,7 @@ agent/pc/config.env
 agent/pc/logs/
 agent/pc/storage-state*.json
 agent/pc/cgv-storage.json
-*.storageState.json
+# encryption key backup stays on disk, never in git
+agent/KEY/*.key
+agent/KEY/*.txt
+agent/KEY/*.env

@@ -9,6 +9,7 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { useAppStore } from "@/lib/store";
 import { describeGasPush, flushSettings } from "./cloud-sync";
 import { GasBackupMailField } from "./gas-backup-mail";
+import { NotifyAccountPanel } from "./notify-account";
 import { Button } from "./ui/button";
 
 function ChannelCard({ title, summary, open, onToggle, children }: { title: string; summary: string; open: boolean; onToggle: () => void; children: ReactNode }) {
@@ -127,6 +128,7 @@ export function NotifyChannelCards() {
         <Button variant="outline" className="mt-2 w-full" disabled={sendingTest || !config.telegramToken.trim() || !config.telegramChatId.trim()} onClick={() => void sendChannelPing("telegram")}>{sendingTest ? "보내는 중…" : "테스트하기"}</Button>
         <Button variant="outline" className="mt-2 w-full" disabled={sendingTest || !config.telegramToken.trim() || !config.telegramChatId.trim()} onClick={() => void sendReservationChannelTest("telegram")}>{sendingTest ? "보내는 중…" : "4개극장 랜덤 예매테스트보내기"}</Button>
       </ChannelCard>
+      <NotifyAccountPanel />
     </>
   );
 }

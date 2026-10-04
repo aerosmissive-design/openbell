@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { updateBookingState, saveBookingSession } from "@/lib/booking/session";
 import { telegramSafeBrowserUrl } from "@/lib/booking/cgv-url";
-import { sendPaymentReadyTelegram } from "@/lib/telegram/notifier";
+import { paymentReadyIdempotencyKey } from "@/lib/notify/policy";
 
 function authorized(request: Request) {
   const expected = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim() || process.env.CRON_SECRET?.trim() || "";
@@ -31,14 +31,29 @@ export const Route = createFileRoute("/api/booking/payment-ready")({
           };
           await saveBookingSession(updated);
 
-          let telegram: unknown = { ok: false, skipped: true };
+          let notify: unknown = { ok: false, skipped: true };
           try {
-            telegram = await sendPaymentReadyTelegram(updated);
+            const { dispatchNotification } = await import("@/lib/notify");
+            notify = await dispatchNotification({
+              eventType: "PAYMENT_READY",
+              userId: "",
+              serverId: updated.agent || "openbell",
+              payload: {
+                theaterId: updated.theaterId,
+                movieTitle: updated.movieTitle,
+                playDate: updated.playDate,
+                showtime: updated.showtime,
+                hall: updated.hall,
+                seats: updated.selectedSeats,
+              },
+              idempotencyKey: paymentReadyIdempotencyKey(updated.agent || "openbell", updated.id, new Date()),
+              timestamp: new Date().toISOString(),
+            });
           } catch (error) {
-            telegram = { ok: false, error: error instanceof Error ? error.message : "telegram failed" };
+            notify = { ok: false, error: error instanceof Error ? error.message : "notify failed" };
           }
 
-          return json({ ok: true, hardStop: true, session: updated, telegram });
+          return json({ ok: true, hardStop: true, session: updated, notify });
         } catch (error) {
           const message = error instanceof Error ? error.message : "payment-ready failed";
           return json({ ok: false, error: message }, message === "BOOKING_SESSION_NOT_FOUND" ? 404 : 409);
