@@ -2,6 +2,7 @@ import { hostname } from "node:os";
 import { readFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { isExactCgvBookingUrl, type BookingState } from "./cgv-agent.js";
+import { clearDevice, ensurePaired } from "./device.js";
 import { PC_ROOT } from "./env.js";
 import { createSession, notifyPaymentReady, updateState } from "./openbell-api.js";
 import { runBooking, runMegabox } from "./run.js";
@@ -20,7 +21,7 @@ type Job = {
   source?: "vessel" | "gas";
 };
 
-const AGENT_VERSION = "2.0.18";
+const AGENT_VERSION = "2.0.22";
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -30,11 +31,15 @@ function required(name: string) {
 
 async function api(path: string, body: unknown) {
   const base = required("OPENBELL_URL").replace(/\/$/, "");
-  const token = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim();
-  if (!token) throw new Error("MISSING_ENV:NAS_WORKER_TOKEN");
+  const token = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim() || "";
+  const deviceKey = process.env.OPENBELL_DEVICE_KEY?.trim() || "";
+  if (!token && !deviceKey) throw new Error("MISSING_ENV:NAS_WORKER_TOKEN");
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (deviceKey) headers["x-openbell-device-key"] = deviceKey;
   const res = await fetch(`${base}${path}`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -43,6 +48,12 @@ async function api(path: string, body: unknown) {
     json = JSON.parse(text) as typeof json;
   } catch {
     json = { ok: false, error: text.slice(0, 200) };
+  }
+  if (json.error === "DEVICE_REVOKED") {
+    clearDevice();
+    const err = new Error("DEVICE_REVOKED");
+    err.name = "DEVICE_REVOKED";
+    throw err;
   }
   if (json.reason === "dbQuota" || json.reason === "dbConn") {
     const err = new Error(json.reason);
@@ -71,7 +82,7 @@ async function claimGas(): Promise<Job | null> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action: "claim", claim: "1" }),
+    body: JSON.stringify({ action: "claim", claim: "1", deviceKey: process.env.OPENBELL_DEVICE_KEY || "" }),
   });
   const text = await res.text();
   let json: { ok?: boolean; job?: Job | null } = {};
@@ -124,11 +135,28 @@ export async function runJobPoll() {
     /* keep dev */
   }
   const agentId = process.env.AGENT_ID?.trim() || `${hostname()}-pc`;
+  const base = required("OPENBELL_URL").replace(/\/$/, "");
+  await ensurePaired(base, AGENT_VERSION);
   await loadGasFromVessel().catch((err) => console.warn(`[poll] gas url ${err instanceof Error ? err.message : err}`));
   console.log(`[agent] APP_VERSION=${build} BUILD_HASH=${process.env.BUILD_HASH || "dev"} AGENT_VERSION=${AGENT_VERSION} mode=poll id=${agentId}`);
   let backoff = 15_000;
+  let lastBeat = 0;
   for (;;) {
     try {
+      if (Date.now() - lastBeat > 60_000) {
+        lastBeat = Date.now();
+        await api("/api/device/heartbeat", { agentVersion: AGENT_VERSION }).catch((err) => {
+          if (err instanceof Error && err.name === "DEVICE_REVOKED") throw err;
+        });
+        const gasUrl = process.env.GAS_WEB_URL?.trim();
+        if (gasUrl && process.env.OPENBELL_DEVICE_KEY) {
+          await fetch(gasUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "deviceHeartbeat", deviceKey: process.env.OPENBELL_DEVICE_KEY }),
+          }).catch(() => undefined);
+        }
+      }
       const claimed = await api("/api/booking/jobs/claim", { agentId });
       backoff = 15_000;
       const job = claimed.job;
@@ -145,6 +173,11 @@ export async function runJobPoll() {
         console.warn(`[poll] ${name} backoff ${backoff}ms`);
         await new Promise((r) => setTimeout(r, backoff));
         backoff = Math.min(backoff * 2, 120_000);
+        continue;
+      }
+      if (name === "DEVICE_REVOKED") {
+        console.warn("[poll] device revoked. pairing again");
+        await ensurePaired(base, AGENT_VERSION);
         continue;
       }
       if (vesselDown(err)) {

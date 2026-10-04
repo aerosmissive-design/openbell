@@ -1,12 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  authorizeNasWorker,
   claimNextNasJob,
   completeNasJob,
   enqueueNasJob,
   listNasJobs,
-  nasJobsConfigured,
 } from "@/lib/cinema/nas-jobs.server";
+import { authorizeAgent } from "@/lib/cinema/devices.server";
 
 function json(data: unknown, status = 200) {
   return Response.json(data, {
@@ -14,25 +13,14 @@ function json(data: unknown, status = 200) {
     headers: {
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
-      "access-control-allow-headers": "authorization, content-type",
+      "access-control-allow-headers": "authorization, content-type, x-openbell-device-key",
     },
   });
 }
 
 async function handleGet(request: Request) {
-  if (!nasJobsConfigured()) {
-    return json(
-      {
-        ok: false,
-        error:
-          "NAS_WORKER_TOKEN(또는 CRON_SECRET)을 베셀 환경변수에 넣어 주세요",
-      },
-      503,
-    );
-  }
-  if (!authorizeNasWorker(request)) {
-    return json({ ok: false, error: "unauthorized" }, 401);
-  }
+  const auth = await authorizeAgent(request, request.url.includes("claim=1") ? "claim" : "seen");
+  if (!auth.ok) return json({ ok: false, error: auth.error, reason: auth.reason }, auth.status);
   const url = new URL(request.url);
   const claim = url.searchParams.get("claim") === "1";
   if (claim) {
@@ -48,12 +36,8 @@ async function handleGet(request: Request) {
 }
 
 async function handlePost(request: Request) {
-  if (!nasJobsConfigured()) {
-    return json({ ok: false, error: "worker token not configured" }, 503);
-  }
-  if (!authorizeNasWorker(request)) {
-    return json({ ok: false, error: "unauthorized" }, 401);
-  }
+  const auth = await authorizeAgent(request, "seen");
+  if (!auth.ok) return json({ ok: false, error: auth.error, reason: auth.reason }, auth.status);
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -78,12 +62,8 @@ async function handlePost(request: Request) {
 }
 
 async function handlePatch(request: Request) {
-  if (!nasJobsConfigured()) {
-    return json({ ok: false, error: "worker token not configured" }, 503);
-  }
-  if (!authorizeNasWorker(request)) {
-    return json({ ok: false, error: "unauthorized" }, 401);
-  }
+  const auth = await authorizeAgent(request, "seen");
+  if (!auth.ok) return json({ ok: false, error: auth.error, reason: auth.reason }, auth.status);
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;

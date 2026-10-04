@@ -744,7 +744,7 @@ function parseGasUrl(raw: string): URL | null {
 }
 
 export const pullGasNotify = createServerFn({ method: "POST" })
-  .validator(z.object({ url: z.string() }))
+  .validator(z.object({ url: z.string(), key: z.string().optional() }))
   .handler(async ({ data }): Promise<GasPullResult> => {
     if (!data.url.trim()) return { status: "skipped", reason: "no-url" };
     const parsed = parseGasUrl(data.url);
@@ -752,6 +752,7 @@ export const pullGasNotify = createServerFn({ method: "POST" })
       return { status: "error", message: "구글 스크립트 주소만 사용할 수 있습니다." };
     }
     parsed.searchParams.set("op", "config");
+    if (data.key?.trim()) parsed.searchParams.set("key", data.key.trim());
     try {
       const text = await fetchGasText(parsed);
       if (text.trim() === "openbell" || text.trim() === "ok") {

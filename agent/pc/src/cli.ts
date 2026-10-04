@@ -7,6 +7,7 @@ import { type BookingState, type BookingTarget, isExactCgvBookingUrl } from "./c
 import { classifyAgentError } from "./result-code.js";
 import { isBookingDate, isBookingShowtime } from "./safety.js";
 import { PC_ROOT, applyEnvFile, isFalseyFlag, paymentReadyTtlMinutes, resolveExistingStorageState } from "./env.js";
+import { applySavedDevice } from "./device.js";
 import { createSession, notifyPaymentReady, updateState } from "./openbell-api.js";
 import { runBooking } from "./run.js";
 
@@ -30,6 +31,7 @@ function optionalNumber(name: string) {
 }
 
 applyEnvFile(process.env.OPENBELL_AGENT_CONFIG || resolve(PC_ROOT, "config.env"));
+applySavedDevice();
 
 if ((process.env.AGENT_MODE || "local").trim().toLowerCase() === "poll") {
   const { runJobPoll } = await import("./poll.js");

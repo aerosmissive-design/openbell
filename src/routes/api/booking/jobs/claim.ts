@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { bookingJobsAuth, claimBookingJob, jobDbFailure } from "@/lib/cinema/booking-jobs.server";
-import { nasJobsConfigured } from "@/lib/cinema/nas-jobs.server";
+import { claimBookingJob, jobDbFailure } from "@/lib/cinema/booking-jobs.server";
+import { authorizeAgent } from "@/lib/cinema/devices.server";
 
 function json(data: unknown, status = 200) {
   return Response.json(data, { status });
@@ -10,18 +10,18 @@ export const Route = createFileRoute("/api/booking/jobs/claim")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        if (!nasJobsConfigured()) return json({ ok: false, reason: "no_token" }, 503);
-        if (!bookingJobsAuth(request)) return json({ ok: false, error: "unauthorized" }, 401);
+        const auth = await authorizeAgent(request, "claim");
+        if (!auth.ok) return json({ ok: false, error: auth.error, reason: auth.reason }, auth.status);
         let body: { agentId?: string } = {};
         try {
           body = (await request.json()) as { agentId?: string };
         } catch {
           body = {};
         }
-        const agentId = String(body.agentId || "").trim();
+        const agentId = String(body.agentId || (auth.via === "device" ? auth.deviceName : "")).trim();
         if (!agentId) return json({ ok: false, error: "agentId required" }, 400);
         try {
-          const job = await claimBookingJob(agentId);
+          const job = await claimBookingJob(agentId, auth.via === "device" ? auth.userIds : null);
           return json({ ok: true, job });
         } catch (err) {
           const fail = jobDbFailure(err);

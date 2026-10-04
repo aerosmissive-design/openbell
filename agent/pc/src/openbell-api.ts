@@ -7,6 +7,14 @@ export type OpenBellDeps = {
   sleep?: (ms: number) => Promise<void>;
 };
 
+function authHeaders(workerToken: string) {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const deviceKey = process.env.OPENBELL_DEVICE_KEY?.trim() || "";
+  if (workerToken) headers.authorization = `Bearer ${workerToken}`;
+  if (deviceKey) headers["x-openbell-device-key"] = deviceKey;
+  return headers;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -39,10 +47,7 @@ export async function createSession(
   const doFetch = deps.fetch ?? fetch;
   const response = await doFetch(`${input.openbellUrl}/api/booking/create`, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${input.workerToken}`,
-      "content-type": "application/json",
-    },
+    headers: authHeaders(input.workerToken),
     body: JSON.stringify({
       theaterId: input.theaterId,
       movieTitle: input.movieTitle,
@@ -76,10 +81,7 @@ export async function updateState(
   const doFetch = deps.fetch ?? fetch;
   const response = await doFetch(`${input.openbellUrl}/api/booking/state`, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${input.workerToken}`,
-      "content-type": "application/json",
-    },
+    headers: authHeaders(input.workerToken),
     body: JSON.stringify({ id: input.sessionId, state: input.state }),
   });
 
@@ -113,10 +115,7 @@ export async function notifyPaymentReady(
     try {
       const response = await doFetch(`${input.openbellUrl}/api/booking/payment-ready`, {
         method: "POST",
-        headers: {
-          authorization: `Bearer ${input.workerToken}`,
-          "content-type": "application/json",
-        },
+        headers: authHeaders(input.workerToken),
         body: JSON.stringify({
           id: input.sessionId,
           browserAccessUrl: input.url,

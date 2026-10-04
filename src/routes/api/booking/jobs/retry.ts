@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { bookingJobsAuth, jobDbFailure, retryFailedBookingJob } from "@/lib/cinema/booking-jobs.server";
-import { nasJobsConfigured } from "@/lib/cinema/nas-jobs.server";
+import { jobDbFailure, retryFailedBookingJob } from "@/lib/cinema/booking-jobs.server";
+import { authorizeAgent } from "@/lib/cinema/devices.server";
 
 function json(data: unknown, status = 200) {
   return Response.json(data, { status });
@@ -11,8 +11,8 @@ export const Route = createFileRoute("/api/booking/jobs/retry")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        if (!nasJobsConfigured()) return json({ ok: false, reason: "no_token" }, 503);
-        if (!bookingJobsAuth(request)) return json({ ok: false, error: "unauthorized" }, 401);
+        const auth = await authorizeAgent(request, "seen");
+        if (!auth.ok) return json({ ok: false, error: auth.error, reason: auth.reason }, auth.status);
         let body: { id?: string } = {};
         try {
           body = (await request.json()) as { id?: string };

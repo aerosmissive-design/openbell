@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { SettingsTheaterPicks } from "./theater-picks";
 import { NotifyChannelCards } from "./notify-channels";
+import { DevicePanel } from "./device-panel";
 
 export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
   const config = useAppStore((s) => s.config);
@@ -71,6 +72,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
     <div className="flex flex-col gap-6">
       <section className="rounded-xl bg-surface p-4 shadow-border">
         <CloudSettingsCard />
+        <DevicePanel />
         <div className="mt-5 border-t border-border pt-4">
           <button type="button" onClick={() => setShowGasSection((v) => !v)} className="flex min-h-11 w-full items-center justify-between gap-3 text-left">
             <h2 className="text-xs font-medium tracking-[0.16em] text-muted">구글스크립트(예비)</h2>

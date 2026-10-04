@@ -7,8 +7,8 @@
 | 저장소 | https://github.com/aerosmissive-design/openbell |
 | 프로드 | https://openbell-fawn.vercel.app |
 | 전광판 | https://openbell-fawn.vercel.app/board |
-| 스냅샷 버전 | **웹 3.9.98** (VERSION / APP_VERSION) |
-| 작성·갱신 | 2026-10-04 · 계정 알림 채널. 결제 클릭 없음. GAS 메일 유지. |
+| 스냅샷 버전 | **웹 3.9.99** (VERSION / APP_VERSION) |
+| 작성·갱신 | 2026-10-05 · 기기 페어링. 결제 클릭 없음. 공유 토큰은 기본 유지. |
 
 > **규칙:** 새 버전을 `main`에 올릴 때 `VERSION` · `src/lib/app-version.ts` · **이 문서(HANDOFF.md)** 를 함께 맞춘다.  
 > AI는 작업 전 `https://raw.githubusercontent.com/aerosmissive-design/openbell/main/HANDOFF.md` 와 `VERSION` 을 읽는다.
@@ -25,6 +25,8 @@
 
 오픈벨은 **CGV·메가박스 특별관 예매 오픈·잔여석 알림** 웹앱이다.  
 감시 화면의 숫자는 **정직해야** 하고, **최종 결제는 사람**이 한다.
+
+3.9.99 기기 연결: PC/NAS가 켜지면 설정 → 서버 상태에 승인 카드가 뜬다. 사용자는 GAS 주소·공유 토큰을 입력하지 않는다. 기기 키 원문은 서버에 저장하지 않고 SHA-256만 둔다. 승인 응답은 브라우저에 키를 주지 않고, 페어링 코드가 맞는 기기만 받는다. 잡 claim·payment-ready는 기기 키 또는 기존 공유 토큰. `OPENBELL_LEGACY_WORKER_TOKEN=0`이면 공유 토큰은 막힌다. 잡은 `user_id`가 있으면 그 계정(공유 포함)만 가져간다. 비어 있는 옛 잡은 승인된 기기면 가져간다. GAS 스크립트를 다시 붙여넣고 새 배포해야 기기 잠금이 적용된다. 잠금 전에는 GAS URL만으로 claim이 된다. 좌석 리포터는 이번 판에서 기존 동기화 키를 유지한다. 결제 버튼은 여전히 누르지 않는다.
 
 | 한다 | 하지 않는다 |
 |------|-------------|

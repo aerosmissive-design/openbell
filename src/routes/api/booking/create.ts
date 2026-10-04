@@ -1,11 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createBookingSession } from "@/lib/booking/session";
 import { isAllowedBookingPageUrl } from "@/lib/booking/cgv-url";
-
-function authorized(request: Request) {
-  const expected = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim() || process.env.CRON_SECRET?.trim() || "";
-  return Boolean(expected) && request.headers.get("authorization") === `Bearer ${expected}`;
-}
+import { authorizeAgent } from "@/lib/cinema/devices.server";
 
 function json(data: unknown, status = 200) {
   return Response.json(data, {
@@ -13,7 +9,7 @@ function json(data: unknown, status = 200) {
     headers: {
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "POST,OPTIONS",
-      "access-control-allow-headers": "authorization,content-type",
+      "access-control-allow-headers": "authorization,content-type,x-openbell-device-key",
     },
   });
 }
@@ -23,7 +19,8 @@ export const Route = createFileRoute("/api/booking/create")({
     handlers: {
       OPTIONS: () => json({ ok: true }),
       POST: async ({ request }) => {
-        if (!authorized(request)) return json({ ok: false, error: "unauthorized" }, 401);
+        const auth = await authorizeAgent(request, "seen");
+        if (!auth.ok) return json({ ok: false, error: auth.error }, auth.status);
 
         let body: Record<string, unknown>;
         try {

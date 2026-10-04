@@ -129,10 +129,12 @@ export async function insertBookingJob(input: {
   seats?: number;
   zone?: string;
   preferredSeats?: string[];
+  userId?: string;
 }): Promise<BookingJob | null> {
   const url = String(input.bookingUrl || "").trim();
   if (!url) return null;
   const sql = await getSql();
+  await sql.query(`alter table booking_jobs add column if not exists user_id text`);
   const id = input.id || `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const seats =
     Number.isFinite(Number(input.seats)) && Number(input.seats) >= 1
@@ -141,9 +143,9 @@ export async function insertBookingJob(input: {
   const rows = await sql.query<JobRow>(
     `insert into booking_jobs (
        id, status, movie_title, theater_id, play_date, start_time, hall_name,
-       booking_url, seats, zone, preferred_seats
+       booking_url, seats, zone, preferred_seats, user_id
      ) values (
-       $1, 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb
+       $1, 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11
      )
      on conflict (id) do nothing
      returning *`,
@@ -158,6 +160,7 @@ export async function insertBookingJob(input: {
       seats,
       ["center", "rear", "front"].includes(String(input.zone)) ? String(input.zone) : "center",
       JSON.stringify((input.preferredSeats || []).map(String).slice(0, 20)),
+      input.userId?.trim() || null,
     ],
   );
   return rows[0] ? mapJob(rows[0]) : null;
@@ -173,14 +176,16 @@ export async function listBookingJobs(limit = 20) {
   return rows.map(mapJob);
 }
 
-/** pending 1건만 running. 같은 행을 두 에이전트가 가져가지 못한다. */
-export async function claimBookingJob(agentId: string): Promise<BookingJob | null> {
+/** pending 1건만 running. userIds가 null이면 제한 없음(레거시 토큰). 아니면 그 계정 또는 user_id 없는 잡만. */
+export async function claimBookingJob(agentId: string, userIds: string[] | null = null): Promise<BookingJob | null> {
   await reapExpiredLeases();
   const sql = await getSql();
+  await sql.query(`alter table booking_jobs add column if not exists user_id text`);
   const rows = await sql.query<JobRow>(
     `with picked as (
        select id from booking_jobs
        where status = 'pending'
+         and ($2::boolean or user_id is null or user_id = any($3::text[]))
        order by created_at
        limit 1
        for update skip locked
@@ -194,7 +199,7 @@ export async function claimBookingJob(agentId: string): Promise<BookingJob | nul
      from picked
      where j.id = picked.id and j.status = 'pending'
      returning j.*`,
-    [agentId.slice(0, 120)],
+    [agentId.slice(0, 120), userIds == null, userIds ?? []],
   );
   return rows[0] ? mapJob(rows[0]) : null;
 }

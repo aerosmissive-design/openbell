@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20261001-yong1";
+export const GAS_SOURCE_STAMP = "20261005-pair1";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -947,6 +947,99 @@ function loadReporterPayload_(props, sk) {
   return parsed;
 }
 
+function sha256Hex_(text) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(text || ""), Utilities.Charset.UTF_8);
+  var out = "";
+  var i;
+  for (i = 0; i < bytes.length; i++) {
+    var b = bytes[i];
+    if (b < 0) b += 256;
+    var h = b.toString(16);
+    if (h.length < 2) h = "0" + h;
+    out += h;
+  }
+  return out;
+}
+
+function loadDevices_() {
+  var raw = PropertiesService.getScriptProperties().getProperty("openbell_devices") || "[]";
+  var list = [];
+  try { list = JSON.parse(raw); } catch (eDev) { list = []; }
+  return Array.isArray(list) ? list : [];
+}
+
+function saveDevices_(list) {
+  PropertiesService.getScriptProperties().setProperty("openbell_devices", JSON.stringify(list).slice(0, 8000));
+}
+
+function findActiveDevice_(deviceKey) {
+  if (!deviceKey) return null;
+  var hash = sha256Hex_(deviceKey);
+  var list = loadDevices_();
+  var i;
+  for (i = 0; i < list.length; i++) {
+    if (list[i] && list[i].keyHash === hash && list[i].status === "ACTIVE") return list[i];
+  }
+  return null;
+}
+
+function touchGasDevice_(deviceKey, field) {
+  var hash = sha256Hex_(deviceKey);
+  var list = loadDevices_();
+  var i;
+  var found = null;
+  for (i = 0; i < list.length; i++) {
+    if (list[i] && list[i].keyHash === hash && list[i].status === "ACTIVE") {
+      list[i].lastSeen = new Date().toISOString();
+      if (field) list[i][field] = list[i].lastSeen;
+      found = list[i];
+    }
+  }
+  if (found) saveDevices_(list);
+  return found;
+}
+
+function syncKeyOk_(key) {
+  var expected = String(CONFIG.syncKey || PropertiesService.getScriptProperties().getProperty("syncKey") || "").trim();
+  if (!expected) return true;
+  return String(key || "") === expected;
+}
+
+function upsertGasDevice_(body) {
+  if (!syncKeyOk_(body && body.key)) return jsonOut_({ ok: false, error: "key" });
+  var device = (body && body.device) || {};
+  var deviceId = String(device.deviceId || "");
+  var deviceName = String(device.deviceName || "");
+  if (!deviceId || !deviceName) return jsonOut_({ ok: false, error: "device" });
+  var list = loadDevices_();
+  var next = {
+    deviceId: deviceId,
+    deviceName: deviceName,
+    userId: String(device.userId || ""),
+    keyHash: String(device.keyHash || ""),
+    status: String(device.status || "ACTIVE"),
+    lastSeen: "",
+    lastJobClaim: ""
+  };
+  var i;
+  var replaced = false;
+  for (i = 0; i < list.length; i++) {
+    if (list[i] && list[i].deviceId === deviceId) {
+      next.lastSeen = list[i].lastSeen || "";
+      next.lastJobClaim = list[i].lastJobClaim || "";
+      if (!next.keyHash) next.keyHash = list[i].keyHash || "";
+      list[i] = next;
+      replaced = true;
+    }
+  }
+  if (!replaced) list.push(next);
+  saveDevices_(list);
+  if (next.status === "ACTIVE" && next.keyHash) {
+    PropertiesService.getScriptProperties().setProperty("deviceLock", "1");
+  }
+  return jsonOut_({ ok: true });
+}
+
 function handleJob_(p, body) {
   var props = PropertiesService.getScriptProperties();
   var jobs = [];
@@ -954,6 +1047,15 @@ function handleJob_(p, body) {
   if (!Array.isArray(jobs)) jobs = [];
   var action = String((body && body.action) || (p && p.action) || "");
   if (String(p && p.claim || "") === "1" || action === "claim") {
+    var deviceKey = String((body && body.deviceKey) || (p && p.deviceKey) || "");
+    var devices = loadDevices_();
+    var locked = false;
+    var d;
+    for (d = 0; d < devices.length; d++) {
+      if (devices[d] && devices[d].status === "ACTIVE" && devices[d].keyHash) locked = true;
+    }
+    if (locked && !findActiveDevice_(deviceKey)) return jsonOut_({ ok: false, error: "DEVICE_UNAUTHORIZED" });
+    if (locked) touchGasDevice_(deviceKey, "lastJobClaim");
     var i;
     for (i = 0; i < jobs.length; i++) {
       if (jobs[i] && jobs[i].status === "pending") {
@@ -975,6 +1077,9 @@ function handleJob_(p, body) {
     return jsonOut_({ ok: true });
   }
   var job = body && body.job ? body.job : body;
+  if (PropertiesService.getScriptProperties().getProperty("deviceLock") === "1" && !syncKeyOk_(body && body.key)) {
+    return jsonOut_({ ok: false, error: "DEVICE_UNAUTHORIZED" });
+  }
   if (!job || !job.bookingUrl) return jsonOut_({ ok: false, error: "job" });
   var idem = String(job.idempotencyKey || [job.theaterId, job.playDate, job.startTime, job.hallName, job.bookingUrl].join("|"));
   var k;
@@ -1416,6 +1521,11 @@ function doGet(e) {
   if (op === "sync") return handleSync_(e);
   if (op === "upgrade") return handleUpgrade_(e);
   if (op === "config") {
+    var lockOn = PropertiesService.getScriptProperties().getProperty("deviceLock") === "1";
+    var cfgStored = String(PropertiesService.getScriptProperties().getProperty("syncKey") || CONFIG.syncKey || "");
+    if (lockOn && cfgStored && String(p.key || "") !== cfgStored) {
+      return jsonOut_({ ok: false, error: "DEVICE_UNAUTHORIZED" });
+    }
     applyLiveConfig_();
     return jsonOut_({
       ok: true,
@@ -1445,6 +1555,22 @@ function doGet(e) {
     var cat = Number(cprops.getProperty("last_external_at") || 0);
     return jsonOut_({ ok: cat > 0, gasClock: cat > 0 ? "ok" : "fail", at: cat });
   }
+  if (op === "devices") {
+    var devStored = String(PropertiesService.getScriptProperties().getProperty("syncKey") || CONFIG.syncKey || "");
+    if (devStored && String(p.key || "") !== devStored) return jsonOut_({ ok: false, error: "DEVICE_UNAUTHORIZED" });
+    var devList = loadDevices_();
+    var devOut = [];
+    var di;
+    for (di = 0; di < devList.length; di++) {
+      devOut.push({
+        deviceName: devList[di].deviceName || "",
+        status: devList[di].status || "",
+        lastSeen: devList[di].lastSeen || "",
+        lastJobClaim: devList[di].lastJobClaim || ""
+      });
+    }
+    return jsonOut_({ ok: true, devices: devOut });
+  }
   if (op === "job") return handleJob_(p, null);
   return ContentService.createTextOutput("openbell");
 }
@@ -1455,6 +1581,12 @@ function doPost(e) {
   if (p.op === "upgrade") return handleUpgrade_(e);
   try {
     var body = JSON.parse((e.postData && e.postData.contents) || "{}");
+    if (body && body.action === "deviceUpsert") return upsertGasDevice_(body);
+    if (body && body.action === "deviceHeartbeat") {
+      var beat = touchGasDevice_(String(body.deviceKey || ""), "");
+      if (!beat) return jsonOut_({ ok: false, error: "DEVICE_UNAUTHORIZED" });
+      return jsonOut_({ ok: true, deviceName: beat.deviceName || "" });
+    }
     if (body && (body.op === "job" || p.op === "job")) return handleJob_(p, body);
     if (body && body.theaterId && Array.isArray(body.showtimes)) {
       return handleSeatReport_(body);

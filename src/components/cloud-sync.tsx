@@ -70,7 +70,7 @@ export async function importNotifyFromGas(mode: "fill" | "prefer-gas") {
   const config = useAppStore.getState().config;
   const url = config.gasWebUrl.trim();
   if (!url) return { status: "skipped" as const, reason: "no-url" };
-  const pulled = await pullGasNotify({ data: { url } });
+  const pulled = await pullGasNotify({ data: { url, key: config.gasSyncKey } });
   if (pulled.status !== "ok") return pulled;
   const patch = mergeNotifyFromGas(config, pulled.notify, mode);
   useAppStore.getState().setConfig(patch);

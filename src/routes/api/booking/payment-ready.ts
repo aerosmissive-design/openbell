@@ -2,14 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { updateBookingState, saveBookingSession } from "@/lib/booking/session";
 import { telegramSafeBrowserUrl } from "@/lib/booking/cgv-url";
 import { paymentReadyIdempotencyKey } from "@/lib/notify/policy";
-
-function authorized(request: Request) {
-  const expected = process.env.NAS_WORKER_TOKEN?.trim() || process.env.NAS_REPORT_TOKEN?.trim() || process.env.CRON_SECRET?.trim() || "";
-  return Boolean(expected) && request.headers.get("authorization") === `Bearer ${expected}`;
-}
+import { authorizeAgent } from "@/lib/cinema/devices.server";
 
 function json(data: unknown, status = 200) {
-  return Response.json(data, { status, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "POST,OPTIONS", "access-control-allow-headers": "authorization,content-type" } });
+  return Response.json(data, { status, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "POST,OPTIONS", "access-control-allow-headers": "authorization,content-type,x-openbell-device-key" } });
 }
 
 export const Route = createFileRoute("/api/booking/payment-ready")({
@@ -17,7 +13,8 @@ export const Route = createFileRoute("/api/booking/payment-ready")({
     handlers: {
       OPTIONS: () => json({ ok: true }),
       POST: async ({ request }) => {
-        if (!authorized(request)) return json({ ok: false, error: "unauthorized" }, 401);
+        const auth = await authorizeAgent(request, "payment");
+        if (!auth.ok) return json({ ok: false, error: auth.error }, auth.status);
         let body: { id?: string; browserAccessUrl?: string; selectedSeats?: string[] };
         try { body = await request.json(); } catch { return json({ ok: false, error: "invalid json" }, 400); }
         const id = String(body.id || "").trim();
@@ -36,7 +33,7 @@ export const Route = createFileRoute("/api/booking/payment-ready")({
             const { dispatchNotification } = await import("@/lib/notify");
             notify = await dispatchNotification({
               eventType: "PAYMENT_READY",
-              userId: "",
+              userId: auth.via === "device" ? auth.userId : "",
               serverId: updated.agent || "openbell",
               payload: {
                 theaterId: updated.theaterId,

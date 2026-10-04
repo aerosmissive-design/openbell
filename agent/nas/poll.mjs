@@ -4,6 +4,9 @@
  */
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { hostname } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 const require = createRequire("/opt/openbell/pc/package.json");
 const pcRoot = "/opt/openbell/pc";
@@ -13,6 +16,85 @@ const pollMs = Math.max(3000, Number(process.env.POLL_MS || 5000) || 5000);
 const workerName = String(process.env.WORKER_NAME || "nas").trim();
 const enabled = /^(1|true|yes|on)$/i.test(String(process.env.AGENT_ENABLED || "0").trim());
 let gasExec = String(process.env.GAS_WEB_URL || "").trim();
+const deviceFile = process.env.OPENBELL_DEVICE_FILE || "/opt/openbell/device.json";
+let deviceKey = "";
+
+function deviceName() {
+  const named = String(process.env.DEVICE_NAME || "").trim();
+  if (named === "G_PC" || named === "G_DS225+" || named === "G_DS423+") return named;
+  const worker = String(process.env.WORKER_NAME || hostname() || "");
+  if (worker.includes("423")) return "G_DS423+";
+  return "G_DS225+";
+}
+
+function loadDeviceFile() {
+  try {
+    const parsed = JSON.parse(readFileSync(deviceFile, "utf8"));
+    if (parsed && parsed.deviceKey) {
+      deviceKey = String(parsed.deviceKey);
+      if (parsed.gasUrl && !gasExec) gasExec = String(parsed.gasUrl);
+    }
+  } catch {
+    deviceKey = "";
+  }
+}
+
+function saveDeviceFile(data) {
+  mkdirSync(dirname(deviceFile), { recursive: true });
+  writeFileSync(deviceFile, JSON.stringify(data, null, 2), { mode: 0o600 });
+  deviceKey = data.deviceKey;
+  if (data.gasUrl) gasExec = data.gasUrl;
+}
+
+async function ensurePaired() {
+  loadDeviceFile();
+  if (deviceKey) return;
+  const name = deviceName();
+  for (;;) {
+    const requested = await fetch(`${base}/api/device/pair/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deviceName: name, deviceType: "NAS", agentVersion: "2.0.22", hostname: hostname() }),
+    });
+    const body = await requested.json().catch(() => ({}));
+    if (!body.ok || !body.pairingCode) {
+      console.log(`[pair] ${body.error || requested.status}. retry 30s`);
+      await new Promise((resolve) => setTimeout(resolve, 30000));
+      continue;
+    }
+    console.log("OpenBell Device Pairing");
+    console.log(`Device: ${name}`);
+    console.log(`Pairing Code: ${body.pairingCode}`);
+    console.log("Status: WAITING_FOR_APPROVAL");
+    const deadline = Date.now() + 10 * 60 * 1000;
+    let done = false;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const statusRes = await fetch(`${base}/api/device/pair/status`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pairingRequestId: body.pairingRequestId, pairingCode: body.pairingCode }),
+      });
+      const status = await statusRes.json().catch(() => ({}));
+      if (status.deviceKey && status.deviceId) {
+        saveDeviceFile({
+          deviceId: status.deviceId,
+          deviceName: status.deviceName || name,
+          deviceKey: status.deviceKey,
+          serverUrl: status.serverUrl || base,
+          gasUrl: status.gasUrl || "",
+          version: "2.0.22",
+        });
+        console.log("[pair] approved");
+        done = true;
+        break;
+      }
+      if (status.status === "REJECTED" || status.status === "EXPIRED") break;
+    }
+    if (done) return;
+    console.log("[pair] not approved. requesting again");
+  }
+}
 const seenJobKeys = new Set();
 
 function jobKey(job) {
@@ -22,10 +104,12 @@ function jobKey(job) {
 
 async function claimGasJob() {
   if (!gasExec) return null;
-  const target = new URL(gasExec);
-  target.searchParams.set("op", "job");
-  target.searchParams.set("claim", "1");
-  const res = await fetch(target, { signal: AbortSignal.timeout(3000) });
+  const res = await fetch(gasExec, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ op: "job", action: "claim", deviceKey }),
+    signal: AbortSignal.timeout(8000),
+  });
   const data = await res.json();
   return data && data.job ? data.job : null;
 }
@@ -80,13 +164,18 @@ async function api(path, options = {}) {
   const response = await fetch(`${base}${path}`, {
     ...options,
     headers: {
-      authorization: `Bearer ${token}`,
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(deviceKey ? { "x-openbell-device-key": deviceKey } : {}),
       "content-type": "application/json",
       ...(options.headers || {}),
     },
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (data.error === "DEVICE_REVOKED") {
+      try { rmSync(deviceFile, { force: true }); } catch { /* ignore */ }
+      deviceKey = "";
+    }
     throw new Error(data.error || `HTTP ${response.status}`);
   }
   return data;
@@ -145,6 +234,7 @@ function runJob(job) {
     PAYMENT_HOLD_BROWSER: "true",
     OPENBELL_URL: base,
     NAS_WORKER_TOKEN: token,
+    OPENBELL_DEVICE_KEY: deviceKey,
   };
   return new Promise((resolve) => {
     let output = "";
@@ -176,7 +266,9 @@ async function loadGasUrl() {
 }
 
 async function main() {
-  if (!base || !token) throw new Error("OPENBELL_URL and NAS_WORKER_TOKEN are required");
+  if (!base) throw new Error("OPENBELL_URL is required");
+  await ensurePaired();
+  if (!token && !deviceKey) throw new Error("NAS_WORKER_TOKEN or a paired device key is required");
   console.log(`[${workerName}] mode=poll claim=${enabled} headless=${enabledFlag("PLAYWRIGHT_HEADLESS", false)}`);
   console.log("noVNC http://<nas-ip>:6080/vnc.html");
   await loadGasUrl();
@@ -200,6 +292,7 @@ async function main() {
     } catch (error) {
       claimFailed = true;
       console.warn(`[claim] ${error instanceof Error ? error.message : error}`);
+      if (String(error && error.message) === "DEVICE_REVOKED") await ensurePaired();
     }
     if (!job && claimFailed) {
       try {
