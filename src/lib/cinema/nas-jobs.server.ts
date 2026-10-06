@@ -122,9 +122,22 @@ export async function enqueueNasJob(
       : [],
     resultMessage: "",
   };
-  const jobs = await loadJobs();
-  jobs.push(job);
-  await saveJobs(jobs);
+  const sameShow = (row: NasHoldJob) =>
+    row.movieTitle === job.movieTitle &&
+    row.theaterId === job.theaterId &&
+    row.playDate === job.playDate &&
+    row.startTime === job.startTime &&
+    row.hallName === job.hallName &&
+    (row.status === "pending" || row.status === "running" || row.status === "need_user");
+  try {
+    const jobs = await loadJobs();
+    const existing = jobs.find(sameShow);
+    if (existing) return existing;
+    jobs.push(job);
+    await saveJobs(jobs);
+  } catch {
+    /* 저장이 막혀도 아래 전달은 계속한다 */
+  }
   void import("./booking-jobs.server")
     .then(({ insertBookingJob }) =>
       insertBookingJob({

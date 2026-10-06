@@ -99,4 +99,31 @@ describe("planAutoBook", () => {
     assert.equal(changed.jobs.length, 1);
     assert.equal(changed.jobs[0]?.reason, "seats");
   });
+
+  it("books the show already on the board, then a showtime that opens later", () => {
+    const current = planAutoBook({
+      live: [show({ id: "old" })],
+      movies: [{ title: "테스트", seats: 2 }],
+      autoShows: [],
+      fired: {},
+      armMovies: new Set(),
+      armShows: new Set(),
+      knownShowIds: new Set(["old"]),
+    });
+    assert.equal(current.jobs.length, 1);
+    assert.equal(current.jobs[0]?.show.id, "old");
+    assert.equal(current.jobs[0]?.seats, 2);
+    const opened = planAutoBook({
+      live: [show({ id: "old" }), show({ id: "new", startTime: "21:00" })],
+      movies: [{ title: "테스트", seats: 2 }],
+      autoShows: [],
+      fired: current.fired,
+      armMovies: new Set(),
+      armShows: new Set(),
+      knownShowIds: new Set(["old"]),
+    });
+    assert.equal(opened.jobs.length, 1);
+    assert.equal(opened.jobs[0]?.show.id, "new");
+    assert.equal(opened.jobs[0]?.seats, 2);
+  });
 });

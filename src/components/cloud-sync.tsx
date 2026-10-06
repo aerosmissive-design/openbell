@@ -13,6 +13,8 @@ import {
 } from "@/lib/cinema/cloud";
 import { DEFAULT_WATCH } from "@/lib/cinema/gas-script";
 import { forgetGasLink, gasWatchFingerprint } from "@/lib/cinema/gas-provision";
+import { useAutoBook } from "@/lib/auto-book-store";
+import { mergeAutoMovies, mergeAutoShows, sanitizeAutoFired } from "@/lib/cinema/auto-book-run";
 import { useAppStore } from "@/lib/store";
 
 function localSnapshot(): CloudSnapshot {
@@ -26,6 +28,9 @@ function localSnapshot(): CloudSnapshot {
     seenIds: s.seenIds,
     seenDates: s.seenDates,
     watchSig: s.watchSig,
+    autoMovies: useAutoBook.getState().movies,
+    autoShows: useAutoBook.getState().shows,
+    autoFired: {},
   };
 }
 
@@ -55,6 +60,8 @@ export async function flushSettings(signedIn: boolean): Promise<GasPushResult> {
     seenIds: snap.seenIds,
     seenDates: snap.seenDates,
     watchSig: snap.watchSig,
+    autoMovies: snap.autoMovies,
+    autoShows: snap.autoShows,
   };
   const published = await publishToGas({ data: payload }).catch(() => null);
   if (signedIn) {
@@ -88,6 +95,8 @@ export function CloudSync() {
   const seenIds = useAppStore((s) => s.seenIds);
   const seenDates = useAppStore((s) => s.seenDates);
   const watchSig = useAppStore((s) => s.watchSig);
+  const autoMovies = useAutoBook((s) => s.movies);
+  const autoShows = useAutoBook((s) => s.shows);
   const hydrateCloud = useAppStore((s) => s.hydrateCloud);
   const [ready, setReady] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -130,8 +139,12 @@ export function CloudSync() {
         if (cancelled) return;
         const ownerId = useAppStore.getState().ownerId;
         if (remote.snapshot) {
+          const mergedMovies = mergeAutoMovies(remote.snapshot.autoMovies, useAutoBook.getState().movies);
+          const mergedShows = mergeAutoShows(remote.snapshot.autoShows, useAutoBook.getState().shows);
+          rememberRemoteFired(remote.snapshot.autoFired);
+          useAutoBook.getState().replaceAll(mergedMovies, mergedShows);
           hydrateCloud(remote.snapshot);
-          await persistQuiet(remote.snapshot);
+          await persistQuiet({ ...remote.snapshot, autoMovies: mergedMovies, autoShows: mergedShows });
           return;
         }
         if (ownerId && ownerId !== userId) {
@@ -147,7 +160,11 @@ export function CloudSync() {
             seenIds: [],
             seenDates: [],
             watchSig: "",
+            autoMovies: [],
+            autoShows: [],
+            autoFired: {},
           };
+          useAutoBook.getState().replaceAll([], []);
           hydrateCloud(fresh);
           await persistQuiet(fresh);
           return;
@@ -187,12 +204,30 @@ export function CloudSync() {
     seenIds,
     seenDates,
     watchSig,
+    autoMovies,
+    autoShows,
     ready,
     hydrated,
     userId,
   ]);
 
   return null;
+}
+
+function rememberRemoteFired(remote: Record<string, string>) {
+  const incoming = sanitizeAutoFired(remote);
+  let local: Record<string, string> = {};
+  try {
+    const raw = JSON.parse(localStorage.getItem("openbell-autobook-fired") || "{}") as unknown;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) local = raw as Record<string, string>;
+  } catch {
+    local = {};
+  }
+  try {
+    localStorage.setItem("openbell-autobook-fired", JSON.stringify({ ...local, ...incoming }));
+  } catch {
+    /* 저장 공간이 막혀도 계정 쪽 기록은 남는다 */
+  }
 }
 
 async function persistQuiet(snap: CloudSnapshot) {
@@ -207,6 +242,8 @@ async function persistQuiet(snap: CloudSnapshot) {
       seenIds: next.seenIds,
       seenDates: next.seenDates,
       watchSig: next.watchSig,
+      autoMovies: next.autoMovies,
+      autoShows: next.autoShows,
     },
   }).catch(() => {});
 }

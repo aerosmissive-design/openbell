@@ -31,6 +31,7 @@ export function BellView() {
       </section>
       <section>
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">자동예매 영화</h2>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted">계정에 저장됩니다. 이 목록에 있는 영화는 지금 떠 있는 회차와 나중에 열리는 회차를 한 번씩 결제 직전까지 잡습니다.</p>
         {movies.length ? (
           <ul className="mt-2 flex flex-col gap-2">
             {movies.map((m) => (
@@ -41,11 +42,12 @@ export function BellView() {
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm text-muted">차트에서 자동예매를 누르면 회차 오픈 때 결제 직전까지 갑니다.</p>
+          <p className="mt-2 text-sm text-muted">차트에서 자동예매를 누르세요.</p>
         )}
       </section>
       <section>
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">자동예매 회차</h2>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted">계정에 저장됩니다. 그 회차가 상영표에 있으면 잡고, 잔여석이 변하면 다시 잡습니다.</p>
         {shows.length ? (
           <ul className="mt-2 flex flex-col gap-2">
             {shows.map((row) => (
@@ -59,7 +61,7 @@ export function BellView() {
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm text-muted">별표 회차의 자동예매를 누르면 잔여석이 변할 때마다 다시 잡습니다.</p>
+          <p className="mt-2 text-sm text-muted">별표한 회차에서 자동예매를 누르세요.</p>
         )}
       </section>
       <section>

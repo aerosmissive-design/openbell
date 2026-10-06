@@ -27,6 +27,9 @@ import { isStaleSeat, STALE_MS } from "./stale";
 import { THEATERS } from "./theaters";
 import type { AlertItem, BookingIntent, Showtime, TheaterId, WatchConfig } from "./types";
 import { mailEnabled } from "./types";
+import type { AutoMovie, AutoShow } from "@/lib/auto-book-store";
+import { planAutoBook } from "./auto-book-run";
+import { enqueueNasJob } from "./nas-jobs.server";
 
 function hostSeenFromPrefs(prefs: unknown): string[] {
   const bag =
@@ -357,6 +360,7 @@ async function persistWatch(
     watchSig: string;
     newAlerts: AlertItem[];
     queue: BookingIntent[];
+    autoFired: Record<string, string>;
   },
 ) {
   const sql = await getSql();
@@ -378,18 +382,21 @@ async function persistWatch(
              jsonb_set(
                jsonb_set(
                  jsonb_set(
-                   coalesce(prefs, '{}'::jsonb),
-                   '{primed}', to_jsonb($2::boolean), true
+                   jsonb_set(
+                     coalesce(prefs, '{}'::jsonb),
+                     '{primed}', to_jsonb($2::boolean), true
+                   ),
+                   '{watchSig}', to_jsonb($3::text), true
                  ),
-                 '{watchSig}', to_jsonb($3::text), true
+                 '{seenDates}', $4::jsonb, true
                ),
-               '{seenDates}', $4::jsonb, true
+               '{seenIds}', $5::jsonb, true
              ),
-             '{seenIds}', $5::jsonb, true
+             '{seenByHost}',
+             coalesce(prefs->'seenByHost', '{}'::jsonb) || jsonb_build_object($6::text, $7::jsonb),
+             true
            ),
-           '{seenByHost}',
-           coalesce(prefs->'seenByHost', '{}'::jsonb) || jsonb_build_object($6::text, $7::jsonb),
-           true
+           '{autoFired}', $10::jsonb, true
          ),
          queue = $8::jsonb,
          updated_at = now()
@@ -404,8 +411,47 @@ async function persistWatch(
       JSON.stringify(seenIds),
       JSON.stringify(extras.queue.slice(0, 40)),
       userId,
+      JSON.stringify(extras.autoFired),
     ],
   );
+}
+
+async function commitAutoBook(
+  live: Showtime[],
+  snap: { autoMovies: AutoMovie[]; autoShows: AutoShow[]; autoFired: Record<string, string> },
+  knownShowIds: Set<string>,
+) {
+  const plan = planAutoBook({
+    live,
+    movies: snap.autoMovies,
+    autoShows: snap.autoShows,
+    fired: snap.autoFired,
+    armMovies: new Set(),
+    armShows: new Set(),
+    knownShowIds,
+  });
+  const fired = { ...plan.fired };
+  const jobs = plan.jobs.slice(0, 8);
+  for (const job of plan.jobs.slice(8)) delete fired[job.key];
+  for (const job of jobs) {
+    try {
+      const queued = await enqueueNasJob({
+        movieTitle: job.show.movieTitle,
+        theaterId: job.show.theaterId,
+        playDate: job.show.playDate,
+        startTime: job.show.startTime,
+        hallName: job.show.hallName,
+        bookingUrl: job.show.bookingUrl,
+        seats: job.seats,
+        zone: "center",
+        preferredSeats: job.preferredSeats,
+      });
+      if (!queued) delete fired[job.key];
+    } catch {
+      delete fired[job.key];
+    }
+  }
+  return fired;
 }
 
 export async function runWatchTick() {
@@ -480,6 +526,8 @@ export async function runWatchTick() {
       titles,
     );
     const sig = watchSignature(config);
+    const bookable = allShows.filter((show) => enabled.has(show.theaterId));
+    const autoFired = await commitAutoBook(bookable, snap, new Set());
     if (!hostSeen.length) {
       const primedQueue = diffStarSeats(snap.queue, allShows).nextQueue;
       await persistWatch(userId, {
@@ -489,6 +537,7 @@ export async function runWatchTick() {
         watchSig: sig,
         newAlerts: [],
         queue: primedQueue,
+        autoFired,
       });
       continue;
     }
@@ -526,6 +575,7 @@ export async function runWatchTick() {
       watchSig: nextSig,
       newAlerts: items,
       queue: nextQueue,
+      autoFired,
     });
   }
     const beats = new Set(

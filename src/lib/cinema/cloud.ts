@@ -3,6 +3,14 @@ import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { DEFAULT_WATCH } from "./gas-script";
 import { THEATERS } from "./theaters";
+import type { AutoMovie, AutoShow } from "@/lib/auto-book-store";
+import {
+  mergeAutoMovies,
+  mergeAutoShows,
+  sanitizeAutoFired,
+  sanitizeAutoMovies,
+  sanitizeAutoShows,
+} from "./auto-book-run";
 import type { AlertItem, BookingIntent, WatchConfig } from "./types";
 import { CHART_SIZE, normalizeHold, normalizeScanSources } from "./types";
 import { normalizeTheme } from "@/lib/theme";
@@ -16,6 +24,9 @@ export type CloudSnapshot = {
   seenIds: string[];
   seenDates: string[];
   watchSig: string;
+  autoMovies: AutoMovie[];
+  autoShows: AutoShow[];
+  autoFired: Record<string, string>;
 };
 
 export function hydrateConfig(raw: unknown): WatchConfig {
@@ -146,6 +157,9 @@ export function mergeSnapshots(
     seenIds: [...new Set([...remote.seenIds, ...local.seenIds])].slice(-2500),
     seenDates: [...new Set([...remote.seenDates, ...local.seenDates])].slice(-40),
     watchSig: remote.watchSig || local.watchSig,
+    autoMovies: mergeAutoMovies(remote.autoMovies, local.autoMovies),
+    autoShows: mergeAutoShows(remote.autoShows, local.autoShows),
+    autoFired: { ...sanitizeAutoFired(local.autoFired), ...sanitizeAutoFired(remote.autoFired) },
   };
 }
 
@@ -576,6 +590,9 @@ export function snapshotFromRow(row: {
     seenIds: asList<string>(prefs.seenIds),
     seenDates: asList<string>(prefs.seenDates),
     watchSig: String(prefs.watchSig ?? ""),
+    autoMovies: sanitizeAutoMovies(prefs.autoMovies),
+    autoShows: sanitizeAutoShows(prefs.autoShows),
+    autoFired: sanitizeAutoFired(prefs.autoFired),
   };
 }
 
@@ -612,6 +629,8 @@ const SaveInput = z.object({
   seenIds: z.array(z.string()).optional(),
   seenDates: z.array(z.string()).optional(),
   watchSig: z.string().optional(),
+  autoMovies: z.array(z.unknown()).optional(),
+  autoShows: z.array(z.unknown()).optional(),
 });
 
 export const saveCloudSettings = createServerFn({ method: "POST" })
@@ -629,6 +648,9 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
       seenIds: asList<string>(data.seenIds).slice(-2500),
       seenDates: asList<string>(data.seenDates).slice(-40),
       watchSig: String(data.watchSig ?? ""),
+      autoMovies: sanitizeAutoMovies(data.autoMovies),
+      autoShows: sanitizeAutoShows(data.autoShows),
+      autoFired: {},
     };
     const prefs = {
       onlyAlerted: snapshot.onlyAlerted,
@@ -636,6 +658,8 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
       seenIds: snapshot.seenIds,
       seenDates: snapshot.seenDates,
       watchSig: snapshot.watchSig,
+      autoMovies: snapshot.autoMovies,
+      autoShows: snapshot.autoShows,
     };
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
@@ -656,7 +680,7 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
          config = excluded.config,
          queue = excluded.queue,
          alerts = excluded.alerts,
-         prefs = excluded.prefs,
+         prefs = coalesce(user_settings.prefs, '{}'::jsonb) || excluded.prefs,
          updated_at = now()`,
       [
         context.userId,

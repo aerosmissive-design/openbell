@@ -22,6 +22,7 @@ type AutoState = {
   removeMovie: (title: string) => void;
   setShow: (row: AutoShow) => void;
   removeShow: (id: string) => void;
+  replaceAll: (movies: AutoMovie[], shows: AutoShow[]) => void;
 };
 
 export const useAutoBook = create<AutoState>()(
@@ -46,6 +47,7 @@ export const useAutoBook = create<AutoState>()(
           shows: [row, ...s.shows.filter((x) => x.id !== row.id)].slice(0, 40),
         })),
       removeShow: (id) => set((s) => ({ shows: s.shows.filter((x) => x.id !== id) })),
+      replaceAll: (movies, shows) => set({ movies: movies.slice(-24), shows: shows.slice(0, 40) }),
     }),
     { name: "openbell-autobook" },
   ),

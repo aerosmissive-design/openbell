@@ -1,5 +1,7 @@
 # 오픈벨 인수인계 — v3.9.62 (2026-09-19)
 
+현재 정본은 이 파일이 아니다. `HANDOFF.md`, `OpenBell_전체제품설계도.md`, `OpenBell_제품업그레이드제안서.md`, `VERSION` 을 읽는다.
+
 시크릿은 넣지 않습니다. 라이브: https://openbell-fawn.vercel.app
 
 ## 지금
