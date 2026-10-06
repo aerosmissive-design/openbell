@@ -12,6 +12,7 @@ import type { ScanResult } from "@/lib/cinema/types";
 import { THEME_MODES } from "@/lib/theme";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { settingsActionClass, settingsChoiceClass } from "./settings-controls";
 import { Button } from "./ui/button";
 import { SettingsTheaterPicks } from "./theater-picks";
 import { NotifyChannelCards } from "./notify-channels";
@@ -83,7 +84,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               <p className="mt-2 text-sm leading-relaxed text-muted">베셀·Neon이 죽어도 구글스크립트가 알림을 보냅니다.</p>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {[1, 5, 10].map((n) => (
-                  <button key={n} type="button" onClick={() => { setConfig({ intervalMin: n }); void pushWatchWindow(); }} className={cn("min-h-11 rounded-md text-sm tabular-nums", config.intervalMin === n ? "bg-pick text-fg ring-1 ring-border-strong" : "bg-bg text-muted")}>
+                  <button key={n} type="button" onClick={() => { setConfig({ intervalMin: n }); void pushWatchWindow(); }} className={cn(settingsChoiceClass(config.intervalMin === n), "tabular-nums")}>
                     {n}분
                   </button>
                 ))}
@@ -103,9 +104,9 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
               <label className="mt-4 block text-xs text-muted">웹앱 주소</label>
               <input value={gasUrlDraft} readOnly={gasLinked} disabled={gasLinked} onChange={(e) => setGasUrlDraft(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" className={cn("mt-1.5 h-11 w-full rounded-md px-3 text-sm outline-none ring-1 ring-border", gasLinked ? "cursor-not-allowed bg-bg text-faint opacity-60" : "bg-bg text-fg focus:ring-border-strong")} />
               {gasLinked ? (
-                <button type="button" className="mt-2 min-h-11 w-full text-sm text-muted" onClick={() => { forgetGasLink(); setGasUrlDraft(""); void flushSettings(Boolean(loginEmail)); toast.success("웹앱 연결을 끊었습니다."); }}>연결 끊기</button>
+                <button type="button" className={cn(settingsActionClass, "mt-2")} onClick={() => { forgetGasLink(); setGasUrlDraft(""); void flushSettings(Boolean(loginEmail)); toast.success("웹앱 연결을 끊었습니다."); }}>연결 끊기</button>
               ) : (
-                <button type="button" className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border" onClick={() => {
+                <button type="button" className={cn(settingsActionClass, "mt-2")} onClick={() => {
                   const raw = gasUrlDraft.trim();
                   if (!raw) { toast.error("웹앱 주소를 붙여넣으세요."); return; }
                   ensureGasSyncKey();
@@ -115,8 +116,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                   toast.success("주소를 저장했습니다.");
                 }}>웹앱 주소 연결</button>
               )}
-              <a href={gasHomeUrl(loginEmail) || "https://script.google.com"} target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center rounded-md bg-black px-3 text-sm text-white">script.google.com 열기</a>
-              <button type="button" className="mt-2 min-h-11 w-full rounded-md bg-bg px-3 text-sm text-fg ring-1 ring-border" onClick={() => {
+              <a href={gasHomeUrl(loginEmail) || "https://script.google.com"} target="_blank" rel="noopener noreferrer" className={cn(settingsActionClass, "mt-3")}>script.google.com 열기</a>
+              <button type="button" className={cn(settingsActionClass, "mt-2")} onClick={() => {
                 void navigator.clipboard.writeText(currentGasScript()).then(
                   () => { setConfig({ gasSourceStamp: GAS_SOURCE_STAMP }); toast.success("복사했습니다. 붙여넣고 저장한 뒤 설치를 실행하세요."); },
                   () => toast.error("복사하지 못했습니다."),
@@ -135,7 +136,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">알림 설정</h2>
         <div className="mt-3 grid grid-cols-5 gap-1.5">
           {[5, 7, 10, 15, 30].map((n) => (
-            <button key={n} type="button" onClick={() => { setConfig({ daysAhead: n }); void pushWatchWindow(); }} className={cn("min-h-11 rounded-md text-sm", config.daysAhead === n ? "bg-pick text-fg ring-1 ring-border-strong" : "bg-bg text-muted")}>
+            <button key={n} type="button" onClick={() => { setConfig({ daysAhead: n }); void pushWatchWindow(); }} className={settingsChoiceClass(config.daysAhead === n)}>
               {n}일
             </button>
           ))}
@@ -150,13 +151,13 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           href="/board"
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-black px-3 text-sm text-white"
+          className={cn(settingsActionClass, "mt-3")}
         >
           베셀 전광판 열기
           <ExternalLink className="size-3.5" aria-hidden />
         </a>
         {gasBoardUrl ? (
-          <a href={gasBoardUrl} target="_blank" rel="noopener noreferrer" className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-bg px-3 text-sm text-muted ring-1 ring-border">
+          <a href={gasBoardUrl} target="_blank" rel="noopener noreferrer" className={cn(settingsActionClass, "mt-2")}>
             GAS 전광판 열기
             <ExternalLink className="size-3.5" aria-hidden />
           </a>
@@ -169,7 +170,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
         <h2 className="text-xs font-medium tracking-[0.16em] text-muted">배경</h2>
         <div className="mt-3 grid grid-cols-3 gap-2">
           {THEME_MODES.map((mode) => (
-            <button key={mode.id} type="button" onClick={() => setConfig({ theme: mode.id })} className={cn("min-h-11 rounded-md text-sm", (config.theme ?? "dark") === mode.id ? "bg-pick text-fg ring-1 ring-border-strong" : "bg-bg text-muted")}>
+            <button key={mode.id} type="button" onClick={() => setConfig({ theme: mode.id })} className={settingsChoiceClass((config.theme ?? "dark") === mode.id)}>
               {mode.label}
             </button>
           ))}
@@ -191,7 +192,7 @@ function CloudSettingsCard() {
           <p className="text-fg">{user.displayName ?? user.primaryEmail ?? "로그인됨"}</p>
           <p>Neon 한도면 계정 저장이 안 될 수 있습니다. 구글스크립트 예비 메일을 쓰세요.</p>
           {authEnabled ? (
-            <Button variant="outline" className="w-full" disabled={signingOut} onClick={() => { setSigningOut(true); void signOut("/"); }}>
+            <Button variant="outline" className={settingsActionClass} disabled={signingOut} onClick={() => { setSigningOut(true); void signOut("/"); }}>
               {signingOut ? "나가는 중…" : "로그아웃"}
             </Button>
           ) : null}
@@ -199,7 +200,7 @@ function CloudSettingsCard() {
       ) : (
         <div>
           <p className="mt-2 text-sm leading-relaxed text-muted">로그인은 Neon이 막혀 안 될 수 있습니다. 「메일로 받기」에 주소를 적으세요.</p>
-          <Link to="/login" className="mt-3 flex min-h-11 items-center justify-center rounded-md bg-bg text-sm text-muted ring-1 ring-border">로그인</Link>
+          <Link to="/login" className={cn(settingsActionClass, "mt-3")}>로그인</Link>
         </div>
       )}
     </div>

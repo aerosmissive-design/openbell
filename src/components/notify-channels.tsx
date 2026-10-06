@@ -10,7 +10,9 @@ import { useAppStore } from "@/lib/store";
 import { describeGasPush, flushSettings } from "./cloud-sync";
 import { GasBackupMailField } from "./gas-backup-mail";
 import { NotifyAccountPanel } from "./notify-account";
+import { settingsActionClass } from "./settings-controls";
 import { Button } from "./ui/button";
+import { cn } from "@/lib/utils";
 
 function ChannelCard({ title, summary, open, onToggle, children }: { title: string; summary: string; open: boolean; onToggle: () => void; children: ReactNode }) {
   return (
@@ -107,26 +109,26 @@ export function NotifyChannelCards() {
       <ChannelCard title="메일로 받기" summary={config.email.trim() ? `예비 · ${config.email}` : "로그인 없이 예비 가능"} open={showMail} onToggle={() => setShowMail((v) => !v)}>
         <p className="text-sm leading-relaxed text-muted">Neon이 죽어도 구글스크립트가 이 주소로 메일을 보냅니다.</p>
         <GasBackupMailField />
-        <Button className="mt-3 w-full bg-black text-white ring-0 hover:bg-black" disabled={sendingTest || !config.email.trim()} onClick={() => void sendTestMail()}>{sendingTest ? "보내는 중…" : "테스트하기"}</Button>
-        <Button variant="outline" className="mt-2 w-full" disabled={sendingTest || !config.email.trim()} onClick={() => void sendReservationChannelTest("mail")}>{sendingTest ? "보내는 중…" : "4개극장 랜덤 예매테스트보내기"}</Button>
+        <Button className={cn(settingsActionClass, "mt-3")} disabled={sendingTest || !config.email.trim()} onClick={() => void sendTestMail()}>{sendingTest ? "보내는 중…" : "테스트하기"}</Button>
+        <Button className={cn(settingsActionClass, "mt-2")} disabled={sendingTest || !config.email.trim()} onClick={() => void sendReservationChannelTest("mail")}>{sendingTest ? "보내는 중…" : "4개극장 랜덤 예매테스트보내기"}</Button>
       </ChannelCard>
       <ChannelCard title="카톡으로 받기" summary={config.kakaoRefreshToken ? "연결됨" : "꺼짐"} open={showKakao} onToggle={() => setShowKakao((v) => !v)}>
         <label className="block text-xs text-muted">REST API 키</label>
         <input value={config.kakaoRestKey} onChange={(e) => setConfig({ kakaoRestKey: e.target.value })} className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border" />
-        <Button variant="outline" className="mt-3 w-full" onClick={() => { const key = config.kakaoRestKey.trim(); if (!key) { toast.error("REST API 키를 먼저 붙여넣으세요."); return; } window.open(`https://kauth.kakao.com/oauth/authorize?client_id=${encodeURIComponent(key)}&redirect_uri=${encodeURIComponent(kakaoRedirectUri() || redirectUri)}&response_type=code&scope=talk_message`, "_blank", "noopener,noreferrer"); }}>카카오 허용 열기 <ExternalLink className="size-3.5" /></Button>
+        <Button className={cn(settingsActionClass, "mt-3")} onClick={() => { const key = config.kakaoRestKey.trim(); if (!key) { toast.error("REST API 키를 먼저 붙여넣으세요."); return; } window.open(`https://kauth.kakao.com/oauth/authorize?client_id=${encodeURIComponent(key)}&redirect_uri=${encodeURIComponent(kakaoRedirectUri() || redirectUri)}&response_type=code&scope=talk_message`, "_blank", "noopener,noreferrer"); }}>카카오 허용 열기 <ExternalLink className="size-3.5" /></Button>
         <input value={kakaoCode} onChange={(e) => setKakaoCode(e.target.value)} placeholder="인가 코드" className="mt-3 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border" />
-        <Button className="mt-3 w-full bg-black text-white ring-0 hover:bg-black" onClick={async () => { try { const result = await exchangeKakaoCode({ data: { restKey: config.kakaoRestKey, code: extractKakaoCode(kakaoCode), redirectUri: kakaoRedirectUri() || redirectUri } }); setConfig({ kakaoRefreshToken: result.refreshToken }); setKakaoCode(""); toast.success("카카오가 연결되었습니다."); } catch (err) { toast.error(err instanceof Error ? err.message : "카카오 연결 실패"); } }}>카카오 연결</Button>
-        <Button variant="outline" className="mt-2 w-full" disabled={sendingTest || !config.kakaoRefreshToken} onClick={() => void sendChannelPing("kakao")}>{sendingTest ? "보내는 중…" : "테스트하기"}</Button>
-        <Button variant="outline" className="mt-2 w-full" disabled={sendingTest || !config.kakaoRefreshToken} onClick={() => void sendReservationChannelTest("kakao")}>{sendingTest ? "보내는 중…" : "4개극장 랜덤 예매테스트보내기"}</Button>
+        <Button className={cn(settingsActionClass, "mt-3")} onClick={async () => { try { const result = await exchangeKakaoCode({ data: { restKey: config.kakaoRestKey, code: extractKakaoCode(kakaoCode), redirectUri: kakaoRedirectUri() || redirectUri } }); setConfig({ kakaoRefreshToken: result.refreshToken }); setKakaoCode(""); toast.success("카카오가 연결되었습니다."); } catch (err) { toast.error(err instanceof Error ? err.message : "카카오 연결 실패"); } }}>카카오 연결</Button>
+        <Button className={cn(settingsActionClass, "mt-2")} disabled={sendingTest || !config.kakaoRefreshToken} onClick={() => void sendChannelPing("kakao")}>{sendingTest ? "보내는 중…" : "테스트하기"}</Button>
+        <Button className={cn(settingsActionClass, "mt-2")} disabled={sendingTest || !config.kakaoRefreshToken} onClick={() => void sendReservationChannelTest("kakao")}>{sendingTest ? "보내는 중…" : "4개극장 랜덤 예매테스트보내기"}</Button>
       </ChannelCard>
       <ChannelCard title="텔레그램으로 받기" summary={config.telegramToken && config.telegramChatId ? "연결됨" : "꺼짐"} open={showTelegram} onToggle={() => setShowTelegram((v) => !v)}>
         <label className="block text-xs text-muted">봇 토큰</label>
         <input value={config.telegramToken} onChange={(e) => setConfig({ telegramToken: e.target.value })} className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border" />
         <label className="mt-3 block text-xs text-muted">채팅 ID</label>
         <input value={config.telegramChatId} onChange={(e) => setConfig({ telegramChatId: e.target.value })} className="mt-1.5 h-11 w-full rounded-md bg-bg px-3 text-sm text-fg outline-none ring-1 ring-border" />
-        <Button variant="outline" className="mt-3 w-full" onClick={async () => { try { const hit = await peekTelegramChat({ data: { token: config.telegramToken } }); setConfig({ telegramChatId: hit.chatId }); toast.success("채팅 ID를 넣었습니다."); } catch (err) { toast.error(err instanceof Error ? err.message : "찾지 못했습니다."); } }}>채팅 ID 찾기</Button>
-        <Button variant="outline" className="mt-2 w-full" disabled={sendingTest || !config.telegramToken.trim() || !config.telegramChatId.trim()} onClick={() => void sendChannelPing("telegram")}>{sendingTest ? "보내는 중…" : "테스트하기"}</Button>
-        <Button variant="outline" className="mt-2 w-full" disabled={sendingTest || !config.telegramToken.trim() || !config.telegramChatId.trim()} onClick={() => void sendReservationChannelTest("telegram")}>{sendingTest ? "보내는 중…" : "4개극장 랜덤 예매테스트보내기"}</Button>
+        <Button className={cn(settingsActionClass, "mt-3")} onClick={async () => { try { const hit = await peekTelegramChat({ data: { token: config.telegramToken } }); setConfig({ telegramChatId: hit.chatId }); toast.success("채팅 ID를 넣었습니다."); } catch (err) { toast.error(err instanceof Error ? err.message : "찾지 못했습니다."); } }}>채팅 ID 찾기</Button>
+        <Button className={cn(settingsActionClass, "mt-2")} disabled={sendingTest || !config.telegramToken.trim() || !config.telegramChatId.trim()} onClick={() => void sendChannelPing("telegram")}>{sendingTest ? "보내는 중…" : "테스트하기"}</Button>
+        <Button className={cn(settingsActionClass, "mt-2")} disabled={sendingTest || !config.telegramToken.trim() || !config.telegramChatId.trim()} onClick={() => void sendReservationChannelTest("telegram")}>{sendingTest ? "보내는 중…" : "4개극장 랜덤 예매테스트보내기"}</Button>
       </ChannelCard>
       <NotifyAccountPanel />
     </>

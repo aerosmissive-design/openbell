@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, BellRing, ScanLine, Settings2, Star } from "lucide-react";
+import { Bell, ScanLine, Settings2, Star, Ticket } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { bookingJumpUrl } from "@/lib/cinema/kakao";
@@ -466,7 +466,7 @@ export function CinemaApp() {
           <NavBtn
             active={tab === "bell"}
             onClick={() => setTab("bell")}
-            icon={<BellRing className="size-4" strokeWidth={1.75} />}
+            icon={<Ticket className="size-4" strokeWidth={1.75} />}
             ariaLabel="자동예매 목록"
             badge={autoMovies.length + autoShows.length}
           />

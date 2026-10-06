@@ -4,6 +4,8 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { KAKAO_BUSINESS_NOTICE } from "@/lib/notify/policy";
 import { loadNotifySettings, saveNotifySettings, sendNotifyTest, verifyNotifyTelegram } from "@/lib/notify/settings";
 import type { MailProvider, NotifySettingsView } from "@/lib/notify/types";
+import { cn } from "@/lib/utils";
+import { settingsActionClass } from "./settings-controls";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 
@@ -145,7 +147,7 @@ export function NotifyAccountPanel() {
         <p className="text-xs text-muted">{view.telegramVerified ? "연결됨" : "연결 테스트 전"}{view.telegramTokenSet ? " · 토큰 저장됨" : ""}</p>
         <input value={token} onChange={(e) => setToken(e.target.value)} placeholder={view.telegramTokenSet ? "****" : "봇 토큰"} type="password" autoComplete="off" className={inputClass} />
         <input value={view.telegramChatId} onChange={(e) => patch({ telegramChatId: e.target.value })} placeholder="채팅 ID" className={inputClass} />
-        <Button variant="outline" className="mt-2 w-full" disabled={busy} onClick={() => void verify()}>연결 테스트</Button>
+        <Button className={cn(settingsActionClass, "mt-2")} disabled={busy} onClick={() => void verify()}>연결 테스트</Button>
       </div>
 
       <div className="mt-4">
@@ -177,8 +179,8 @@ export function NotifyAccountPanel() {
         <Switch label="정산" checked={view.notifySettlement} onCheckedChange={(notifySettlement) => patch({ notifySettlement })} />
       </div>
 
-      <Button className="mt-3 w-full bg-black text-white ring-0 hover:bg-black" disabled={busy} onClick={() => void save()}>{busy ? "저장 중…" : "계정 알림 저장"}</Button>
-      <Button variant="outline" className="mt-2 w-full" disabled={busy} onClick={() => void testSend()}>테스트 발송 (가짜 내용)</Button>
+      <Button className={cn(settingsActionClass, "mt-3")} disabled={busy} onClick={() => void save()}>{busy ? "저장 중…" : "계정 알림 저장"}</Button>
+      <Button className={cn(settingsActionClass, "mt-2")} disabled={busy} onClick={() => void testSend()}>테스트 발송 (가짜 내용)</Button>
     </div>
   );
 }

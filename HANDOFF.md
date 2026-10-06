@@ -7,7 +7,7 @@
 | 저장소 | https://github.com/aerosmissive-design/openbell |
 | 프로드 | https://openbell-fawn.vercel.app |
 | 전광판 | https://openbell-fawn.vercel.app/board |
-| 스냅샷 버전 | **웹 4.0** (VERSION / APP_VERSION) |
+| 스냅샷 버전 | **웹 4.1** (VERSION / APP_VERSION) |
 | 작성·갱신 | 2026-10-06 · 업데이트 때 텔레그램·메일·GAS 웹앱 주소가 빈 값으로 지워지지 않는다. 결제 클릭 없음. |
 
 > **규칙:** 새 버전을 `main`에 올릴 때 `VERSION` · `src/lib/app-version.ts` · **이 문서(HANDOFF.md)** 를 함께 맞춘다.  
@@ -193,6 +193,7 @@ GAS POST는 302에서도 POST를 유지. 로그 `[GAS 저장] {ok:true}` 가 정
 
 | 날짜 | 버전 | 내용 |
 |------|------|------|
+| 2026-10-06 | 4.1 | 자동예매 탭 아이콘을 티켓으로 바꿈. 설정 버튼은 글자색·글꼴·칸을 하나로 맞추고, 밝은색은 여러 개 중 선택된 항목에만 칠함. 결제 클릭 없음 |
 | 2026-10-06 | 4.0 | 빈 계정 저장이 텔레그램·메일·GAS 웹앱 주소를 지우지 않음. 로그아웃은 연결을 끊지 않음. 연결 끊기 버튼만 주소를 지움. 헤더 버전 4.0. 결제 클릭 없음 |
 | 2026-10-06 | 3.9.100 | 자동예매 영화·회차를 계정 prefs에 저장. 선택된 영화는 현재 회차와 이후 새 회차를 한 번씩 작업으로 넣음. 서버 tick이 enqueue. 활성 작업 중복 생략. 결제 클릭 없음 |
 | 2026-10-04 | 3.9.98 | 계정별 알림(`user_notification_settings`). AES-GCM. 직접 메일/GAS 메일 투트랙. PAYMENT_READY는 결제 URL 없이 발송, 같은 분 재발송 차단(Neon TTL 3600, Redis 없음). 카카오 알림톡은 사업자 확인 전 미발송. 감시 tick의 기존 텔레그램·카톡·메일은 그대로 |

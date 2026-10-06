@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { cn } from "@/lib/utils";
+import { settingsActionClass, settingsCellClass } from "./settings-controls";
 
 const NAMES = ["G_PC", "G_DS225+", "G_DS423+"] as const;
 
@@ -130,10 +131,10 @@ export function DevicePanel() {
           <p className="mt-2 text-fg">인증 코드 {row.pairingCode}</p>
           <p className="text-xs text-muted">기기 화면에 같은 코드가 있는지 확인하세요.</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" disabled={Boolean(locked)} className="min-h-11 rounded-md bg-black text-sm text-white" onClick={() => void post("/api/device/pair/approve", { pairingRequestId: row.pairingRequestId, mode: "approve" }, "연결했습니다.")}>승인</button>
-            <button type="button" disabled={Boolean(locked)} className="min-h-11 rounded-md bg-bg text-sm text-muted ring-1 ring-border" onClick={() => void post("/api/device/pair/reject", { pairingRequestId: row.pairingRequestId }, "거부했습니다.")}>거부</button>
+            <button type="button" disabled={Boolean(locked)} className={settingsCellClass} onClick={() => void post("/api/device/pair/approve", { pairingRequestId: row.pairingRequestId, mode: "approve" }, "연결했습니다.")}>승인</button>
+            <button type="button" disabled={Boolean(locked)} className={settingsCellClass} onClick={() => void post("/api/device/pair/reject", { pairingRequestId: row.pairingRequestId }, "거부했습니다.")}>거부</button>
           </div>
-          <button type="button" disabled={Boolean(locked)} className="mt-2 min-h-11 w-full text-sm text-muted" onClick={async () => {
+          <button type="button" disabled={Boolean(locked)} className={cn(settingsActionClass, "mt-2")} onClick={async () => {
             const error = await post("/api/device/pair/approve", { pairingRequestId: row.pairingRequestId, mode: "approve" }, "연결했습니다.");
             if (error === "NEED_TRANSFER") {
               await post("/api/device/pair/approve", { pairingRequestId: row.pairingRequestId, mode: "replace" }, "이 계정으로 바꿨습니다. 기기가 새 키를 받습니다.");
@@ -193,12 +194,12 @@ function PathTable({
                 <span className="tabular-nums text-muted">{hm(row.claim)}</span>
               </div>
               {row.device && mine && row.device.ownerUserId === me && onRevoke ? (
-                <button type="button" className="mt-1 min-h-11 text-xs text-muted" onClick={() => onRevoke(row.device!.deviceId)}>연결 해제</button>
+                <button type="button" className={cn(settingsActionClass, "mt-1")} onClick={() => onRevoke(row.device!.deviceId)}>연결 해제</button>
               ) : null}
               {row.device && other && onReplace && onShare ? (
                 <div className="mt-1 grid grid-cols-2 gap-2">
-                  <button type="button" className="min-h-11 rounded-md bg-bg text-xs text-fg ring-1 ring-border" onClick={() => onReplace(row.device!.deviceId)}>교체</button>
-                  <button type="button" className="min-h-11 rounded-md bg-bg text-xs text-fg ring-1 ring-border" onClick={() => onShare(row.device!.deviceId)}>공유</button>
+                  <button type="button" className={settingsCellClass} onClick={() => onReplace(row.device!.deviceId)}>교체</button>
+                  <button type="button" className={settingsCellClass} onClick={() => onShare(row.device!.deviceId)}>공유</button>
                 </div>
               ) : null}
             </div>
