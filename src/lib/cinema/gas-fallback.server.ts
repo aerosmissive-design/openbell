@@ -1,4 +1,5 @@
 import { readAppMeta, writeAppMeta, type MetaWriteResult } from "./app-meta.server";
+import { postGasJson } from "./gas-post";
 import { WAKE_AT_KEY, type WakeKind } from "./wake-kind";
 
 const mem = { url: "", key: "" };
@@ -80,15 +81,8 @@ export async function relaySeatToGas(body: unknown): Promise<"ok" | "fail" | "sk
   try {
     const payload = typeof body === "object" && body ? { ...(body as Record<string, unknown>) } : {};
     if (key && !payload.key) payload.key = key;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      redirect: "follow",
-      signal: AbortSignal.timeout(8000),
-    });
-    const text = await res.text();
-    if (!res.ok || /<html/i.test(text) || text.trim() === "openbell") return "fail";
+    const { status, text } = await postGasJson(url, payload);
+    if (status < 200 || status >= 300 || /<html/i.test(text) || text.trim() === "openbell") return "fail";
     const json = JSON.parse(text) as { ok?: boolean };
     return json.ok ? "ok" : "fail";
   } catch {
@@ -110,13 +104,7 @@ export async function relayJobToGas(job: {
   if (!url) return;
   const idempotencyKey = [job.theaterId, job.playDate, job.startTime, job.hallName, job.bookingUrl].join("|");
   try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ op: "job", key, job: { ...job, idempotencyKey } }),
-      redirect: "follow",
-      signal: AbortSignal.timeout(8000),
-    });
+    await postGasJson(url, { op: "job", key, job: { ...job, idempotencyKey } });
   } catch {
     /* GAS 죽음은 베셀 잡을 막지 않는다 */
   }
