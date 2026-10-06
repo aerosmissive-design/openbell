@@ -13,6 +13,7 @@ import {
 } from "./auto-book-run";
 import type { AlertItem, BookingIntent, WatchConfig } from "./types";
 import { CHART_SIZE, normalizeHold, normalizeScanSources } from "./types";
+import { keepTypedConfig } from "./keep-typed";
 import { normalizeTheme } from "@/lib/theme";
 
 export type CloudSnapshot = {
@@ -128,26 +129,17 @@ export function mergeSnapshots(
   local: CloudSnapshot,
 ): CloudSnapshot {
   if (!remote) return local;
-  const config = hydrateConfig({
-    ...local.config,
-    ...remote.config,
-    telegramToken: remote.config.telegramToken || local.config.telegramToken,
-    telegramChatId: remote.config.telegramChatId || local.config.telegramChatId,
-    email: remote.config.email || local.config.email,
-    gmailAppPassword:
-      remote.config.gmailAppPassword || local.config.gmailAppPassword,
-    webhookUrl: remote.config.webhookUrl || local.config.webhookUrl,
-    kakaoRestKey: remote.config.kakaoRestKey || local.config.kakaoRestKey,
-    kakaoRefreshToken:
-      remote.config.kakaoRefreshToken || local.config.kakaoRefreshToken,
-    gasWebUrl: remote.config.gasWebUrl,
-    gasSyncKey: remote.config.gasSyncKey,
-    gasScriptId: remote.config.gasScriptId,
-    watchTitles: mergeTitles(
-      remote.config.watchTitles ?? [],
-      local.config.watchTitles ?? [],
-    ),
-  });
+  const config = keepTypedConfig(
+    hydrateConfig({
+      ...local.config,
+      ...remote.config,
+      watchTitles: mergeTitles(
+        remote.config.watchTitles ?? [],
+        local.config.watchTitles ?? [],
+      ),
+    }),
+    local.config,
+  );
   return {
     config,
     queue: mergeById(remote.queue, local.queue, 40),

@@ -14,6 +14,7 @@ import type {
   WatchConfig,
 } from "@/lib/cinema/types";
 import { normalizeHold, normalizeScanSources, CHART_SIZE } from "@/lib/cinema/types";
+import { keepTypedConfig, readLegacyWatchConfig } from "@/lib/cinema/keep-typed";
 import { stripConfigSecrets } from "@/lib/cinema/secret-fields";
 import { decodeHtml, normalizeTitle } from "@/lib/utils";
 
@@ -238,28 +239,24 @@ export const useAppStore = create<AppState>()(
         })),
       hydrateCloud: (snap) =>
         set((s) => ({
-          config: {
-            ...DEFAULT_WATCH,
-            ...snap.config,
-            theaters: {
-              ...DEFAULT_WATCH.theaters,
-              ...(snap.config.theaters ?? {}),
+          config: keepTypedConfig(
+            {
+              ...DEFAULT_WATCH,
+              ...snap.config,
+              theaters: {
+                ...DEFAULT_WATCH.theaters,
+                ...(snap.config.theaters ?? {}),
+              },
+              formats: {
+                ...DEFAULT_FORMATS,
+                ...(snap.config.formats ?? {}),
+              },
+              scanSources: normalizeScanSources(snap.config.scanSources),
+              ranks: clampStoredRanks(snap.config.ranks),
+              hold: normalizeHold(snap.config.hold),
             },
-            formats: {
-              ...DEFAULT_FORMATS,
-              ...(snap.config.formats ?? {}),
-            },
-            scanSources: normalizeScanSources(snap.config.scanSources),
-            ranks: clampStoredRanks(snap.config.ranks),
-            hold: normalizeHold(snap.config.hold),
-            gasSourceStamp:
-              snap.config.gasSourceStamp || s.config.gasSourceStamp,
-            gasWebUrl: String(snap.config.gasWebUrl || s.config.gasWebUrl || "").trim(),
-            gasScriptId: String(snap.config.gasScriptId || s.config.gasScriptId || "").trim(),
-            gasSyncKey: String(snap.config.gasSyncKey || s.config.gasSyncKey || "").trim(),
-            telegramToken: String(snap.config.telegramToken || s.config.telegramToken || "").trim(),
-            telegramChatId: String(snap.config.telegramChatId || s.config.telegramChatId || "").trim(),
-          },
+            s.config,
+          ),
           queue: snap.queue.slice(0, 40),
           alerts: snap.alerts.slice(0, 2000),
           onlyAlerted: snap.onlyAlerted,
@@ -277,6 +274,13 @@ export const useAppStore = create<AppState>()(
           ...stripConfigSecrets(s.config),
           telegramToken: s.config.telegramToken,
           telegramChatId: s.config.telegramChatId,
+          email: s.config.email,
+          gmailAppPassword: s.config.gmailAppPassword,
+          kakaoRestKey: s.config.kakaoRestKey,
+          kakaoRefreshToken: s.config.kakaoRefreshToken,
+          gasWebUrl: s.config.gasWebUrl,
+          gasScriptId: s.config.gasScriptId,
+          gasSyncKey: s.config.gasSyncKey,
         },
         primed: s.primed,
         seenIds: s.seenIds,
@@ -292,10 +296,8 @@ export const useAppStore = create<AppState>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;
-        return {
-          ...current,
-          ...p,
-          config: {
+        const config = keepTypedConfig(
+          {
             ...DEFAULT_WATCH,
             ...(p.config ?? {}),
             theaters: syncTheatersFromFormats(
@@ -317,12 +319,13 @@ export const useAppStore = create<AppState>()(
               typeof p.config?.emailNotify === "boolean"
                 ? p.config.emailNotify
                 : Boolean(p.config?.email?.trim()),
-            gasWebUrl: String(p.config?.gasWebUrl ?? "").trim(),
-            gasScriptId: String(p.config?.gasScriptId ?? "").trim(),
-            gasSyncKey: String(p.config?.gasSyncKey ?? "").trim(),
-            telegramToken: String(p.config?.telegramToken ?? "").trim(),
-            telegramChatId: String(p.config?.telegramChatId ?? "").trim(),
           },
+          readLegacyWatchConfig() ?? {},
+        );
+        return {
+          ...current,
+          ...p,
+          config,
           seenDates: p.seenDates ?? current.seenDates,
         };
       },

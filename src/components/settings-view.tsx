@@ -191,7 +191,7 @@ function CloudSettingsCard() {
           <p className="text-fg">{user.displayName ?? user.primaryEmail ?? "로그인됨"}</p>
           <p>Neon 한도면 계정 저장이 안 될 수 있습니다. 구글스크립트 예비 메일을 쓰세요.</p>
           {authEnabled ? (
-            <Button variant="outline" className="w-full" disabled={signingOut} onClick={() => { setSigningOut(true); forgetGasLink(); void signOut("/"); }}>
+            <Button variant="outline" className="w-full" disabled={signingOut} onClick={() => { setSigningOut(true); void signOut("/"); }}>
               {signingOut ? "나가는 중…" : "로그아웃"}
             </Button>
           ) : null}

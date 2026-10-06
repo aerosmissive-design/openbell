@@ -12,7 +12,7 @@ import {
   type GasPushResult,
 } from "@/lib/cinema/cloud";
 import { DEFAULT_WATCH } from "@/lib/cinema/gas-script";
-import { forgetGasLink, gasWatchFingerprint } from "@/lib/cinema/gas-provision";
+import { gasWatchFingerprint } from "@/lib/cinema/gas-provision";
 import { useAutoBook } from "@/lib/auto-book-store";
 import { mergeAutoMovies, mergeAutoShows, sanitizeAutoFired } from "@/lib/cinema/auto-book-run";
 import { useAppStore } from "@/lib/store";
@@ -125,10 +125,6 @@ export function CloudSync() {
     if (pulledFor.current === userId) {
       setReady(true);
       return;
-    }
-    const prevOwner = useAppStore.getState().ownerId;
-    if (prevOwner && prevOwner !== userId) {
-      forgetGasLink();
     }
     pulledFor.current = userId;
     useAppStore.getState().setOwnerId(userId);
