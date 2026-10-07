@@ -12,7 +12,12 @@ function isTestEvent(event: NotificationEvent) {
 
 function subjectFor(event: NotificationEvent) {
   if (isTestEvent(event)) return "[오픈벨 테스트] 알림 확인";
-  if (event.eventType === "PAYMENT_READY") return "[오픈벨] 결제 준비";
+  if (event.eventType === "PAYMENT_READY") {
+    const seats = Array.isArray(event.payload.seats) ? event.payload.seats.map(String).filter(Boolean).join(" ") : "";
+    const amount = String(event.payload.amount || "");
+    const when = String(event.payload.showtime || "");
+    return `[오픈벨] ${["결제하세요", seats, amount, when].filter(Boolean).join(" · ")}`.slice(0, 120);
+  }
   if (event.eventType === "DAILY_REPORT") return "[오픈벨] 일일 리포트";
   if (event.eventType === "ERROR_ALERT") return "[오픈벨] 오류";
   return "[오픈벨] 정산";
@@ -31,6 +36,8 @@ function textFor(event: NotificationEvent) {
       `날짜: ${String(event.payload.playDate || "")} ${String(event.payload.showtime || "")}`,
       `상영관: ${String(event.payload.hall || "")}`,
       `좌석: ${seats}`,
+      `금액: ${String(event.payload.amount || "")}`,
+      `색: ${String(event.payload.color || event.payload.hall || "")}`,
       "",
       "최종 결제는 PC에 열린 브라우저에서 직접 하세요.",
       "결제 버튼은 누르지 않았습니다.",

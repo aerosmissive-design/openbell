@@ -7,7 +7,7 @@
 | 저장소 | https://github.com/aerosmissive-design/openbell |
 | 프로드 | https://openbell-fawn.vercel.app |
 | 전광판 | https://openbell-fawn.vercel.app/board |
-| 스냅샷 버전 | **웹 4.1** (VERSION / APP_VERSION) |
+| 스냅샷 버전 | **웹 4.2** (VERSION / APP_VERSION) |
 | 작성·갱신 | 2026-10-06 · 업데이트 때 텔레그램·메일·GAS 웹앱 주소가 빈 값으로 지워지지 않는다. 결제 클릭 없음. |
 
 > **규칙:** 새 버전을 `main`에 올릴 때 `VERSION` · `src/lib/app-version.ts` · **이 문서(HANDOFF.md)** 를 함께 맞춘다.  

@@ -36,6 +36,22 @@ export const Route = createFileRoute("/api/booking/jobs")({
           return json({ ok: true, jobs });
         } catch (err) {
           const fail = jobDbFailure(err);
+          if (fail.reason === "dbQuota" || fail.reason === "dbConn") {
+            const { listEnvGasJobs } = await import("@/lib/cinema/gas-fallback.server");
+            const accounts = await listEnvGasJobs();
+            if (accounts.length) {
+              const jobs = accounts.flatMap((account) =>
+                account.jobs.map((job) => ({ ...job, account: account.label })),
+              );
+              return json({
+                ok: true,
+                source: "gas",
+                reason: fail.reason,
+                jobs,
+                accounts: accounts.map((account) => ({ label: account.label, count: account.jobs.length })),
+              });
+            }
+          }
           return json(fail, fail.reason === "error" ? 500 : 200);
         }
       },

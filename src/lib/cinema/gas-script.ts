@@ -1067,6 +1067,25 @@ function handleJob_(p, body) {
     }
     return jsonOut_({ ok: true, job: null });
   }
+  if (action === "list") {
+    if (!syncKeyOk_(body && body.key)) return jsonOut_({ ok: false, error: "key" });
+    return jsonOut_({ ok: true, jobs: jobs });
+  }
+  if (action === "retry") {
+    if (!syncKeyOk_(body && body.key)) return jsonOut_({ ok: false, error: "key" });
+    var rid = String((body && body.id) || (p && p.id) || "");
+    var rj;
+    for (rj = 0; rj < jobs.length; rj++) {
+      var rst = String(jobs[rj] && jobs[rj].status || "");
+      if (jobs[rj] && String(jobs[rj].id || "") === rid && (rst === "failed" || rst === "expired")) {
+        jobs[rj].status = "pending";
+        jobs[rj].updatedAt = new Date().toISOString();
+        props.setProperty("openbell_jobs", JSON.stringify(jobs).slice(0, 8000));
+        return jsonOut_({ ok: true, job: jobs[rj] });
+      }
+    }
+    return jsonOut_({ ok: false, error: "not retryable" });
+  }
   if (action === "ack") {
     var ackKey = String((body && body.idempotencyKey) || (p && p.key) || "");
     var j;
@@ -1388,28 +1407,71 @@ function gasBoardHtml_() {
   var showAge = showAt ? (Math.round((Date.now() - showAt) / 1000) + "s ago") : "n/a";
   var theaters = "";
   try { theaters = (CONFIG.theaters || []).join(", "); } catch (e4) { theaters = ""; }
+  var order = ["cgv_yongsan", "cgv_yeongdeungpo", "megabox_coex", "megabox_namyangju"];
+  var names = { cgv_yongsan: "CGV 용산아이파크몰", cgv_yeongdeungpo: "CGV 영등포", megabox_coex: "메가박스 코엑스", megabox_namyangju: "메가박스 남양주" };
+  var buckets = {};
+  var bi;
+  for (bi = 0; bi < order.length; bi++) buckets[order[bi]] = [];
+  var shown = shows.length < 800 ? shows.length : 800;
+  for (bi = 0; bi < shown; bi++) {
+    var sh = shows[bi] || {};
+    var tid = String(sh.theaterId || sh.theater || "");
+    if (!buckets[tid]) buckets[tid] = [];
+    buckets[tid].push(sh);
+  }
+  var cards = "";
+  for (bi = 0; bi < order.length; bi++) {
+    var tid2 = order[bi];
+    var list = buckets[tid2] || [];
+    var inner = "";
+    var cap = list.length < 80 ? list.length : 80;
+    var si;
+    for (si = 0; si < cap; si++) {
+      var one = list[si] || {};
+      var title = String(one.movieTitle || one.title || "");
+      var whenRaw = String(one.playDate || one.date || "") + " " + String(one.startTime || one.time || "");
+      var when = whenRaw.replace(/^ +| +$/g, "");
+      var hall = String(one.hallName || one.hall || "");
+      var restNum = Number(one.restSeats);
+      var tone = !isFinite(restNum) ? "#9aa6bf" : restNum === 0 ? "#ff6b7a" : restNum <= 5 ? "#ffd166" : "#62e6a1";
+      var imax = /imax|아이맥스/i.test(hall + " " + title);
+      var href = String(one.bookingUrl || "#");
+      if (/paybooking|ticketpay|\\/payment|\\/checkout/i.test(href)) href = "#";
+      inner += "<a class=card href=\\"" + escAttr_(href) + "\\"><div class=top><b>" + escapeHtml_(when) + "</b>";
+      inner += "<span class=" + (imax ? "imax" : "hall") + ">" + escapeHtml_(imax ? "IMAX" : hall) + "</span></div>";
+      inner += "<p class=mtitle>" + escapeHtml_(title) + "</p><b style=\\"color:" + tone + "\\">" + escapeHtml_(isFinite(restNum) ? String(restNum) : "-") + "석</b></a>";
+    }
+    if (!inner) inner = "<p class=empty>회차 없음</p>";
+    cards += "<section class=col><h2>" + escapeHtml_(names[tid2] || tid2) + "</h2><p class=sub>" + list.length + "회차</p>" + inner + "</section>";
+  }
   var html = "";
   html += "<!DOCTYPE html><html><head><meta charset=utf-8>";
   html += "<meta name=viewport content=" + "'" + "width=device-width,initial-scale=1" + "'" + ">";
   html += "<title>오픈벨 전광판</title><style>";
-  html += "body{font-family:system-ui,sans-serif;background:#0b0f14;color:#e8eef6;margin:0;padding:16px}";
-  html += "h1{font-size:1.2rem;margin:0 0 8px}h2{font-size:1rem;margin:20px 0 8px;color:#9ecbff}";
-  html += ".meta{opacity:.85;font-size:.85rem;line-height:1.5}";
-  html += "table{border-collapse:collapse;width:100%;font-size:.8rem}";
-  html += "th,td{border:1px solid #243044;padding:6px 8px;text-align:left}";
-  html += "th{background:#152033}tr:nth-child(even){background:#101820}";
-  html += ".ok{color:#5dffa8}.bad{color:#ff7b7b}</style></head><body>";
-  html += "<h1>오픈벨 전광판</h1>";
-  html += "<div class=meta>stamp: <b>" + escapeHtml_(stamp) + "</b><br>";
-  html += "last scan: <span class=" + aliveCls + ">" + escapeHtml_(ageGas) + aliveTxt + "</span><br>";
-  html += "showcache: " + shows.length + " · " + escapeHtml_(showAge) + "<br>";
-  html += "theaters: " + escapeHtml_(theaters) + "<br>auto refresh 60s</div>";
-  html += "<h2>Sources</h2><ul>" + srcHtml + "</ul>";
-  html += "<h2>Reporters</h2><table><thead><tr><th>src</th><th>theater</th><th>n</th><th>age</th></tr></thead><tbody>";
-  html += repHtml + "</tbody></table>";
-  html += "<h2>Showtimes</h2><table><thead><tr><th>theater</th><th>title</th><th>when</th><th>hall</th><th>rest</th><th>fmt</th><th>src</th></tr></thead><tbody>";
-  html += rowsHtml + "</tbody></table>";
-  html += "<script>setTimeout(function(){location.reload()},60000);</script></body></html>";
+  html += "body{margin:0;background:#090d16;color:#eef2f8;font-family:system-ui,sans-serif;padding:16px}";
+  html += ".kicker{letter-spacing:.18em;font-size:11px;color:#7b879e;margin:0}h1{font-size:28px;margin:6px 0} .sub{color:#9aa6bf;font-size:12px}";
+  html += ".stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}";
+  html += ".stat{background:#111827;border:1px solid #25324b;border-radius:12px;padding:10px}";
+  html += ".stat span{display:block;color:#7b879e;font-size:11px}.stat b{font-size:18px}";
+  html += ".board{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}";
+  html += ".col{background:#111827;border:1px solid #25324b;border-radius:16px;padding:10px;min-height:240px}";
+  html += ".col h2{margin:0;font-size:16px}.col .sub{margin:2px 0 8px}";
+  html += ".card{display:block;text-decoration:none;color:inherit;background:#090d16;border-radius:12px;padding:10px;margin:0 0 8px}";
+  html += ".top{display:flex;justify-content:space-between;gap:8px}.hall{color:#7b879e;font-size:11px}.imax{color:#e879f9;font-weight:800;font-size:11px}";
+  html += ".mtitle{margin:6px 0;font-size:14px}.empty{color:#7b879e;text-align:center;padding:24px 0}";
+  html += ".legend{margin-top:12px;font-size:11px;color:#7b879e}.g{color:#62e6a1}.y{color:#ffd166}.r{color:#ff6b7a}.p{color:#e879f9}";
+  html += "@media(max-width:1100px){.board,.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:640px){.board,.stats{grid-template-columns:1fr}}";
+  html += "</style></head><body>";
+  html += "<p class=kicker>OPENBELL BOARD · 취합 전광판</p><h1>예매 전광판</h1>";
+  html += "<p class=sub>PC Reporter · NAS 등 서버로 들어온 잔여석을 취합합니다. 로그인 없이 열 수 있습니다.</p>";
+  html += "<div class=stats><div class=stat><span>표시 회차</span><b>" + shows.length + "</b></div>";
+  html += "<div class=stat><span>감시 극장</span><b>4곳</b></div>";
+  html += "<div class=stat><span>마지막 갱신</span><b class=" + aliveCls + ">" + escapeHtml_(ageGas) + "</b></div>";
+  html += "<div class=stat><span>자동 갱신</span><b>30초</b></div></div>";
+  html += "<div class=board>" + cards + "</div>";
+  html += "<p class=legend><span class=g>● 여유</span> <span class=y>● 임박</span> <span class=r>● 매진</span> <span class=p>● IMAX</span>";
+  html += " · " + escapeHtml_(showAge) + " · " + escapeHtml_(stamp) + aliveTxt + "</p>";
+  html += "<script>setTimeout(function(){location.reload()},30000);</script></body></html>";
   return HtmlService.createHtmlOutput(html)
     .setTitle("오픈벨 전광판")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -1483,6 +1545,9 @@ function doGet(e) {
       date: p.date || "",
       time: p.time || "",
       url: p.url || CONFIG.appUrl || "https://m.megabox.co.kr/booking",
+      seats: p.seats || "",
+      amount: p.amount || "",
+      color: p.color || "",
     }]);
     return ContentService.createTextOutput("ok");
   }
@@ -1842,6 +1907,9 @@ function sendTelegram_(subject, body, alerts) {
         if (a.restSeats != null) {
           text += "\\n" + escHtml_("잔여 " + a.restSeats + (a.delta != null ? " (" + (a.delta > 0 ? "+" : "") + a.delta + ")" : ""));
         }
+        if (a.seats) text += "\\n" + escHtml_("좌석 " + a.seats);
+        if (a.amount) text += "\\n" + escHtml_("금액 " + a.amount);
+        if (a.color) text += "\\n" + escHtml_("색 " + a.color);
         if (a.url) text += "\\n<a href=\\"" + escAttr_(a.url) + "\\">바로 예매</a>";
       });
     } else {
@@ -1861,9 +1929,9 @@ function sendTelegram_(subject, body, alerts) {
         muteHttpExceptions: true,
       });
       var json = JSON.parse(res.getContentText());
-      if (!json.ok) Logger.log("telegram " + (json.description || res.getResponseCode()));
+      if (!json.ok) throw new Error(String(json.description || res.getResponseCode()));
     } catch (e) {
-      Logger.log("telegram " + String(e));
+      throw new Error(String(e).slice(0, 120));
     }
   });
 }
@@ -1913,6 +1981,14 @@ function stripMailUrls_(s) {
   }).join("\\n");
 }
 
+function alertPayHtml_(a) {
+  var bits = "";
+  if (a && a.seats) bits += "<p style='margin:8px 0 0;font-size:15px;font-weight:700;color:#1d4ed8'>좌석 " + esc_(a.seats) + "</p>";
+  if (a && a.amount) bits += "<p style='margin:4px 0 0;font-size:15px;font-weight:700;color:#b45309'>금액 " + esc_(a.amount) + "</p>";
+  if (a && a.color) bits += "<p style='margin:4px 0 0;font-size:14px;font-weight:700;color:#7c3aed'>색 " + esc_(a.color) + "</p>";
+  return bits;
+}
+
 function buildMailHtml_(subject, body, alerts) {
   const items = (alerts || []).filter(function (a) {
     return a && (a.title || a.url || a.theater);
@@ -1930,6 +2006,7 @@ function buildMailHtml_(subject, body, alerts) {
       "<p style='margin:0 0 4px;font-size:16px;font-weight:600'>" + esc_(a.title || subject) + "</p>" +
       (meta ? "<p style='margin:0;font-size:13px;color:#666'>" + esc_(meta) + "</p>" : "") +
       (extra ? "<p style='margin:4px 0 0;font-size:13px;color:#4a5c4a'>" + esc_(extra) + "</p>" : "") +
+      alertPayHtml_(a) +
       btn + "</div>";
   }).join("");
   const fallback = rows

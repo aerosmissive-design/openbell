@@ -136,7 +136,9 @@ export async function enqueueNasJob(
     jobs.push(job);
     await saveJobs(jobs);
   } catch {
-    /* 저장이 막혀도 아래 전달은 계속한다 */
+    const { gasHasOpenJob } = await import("./gas-fallback.server");
+    const open = await gasHasOpenJob(job).catch(() => null);
+    if (open) return job;
   }
   void import("./booking-jobs.server")
     .then(({ insertBookingJob }) =>

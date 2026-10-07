@@ -90,6 +90,56 @@ export async function relaySeatToGas(body: unknown): Promise<"ok" | "fail" | "sk
   }
 }
 
+export async function listEnvGasJobs(): Promise<{ label: string; jobs: Record<string, unknown>[] }[]> {
+  const rows: Array<[string, string | undefined, string | undefined]> = [
+    ["aero", process.env.GAS_WEB_URL, process.env.GAS_SYNC_KEY],
+    ["aero1", process.env.GAS_WEB_URL_AERO1, process.env.GAS_SYNC_KEY_AERO1],
+    ["aero2", process.env.GAS_WEB_URL_AERO2, process.env.GAS_SYNC_KEY_AERO2],
+  ];
+  const accounts: { label: string; jobs: Record<string, unknown>[] }[] = [];
+  for (const [label, url, key] of rows) {
+    const target = String(url || "").trim();
+    const sync = String(key || "").trim();
+    if (!target || !sync || !isGasHost(target)) continue;
+    try {
+      const { status, text } = await postGasJson(target, { op: "job", action: "list", key: sync });
+      if (status < 200 || status >= 300 || /<html/i.test(text)) continue;
+      const json = JSON.parse(text) as { ok?: boolean; jobs?: Record<string, unknown>[] };
+      if (!json.ok || !Array.isArray(json.jobs)) continue;
+      accounts.push({ label, jobs: json.jobs });
+    } catch {
+      /* 이 계정만 건너뛴다 */
+    }
+  }
+  return accounts;
+}
+
+export async function gasHasOpenJob(job: {
+  theaterId: string;
+  playDate: string;
+  startTime: string;
+  hallName: string;
+}): Promise<boolean | null> {
+  try {
+    const accounts = await listEnvGasJobs();
+    if (!accounts.length) return null;
+    return accounts.some((account) =>
+      account.jobs.some((row) => {
+        const status = String(row.status || "");
+        return (
+          (status === "pending" || status === "running") &&
+          String(row.theaterId || "") === job.theaterId &&
+          String(row.playDate || "") === job.playDate &&
+          String(row.startTime || "") === job.startTime &&
+          String(row.hallName || "") === job.hallName
+        );
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function relayJobToGas(job: {
   id: string;
   theaterId: string;
