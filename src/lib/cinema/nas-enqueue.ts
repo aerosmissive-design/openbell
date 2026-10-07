@@ -56,3 +56,48 @@ export const enqueueNasFromAlert = createServerFn({ method: "POST" })
     }
     return { ok: true as const, enqueued, ids };
   });
+
+export const relayGasJobs = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      url: z.string().max(400),
+      key: z.string().max(80),
+      items: z.array(JobItem).min(1).max(8),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { postGasJson } = await import("./gas-post");
+    let hostOk = false;
+    try {
+      const host = new URL(data.url).hostname;
+      hostOk = host.endsWith("script.google.com") || host.endsWith("googleusercontent.com");
+    } catch {
+      hostOk = false;
+    }
+    if (!hostOk || !data.key.trim()) return { ok: false as const, sent: 0 };
+    let sent = 0;
+    for (const item of data.items) {
+      const bookingUrl = String(item.bookingUrl || "").trim();
+      if (!bookingUrl) continue;
+      const job = {
+        id: `web_${Date.now().toString(36)}_${sent}`,
+        movieTitle: item.movieTitle,
+        theaterId: item.theaterId,
+        playDate: item.playDate,
+        startTime: item.startTime,
+        hallName: item.hallName || "",
+        bookingUrl,
+        seats: item.seats,
+        preferredSeats: item.preferredSeats || [],
+        idempotencyKey: [item.theaterId, item.playDate, item.startTime, item.hallName || "", bookingUrl].join("|"),
+      };
+      try {
+        const { text } = await postGasJson(data.url, { op: "job", key: data.key, job });
+        const json = JSON.parse(text) as { ok?: boolean };
+        if (json.ok) sent += 1;
+      } catch {
+        /* 이 건만 건너뛴다 */
+      }
+    }
+    return { ok: sent > 0, sent };
+  });

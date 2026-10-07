@@ -6,7 +6,7 @@ import { bookingJumpUrl } from "@/lib/cinema/kakao";
 import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, describeWatchChange, titleInSet, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
 import { planAutoBook } from "@/lib/cinema/auto-book-run";
 import { useAutoBook } from "@/lib/auto-book-store";
-import { enqueueNasFromAlert } from "@/lib/cinema/nas-enqueue";
+import { enqueueNasFromAlert, relayGasJobs } from "@/lib/cinema/nas-enqueue";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, type SeatHitMap } from "@/lib/cinema/seats";
 import { THEATERS } from "@/lib/cinema/theaters";
@@ -672,9 +672,17 @@ function queueNasHoldJobs(items: AlertItem[], config: WatchConfig) {
   if (!payload.length) return;
   void enqueueNasFromAlert({ data: { items: payload } })
     .then((res) => {
-      if (res && "enqueued" in res && typeof (res as { enqueued?: number }).enqueued === "number") {
-        toast.success(`NAS 홀드 큐 ${(res as { enqueued: number }).enqueued}건`);
+      if (res && "enqueued" in res && typeof (res as { enqueued?: number }).enqueued === "number" && (res as { enqueued: number }).enqueued > 0) {
+        toast.success(`예매 대기 ${(res as { enqueued: number }).enqueued}건`);
       }
+    })
+    .catch(() => null);
+  const gasUrl = config.gasWebUrl.trim();
+  const gasKey = config.gasSyncKey.trim();
+  if (!gasUrl || !gasKey) return;
+  void relayGasJobs({ data: { url: gasUrl, key: gasKey, items: payload } })
+    .then((res) => {
+      if (res && res.sent > 0) toast.success(`PC 예매 대기 ${res.sent}건`);
     })
     .catch(() => null);
 }

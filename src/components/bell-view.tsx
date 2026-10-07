@@ -4,7 +4,7 @@ import { listAccountJobs, retryAccountJob } from "@/lib/cinema/account-jobs";
 import { GOLDEN_ROWS } from "@/lib/cinema/golden-rows";
 import { THEATERS } from "@/lib/cinema/theaters";
 import { useAppStore } from "@/lib/store";
-import { formatPlayDate } from "@/lib/utils";
+import { formatPlayDate, normalizeTitle } from "@/lib/utils";
 
 type ListedJob = {
   id?: string;
@@ -28,6 +28,31 @@ const JOB_LABEL: Record<string, string> = {
 
 function canRequeue(status: string | undefined) {
   return status === "failed" || status === "expired";
+}
+
+function releaseFiredMovie(title: string) {
+  const norm = normalizeTitle(title);
+  try {
+    const raw = JSON.parse(localStorage.getItem("openbell-autobook-fired") || "{}") as Record<string, unknown>;
+    const next: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (norm && key.startsWith(`m:${norm}:`)) continue;
+      if (typeof value === "string") next[key] = value;
+    }
+    localStorage.setItem("openbell-autobook-fired", JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+}
+
+function releaseFiredShow(id: string) {
+  try {
+    const raw = JSON.parse(localStorage.getItem("openbell-autobook-fired") || "{}") as Record<string, unknown>;
+    delete raw[`s:${id}`];
+    localStorage.setItem("openbell-autobook-fired", JSON.stringify(raw));
+  } catch {
+    /* ignore */
+  }
 }
 
 export function BellView() {
@@ -95,7 +120,10 @@ export function BellView() {
             {movies.map((m) => (
               <li key={m.title} className="flex items-center justify-between rounded-xl bg-surface px-3 py-3 shadow-border">
                 <span className="text-sm text-fg">{m.title} · {m.seats}명</span>
-                <button type="button" className="text-[11px] text-muted" onClick={() => removeMovie(m.title)}>빼기</button>
+                <span className="flex shrink-0 gap-3">
+                  <button type="button" className="text-[11px] text-muted" onClick={() => releaseFiredMovie(m.title)}>다시 대기</button>
+                  <button type="button" className="text-[11px] text-muted" onClick={() => removeMovie(m.title)}>빼기</button>
+                </span>
               </li>
             ))}
           </ul>
@@ -114,7 +142,10 @@ export function BellView() {
                   <p className="truncate text-sm text-fg">{row.title} · {row.seats}명</p>
                   <p className="truncate text-[11px] text-muted">{THEATERS.find((t) => t.id === row.theaterId)?.shortName || row.theaterId} · {formatPlayDate(row.playDate)} {row.startTime} · {row.hallName}</p>
                 </div>
-                <button type="button" className="shrink-0 text-[11px] text-muted" onClick={() => removeShow(row.id)}>빼기</button>
+                <span className="flex shrink-0 gap-3">
+                  <button type="button" className="text-[11px] text-muted" onClick={() => releaseFiredShow(row.id)}>다시 대기</button>
+                  <button type="button" className="text-[11px] text-muted" onClick={() => removeShow(row.id)}>빼기</button>
+                </span>
               </li>
             ))}
           </ul>

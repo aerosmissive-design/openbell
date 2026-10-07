@@ -98,7 +98,8 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
                   <li>스크립트 복사를 누르세요.</li>
                   <li>script.google.com에서 전부 지우고 붙여넣은 뒤 저장하세요.</li>
                   <li>위쪽 함수에서 설치를 실행하세요. 저장만 하면 웹앱은 예전 코드라 화면에 openbell 만 나옵니다.</li>
-                  <li>배포된 /exec 주소를 아래에 붙이세요.</li>
+                  <li>배포에서 새 배포를 만들지 마세요. 이미 있는 웹앱 배포를 열고 버전을 방금 저장한 버전으로 바꾼 뒤 배포하세요. 주소를 새로 만들면 PC가 예전 주소를 계속 봅니다.</li>
+                  <li>아래에 있는 /exec 주소가 비어 있을 때만 그 주소를 붙이세요.</li>
                 </ol>
               ) : null}
               <label className="mt-4 block text-xs text-muted">웹앱 주소</label>

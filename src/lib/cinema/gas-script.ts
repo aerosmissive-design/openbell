@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20261005-pair1";
+export const GAS_SOURCE_STAMP = "20261007-job1";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -1040,6 +1040,10 @@ function upsertGasDevice_(body) {
   return jsonOut_({ ok: true });
 }
 
+function requestKey_(body, p) {
+  return String((body && (body.key || body.sync)) || (p && (p.key || p.sync)) || "");
+}
+
 function handleJob_(p, body) {
   var props = PropertiesService.getScriptProperties();
   var jobs = [];
@@ -1068,11 +1072,11 @@ function handleJob_(p, body) {
     return jsonOut_({ ok: true, job: null });
   }
   if (action === "list") {
-    if (!syncKeyOk_(body && body.key)) return jsonOut_({ ok: false, error: "key" });
+    if (!syncKeyOk_(requestKey_(body, p))) return jsonOut_({ ok: false, error: "key" });
     return jsonOut_({ ok: true, jobs: jobs });
   }
   if (action === "retry") {
-    if (!syncKeyOk_(body && body.key)) return jsonOut_({ ok: false, error: "key" });
+    if (!syncKeyOk_(requestKey_(body, p))) return jsonOut_({ ok: false, error: "key" });
     var rid = String((body && body.id) || (p && p.id) || "");
     var rj;
     for (rj = 0; rj < jobs.length; rj++) {
@@ -2003,8 +2007,8 @@ function buildMailHtml_(subject, body, alerts) {
       ? '<p style="margin:12px 0 0"><a href="' + esc_(a.url) + '" style="display:inline-block;padding:11px 18px;background:#9aaa96;color:#0c0c0d;text-decoration:none;border-radius:8px;font-weight:600">바로 예매</a></p>'
       : "";
     return '<div style="margin:0 0 20px;padding:0 0 16px;border-bottom:1px solid #e8e4dc">' +
-      "<p style='margin:0 0 4px;font-size:16px;font-weight:600'>" + esc_(a.title || subject) + "</p>" +
-      (meta ? "<p style='margin:0;font-size:13px;color:#666'>" + esc_(meta) + "</p>" : "") +
+      "<p style='margin:0 0 4px;font-size:16px;font-weight:600;white-space:pre-line'>" + esc_(a.title || subject) + "</p>" +
+      (meta ? "<p style='margin:0;font-size:13px;color:#666;white-space:pre-line'>" + esc_(meta) + "</p>" : "") +
       (extra ? "<p style='margin:4px 0 0;font-size:13px;color:#4a5c4a'>" + esc_(extra) + "</p>" : "") +
       alertPayHtml_(a) +
       btn + "</div>";
