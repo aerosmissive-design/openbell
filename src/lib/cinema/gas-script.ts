@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20261007-job1";
+export const GAS_SOURCE_STAMP = "20261007-kt1";
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -1344,6 +1344,88 @@ function reporterSummary_() {
   return out;
 }
 
+function ktBoardRows_() {
+  var props = PropertiesService.getScriptProperties();
+  var ids = ["cgv_yongsan", "cgv_yeongdeungpo"];
+  var names = { cgv_yongsan: "CGV 용산아이파크몰", cgv_yeongdeungpo: "CGV 영등포" };
+  var out = [];
+  var i;
+  for (i = 0; i < ids.length; i++) {
+    var parsed = loadReporterPayload_(props, "kt_board:" + ids[i]);
+    if (!parsed || !parsed.rows || !parsed.rows.length) continue;
+    var j;
+    for (j = 0; j < parsed.rows.length; j++) {
+      var r = parsed.rows[j] || {};
+      var rest = Number(r.restSeats);
+      if (!isFinite(rest)) continue;
+      out.push({
+        theaterId: ids[i],
+        theater: names[ids[i]] || ids[i],
+        title: r.movieTitle || "",
+        movieTitle: r.movieTitle || "",
+        date: r.playDate || "",
+        playDate: r.playDate || "",
+        time: r.startTime || "",
+        startTime: r.startTime || "",
+        hall: r.hallName || "",
+        hallName: r.hallName || "",
+        restSeats: rest,
+        totalSeats: r.totalSeats,
+        bookingUrl: "#",
+        seatSource: "cgv-kt"
+      });
+    }
+  }
+  return out;
+}
+
+function saveKtBoard_(body) {
+  applyLiveConfig_();
+  var expected = String(CONFIG.syncKey || PropertiesService.getScriptProperties().getProperty("syncKey") || "").trim();
+  var key = String((body && body.key) || "").trim();
+  if (expected && key !== expected) return jsonOut_({ ok: false, error: "key" });
+  var incoming = (body && body.rows) || [];
+  if (!incoming || !incoming.length) return jsonOut_({ ok: false, error: "empty" });
+  var byTheater = { cgv_yongsan: [], cgv_yeongdeungpo: [] };
+  var i;
+  for (i = 0; i < incoming.length; i++) {
+    var r = incoming[i] || {};
+    var tid = String(r.theaterId || "");
+    if (!byTheater[tid]) continue;
+    var rest = Number(r.restSeats);
+    if (!isFinite(rest)) continue;
+    var playDate = String(r.playDate || "").trim();
+    var startTime = String(r.startTime || "").trim();
+    var hallName = String(r.hallName || "").trim();
+    var movieTitle = String(r.movieTitle || "").trim();
+    if (!playDate || !startTime || !hallName || !movieTitle) continue;
+    byTheater[tid].push({
+      playDate: playDate,
+      startTime: startTime,
+      hallName: hallName,
+      movieTitle: movieTitle,
+      restSeats: rest,
+      totalSeats: isFinite(Number(r.totalSeats)) ? Number(r.totalSeats) : ""
+    });
+  }
+  var props = PropertiesService.getScriptProperties();
+  var ids = ["cgv_yongsan", "cgv_yeongdeungpo"];
+  var stored = 0;
+  for (i = 0; i < ids.length; i++) {
+    var rows = byTheater[ids[i]];
+    if (!rows.length) continue;
+    saveReporterPayload_(props, "kt_board:" + ids[i], {
+      at: Date.now(),
+      rows: rows,
+      mode: "full",
+      source: "cgv-kt"
+    });
+    stored += rows.length;
+  }
+  if (!stored) return jsonOut_({ ok: false, error: "empty" });
+  return jsonOut_({ ok: true, stored: stored });
+}
+
 function gasBoardHtml_() {
   applyLiveConfig_();
   var props = PropertiesService.getScriptProperties();
@@ -1357,6 +1439,17 @@ function gasBoardHtml_() {
     try { shows = JSON.parse(props.getProperty("showcache") || "[]"); } catch (e1) { shows = []; }
   }
   if (!shows) shows = [];
+  var ktRows = ktBoardRows_();
+  if (ktRows.length) {
+    var keptShows = [];
+    var ki;
+    for (ki = 0; ki < shows.length; ki++) {
+      var tidK = String((shows[ki] || {}).theaterId || "");
+      if (tidK === "cgv_yongsan" || tidK === "cgv_yeongdeungpo") continue;
+      keptShows.push(shows[ki]);
+    }
+    shows = ktRows.concat(keptShows);
+  }
   var showAt = Number(props.getProperty("showcacheAt") || 0);
   var reps = reporterSummary_();
   var bySrc = {};
@@ -1436,11 +1529,12 @@ function gasBoardHtml_() {
       var whenRaw = String(one.playDate || one.date || "") + " " + String(one.startTime || one.time || "");
       var when = whenRaw.replace(/^ +| +$/g, "");
       var hall = String(one.hallName || one.hall || "");
-      var restNum = Number(one.restSeats);
+      var restMissing = one.restSeats === null || one.restSeats === undefined || one.restSeats === "";
+      var restNum = restMissing ? NaN : Number(one.restSeats);
       var tone = !isFinite(restNum) ? "#9aa6bf" : restNum === 0 ? "#ff6b7a" : restNum <= 5 ? "#ffd166" : "#62e6a1";
       var imax = /imax|아이맥스/i.test(hall + " " + title);
-      var href = String(one.bookingUrl || "#");
-      if (/paybooking|ticketpay|\\/payment|\\/checkout/i.test(href)) href = "#";
+      var href = String(one.bookingUrl || one.url || "#");
+      if (!href || href === "#" || /paybooking|ticketpay|\\/payment|\\/checkout/i.test(href)) href = "#";
       inner += "<a class=card href=\\"" + escAttr_(href) + "\\"><div class=top><b>" + escapeHtml_(when) + "</b>";
       inner += "<span class=" + (imax ? "imax" : "hall") + ">" + escapeHtml_(imax ? "IMAX" : hall) + "</span></div>";
       inner += "<p class=mtitle>" + escapeHtml_(title) + "</p><b style=\\"color:" + tone + "\\">" + escapeHtml_(isFinite(restNum) ? String(restNum) : "-") + "석</b></a>";
@@ -1657,6 +1751,7 @@ function doPost(e) {
       return jsonOut_({ ok: true, deviceName: beat.deviceName || "" });
     }
     if (body && (body.op === "job" || p.op === "job")) return handleJob_(p, body);
+    if (body && body.op === "cgvboard") return saveKtBoard_(body);
     if (body && body.theaterId && Array.isArray(body.showtimes)) {
       return handleSeatReport_(body);
     }

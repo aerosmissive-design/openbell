@@ -75,6 +75,53 @@ export async function clockPushNeon(kind: Exclude<WakeKind, "">, now: number): P
   return writeAppMeta(WAKE_AT_KEY[kind], String(now));
 }
 
+export async function pushCgvBoardRows(rows: Array<{
+  theaterId: string;
+  movieTitle: string;
+  playDate: string;
+  startTime: string;
+  hallName: string;
+  restSeats: number | null;
+  totalSeats?: number | null;
+}>): Promise<void> {
+  const cgv = rows.filter(
+    (row) =>
+      (row.theaterId === "cgv_yongsan" || row.theaterId === "cgv_yeongdeungpo") &&
+      typeof row.restSeats === "number" &&
+      row.playDate &&
+      row.startTime &&
+      row.hallName &&
+      row.movieTitle,
+  );
+  if (!cgv.length) return;
+  const packed = cgv.slice(0, 400).map((row) => ({
+    theaterId: row.theaterId,
+    playDate: row.playDate,
+    startTime: row.startTime,
+    hallName: row.hallName,
+    movieTitle: row.movieTitle,
+    restSeats: row.restSeats,
+    totalSeats: typeof row.totalSeats === "number" ? row.totalSeats : null,
+  }));
+  const accounts: Array<[string, string]> = [
+    [process.env.GAS_WEB_URL || "", process.env.GAS_SYNC_KEY || ""],
+    [process.env.GAS_WEB_URL_AERO1 || "", process.env.GAS_SYNC_KEY_AERO1 || ""],
+    [process.env.GAS_WEB_URL_AERO2 || "", process.env.GAS_SYNC_KEY_AERO2 || ""],
+  ];
+  await Promise.all(
+    accounts.map(async ([url, key]) => {
+      const target = url.trim();
+      const sync = key.trim();
+      if (!target || !sync || !isGasHost(target)) return;
+      try {
+        await postGasJson(target, { op: "cgvboard", key: sync, rows: packed }, 6000);
+      } catch {
+        /* 이 계정만 건너뛴다. 베셀 전광판은 그대로 그린다. */
+      }
+    }),
+  );
+}
+
 export async function relaySeatToGas(body: unknown): Promise<"ok" | "fail" | "skip"> {
   const { url, key } = await resolveGasExec();
   if (!url) return "skip";
