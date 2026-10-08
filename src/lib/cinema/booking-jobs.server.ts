@@ -1,6 +1,7 @@
 import { getSql, isTransientDbError } from "@/lib/db";
 import { authorizeNasWorker, nasJobsConfigured } from "./nas-jobs.server";
 import { isDbQuotaError } from "./app-meta.server";
+import { bookingDeviceName, notifyMailbox } from "./booking-link";
 import { collectRegisteredEmails } from "./registered-emails";
 
 export type BookingJobStatus = "pending" | "running" | "done" | "failed" | "need_user";
@@ -24,6 +25,8 @@ export type BookingJob = {
   zone: string;
   preferredSeats: string[];
   resultMessage: string;
+  targetDevice: string;
+  notifyEmail: string;
 };
 
 type JobRow = {
@@ -45,6 +48,8 @@ type JobRow = {
   zone: string;
   preferred_seats: unknown;
   result_message: string;
+  target_device?: string | null;
+  notify_email?: string | null;
 };
 
 const LEASE = "10 minutes";
@@ -88,6 +93,8 @@ function mapJob(row: JobRow): BookingJob {
     zone: row.zone || "center",
     preferredSeats: seatsOf(row.preferred_seats),
     resultMessage: row.result_message || "",
+    targetDevice: String(row.target_device || ""),
+    notifyEmail: String(row.notify_email || ""),
   };
 }
 
@@ -131,11 +138,16 @@ export async function insertBookingJob(input: {
   zone?: string;
   preferredSeats?: string[];
   userId?: string;
+  targetDevice?: string;
+  notifyEmail?: string;
 }): Promise<BookingJob | null> {
   const url = String(input.bookingUrl || "").trim();
-  if (!url) return null;
+  const targetDevice = bookingDeviceName(input.targetDevice);
+  if (!url || !targetDevice) return null;
   const sql = await getSql();
   await sql.query(`alter table booking_jobs add column if not exists user_id text`);
+  await sql.query(`alter table booking_jobs add column if not exists target_device text`);
+  await sql.query(`alter table booking_jobs add column if not exists notify_email text`);
   const id = input.id || `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const seats =
     Number.isFinite(Number(input.seats)) && Number(input.seats) >= 1
@@ -144,9 +156,9 @@ export async function insertBookingJob(input: {
   const rows = await sql.query<JobRow>(
     `insert into booking_jobs (
        id, status, movie_title, theater_id, play_date, start_time, hall_name,
-       booking_url, seats, zone, preferred_seats, user_id
+       booking_url, seats, zone, preferred_seats, user_id, target_device, notify_email
      ) values (
-       $1, 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11
+       $1, 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13
      )
      on conflict (id) do nothing
      returning *`,
@@ -162,6 +174,8 @@ export async function insertBookingJob(input: {
       ["center", "rear", "front"].includes(String(input.zone)) ? String(input.zone) : "center",
       JSON.stringify((input.preferredSeats || []).map(String).slice(0, 20)),
       input.userId?.trim() || null,
+      targetDevice,
+      notifyMailbox(input.notifyEmail) || null,
     ],
   );
   return rows[0] ? mapJob(rows[0]) : null;
@@ -195,6 +209,35 @@ export async function userIdsForEmails(emails: string[]): Promise<string[]> {
     if (id) ids.add(id);
   }
   return [...ids];
+}
+
+/** 연결 버튼으로 고른 기기 이름의 대기 작업만 집는다. */
+export async function claimBookingJobForDevice(agentId: string, deviceName: string): Promise<BookingJob | null> {
+  const device = bookingDeviceName(deviceName);
+  if (!device) return null;
+  await reapExpiredLeases();
+  const sql = await getSql();
+  await sql.query(`alter table booking_jobs add column if not exists target_device text`);
+  const rows = await sql.query<JobRow>(
+    `with picked as (
+       select id from booking_jobs
+       where status = 'pending' and target_device = $2
+       order by created_at
+       limit 1
+       for update skip locked
+     )
+     update booking_jobs j
+     set status = 'running',
+         prev_agent_id = j.agent_id,
+         agent_id = $1,
+         lease_expires_at = now() + interval '${LEASE}',
+         updated_at = now()
+     from picked
+     where j.id = picked.id and j.status = 'pending'
+     returning j.*`,
+    [agentId.slice(0, 120), device],
+  );
+  return rows[0] ? mapJob(rows[0]) : null;
 }
 
 /**

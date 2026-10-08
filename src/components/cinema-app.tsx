@@ -6,6 +6,7 @@ import { bookingJumpUrl } from "@/lib/cinema/kakao";
 import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, describeWatchChange, titleInSet, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
 import { planAutoBook } from "@/lib/cinema/auto-book-run";
 import { useAutoBook } from "@/lib/auto-book-store";
+import { BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, bookingDeviceName, notifyMailbox } from "@/lib/cinema/booking-link";
 import { enqueueNasFromAlert, relayGasJobs } from "@/lib/cinema/nas-enqueue";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, type SeatHitMap } from "@/lib/cinema/seats";
@@ -648,6 +649,18 @@ function resolveBookingUrl(show: Showtime, all: Showtime[]): string {
 const autoPayPlan = new Map<string, { seats: number; preferredSeats: string[] }>();
 
 function queueNasHoldJobs(items: AlertItem[], config: WatchConfig) {
+  let targetDevice = bookingDeviceName("");
+  let notifyEmail = "";
+  try {
+    targetDevice = bookingDeviceName(localStorage.getItem(BOOKING_DEVICE_KEY));
+    notifyEmail = notifyMailbox(localStorage.getItem(NOTIFY_EMAIL_KEY));
+  } catch {
+    targetDevice = "";
+  }
+  if (!targetDevice) {
+    toast.error("설정에서 기기를 연결하세요.");
+    return;
+  }
   const hold = config.hold as { seats?: unknown; zone?: unknown; nasAuto?: boolean };
   const nasAuto = Boolean(hold?.nasAuto);
   const payload = items
@@ -667,6 +680,8 @@ function queueNasHoldJobs(items: AlertItem[], config: WatchConfig) {
         seats: extra?.seats ?? (typeof hold.seats === "number" ? hold.seats : undefined),
         zone: extra ? "center" : (typeof hold.zone === "string" ? hold.zone : undefined),
         preferredSeats: extra?.preferredSeats,
+        targetDevice,
+        notifyEmail,
       }];
     });
   if (!payload.length) return;

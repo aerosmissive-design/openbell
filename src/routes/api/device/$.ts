@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { auth, authConfigured } from "@/lib/auth/server";
 import { resolveGasExec } from "@/lib/cinema/gas-fallback.server";
+import { authorizeNasWorker } from "@/lib/cinema/nas-jobs.server";
 import {
   approveDevicePair,
   deviceKeyFromRequest,
@@ -38,6 +39,10 @@ export const Route = createFileRoute("/api/device/$")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        if (tail(request) === "seen") {
+          const { listAgentSeen } = await import("@/lib/cinema/booking-link.server");
+          return json({ ok: true, agents: await listAgentSeen() });
+        }
         if (tail(request) !== "list") return json({ ok: false, error: "not_found" }, 404);
         const uid = await userId(request);
         if (!uid) return json({ ok: false, error: "unauthorized" }, 401);
@@ -82,6 +87,12 @@ export const Route = createFileRoute("/api/device/$")({
             gasUrl: gas.url,
             routes: { claim: "vercel", paymentReady: "vercel", fallback: "gas" },
           });
+        }
+        if (action === "seen") {
+          if (!authorizeNasWorker(request)) return json({ ok: false, error: "unauthorized" }, 401);
+          const { recordAgentSeen } = await import("@/lib/cinema/booking-link.server");
+          const result = await recordAgentSeen(String(body.deviceName || ""));
+          return json(result, result.ok ? 200 : 400);
         }
         const uid = await userId(request);
         if (!uid) return json({ ok: false, error: "unauthorized" }, 401);

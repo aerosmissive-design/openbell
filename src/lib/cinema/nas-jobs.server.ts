@@ -1,3 +1,4 @@
+import { bookingDeviceName } from "./booking-link";
 import { readAppMeta, writeAppMeta } from "./app-meta.server";
 
 export type NasJobStatus =
@@ -91,6 +92,8 @@ export type EnqueueNasJobInput = {
   zone?: string;
   preferredSeats?: string[];
   userId?: string;
+  targetDevice?: string;
+  notifyEmail?: string;
 };
 
 export async function enqueueNasJob(
@@ -98,7 +101,8 @@ export async function enqueueNasJob(
 ): Promise<NasHoldJob | null> {
   if (!nasJobsConfigured()) return null;
   const url = String(input.bookingUrl || "").trim();
-  if (!url) return null;
+  const targetDevice = bookingDeviceName(input.targetDevice);
+  if (!url || !targetDevice) return null;
   const now = new Date().toISOString();
   const job: NasHoldJob = {
     id: newId(),
@@ -155,6 +159,8 @@ export async function enqueueNasJob(
         zone: job.zone,
         preferredSeats: job.preferredSeats,
         userId: input.userId,
+        targetDevice,
+        notifyEmail: input.notifyEmail,
       }),
     )
     .catch(() => {});
