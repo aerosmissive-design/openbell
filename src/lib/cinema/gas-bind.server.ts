@@ -1,4 +1,5 @@
 import { getSql } from "@/lib/db";
+import { collectRegisteredEmails, isAccountEmail, normalizeAccountEmail } from "./registered-emails";
 
 async function ensureBindTable() {
   const sql = await getSql();
@@ -111,4 +112,52 @@ export async function latestGasWebUrl() {
     `select url from gas_binds where url <> '' order by created_at desc limit 1`,
   );
   return rows[0]?.url || "";
+}
+
+/** Mailboxes already stored for the web app. URLs and keys are never included. */
+export async function listRegisteredEmails(): Promise<string[]> {
+  const sql = await ensureBindTable();
+  const binds = await sql.query<{ email: string }>(
+    `select email from gas_binds where email <> ''`,
+  );
+  const users = await sql.query<{ email: string }>(
+    `select email from "user" where coalesce(email, '') <> ''`,
+  );
+  const settings = await sql.query<{ email: string }>(
+    `select config->>'email' as email from user_settings where coalesce(config->>'email', '') <> ''`,
+  );
+  return collectRegisteredEmails(
+    binds.map((row) => row.email),
+    users.map((row) => row.email),
+    settings.map((row) => row.email),
+  );
+}
+
+/** The GAS web app for this mailbox only. An unknown mailbox yields an empty URL. */
+export async function gasWebUrlForEmail(email: string): Promise<string> {
+  const mail = normalizeAccountEmail(email);
+  if (!isAccountEmail(mail)) return "";
+  const sql = await ensureBindTable();
+  const binds = await sql.query<{ url: string }>(
+    `select url from gas_binds
+     where lower(email) = $1 and url <> ''
+     order by created_at desc
+     limit 1`,
+    [mail],
+  );
+  const fromBind = validGasUrl(binds[0]?.url || "");
+  if (fromBind) return fromBind;
+  const settings = await sql.query<{ url: string }>(
+    `select config->>'gasWebUrl' as url
+     from user_settings
+     where (
+       lower(coalesce(config->>'email', '')) = $1
+       or user_id in (select id from "user" where lower(email) = $1)
+     )
+       and coalesce(config->>'gasWebUrl', '') <> ''
+     order by updated_at desc
+     limit 1`,
+    [mail],
+  );
+  return validGasUrl(settings[0]?.url || "") || "";
 }
