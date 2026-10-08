@@ -90,6 +90,7 @@ export type EnqueueNasJobInput = {
   seats?: number;
   zone?: string;
   preferredSeats?: string[];
+  userId?: string;
 };
 
 export async function enqueueNasJob(
@@ -153,6 +154,7 @@ export async function enqueueNasJob(
         seats: job.seats,
         zone: job.zone,
         preferredSeats: job.preferredSeats,
+        userId: input.userId,
       }),
     )
     .catch(() => {});

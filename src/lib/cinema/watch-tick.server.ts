@@ -420,6 +420,7 @@ async function commitAutoBook(
   live: Showtime[],
   snap: { autoMovies: AutoMovie[]; autoShows: AutoShow[]; autoFired: Record<string, string> },
   knownShowIds: Set<string>,
+  userId: string,
 ) {
   const plan = planAutoBook({
     live,
@@ -445,6 +446,7 @@ async function commitAutoBook(
         seats: job.seats,
         zone: "center",
         preferredSeats: job.preferredSeats,
+        userId,
       });
       if (!queued) delete fired[job.key];
     } catch {
@@ -527,7 +529,7 @@ export async function runWatchTick() {
     );
     const sig = watchSignature(config);
     const bookable = allShows.filter((show) => enabled.has(show.theaterId));
-    const autoFired = await commitAutoBook(bookable, snap, new Set());
+    const autoFired = await commitAutoBook(bookable, snap, new Set(), userId);
     if (!hostSeen.length) {
       const primedQueue = diffStarSeats(snap.queue, allShows).nextQueue;
       await persistWatch(userId, {

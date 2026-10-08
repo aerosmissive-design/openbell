@@ -1,6 +1,7 @@
 import { getSql, isTransientDbError } from "@/lib/db";
 import { authorizeNasWorker, nasJobsConfigured } from "./nas-jobs.server";
 import { isDbQuotaError } from "./app-meta.server";
+import { collectRegisteredEmails } from "./registered-emails";
 
 export type BookingJobStatus = "pending" | "running" | "done" | "failed" | "need_user";
 
@@ -176,8 +177,37 @@ export async function listBookingJobs(limit = 20) {
   return rows.map(mapJob);
 }
 
-/** pending 1건만 running. userIds가 null이면 제한 없음(레거시 토큰). 아니면 그 계정 또는 user_id 없는 잡만. */
-export async function claimBookingJob(agentId: string, userIds: string[] | null = null): Promise<BookingJob | null> {
+/** 메일로 고른 계정의 user id. 없거나 깨진 메일은 넣지 않는다. */
+export async function userIdsForEmails(emails: string[]): Promise<string[]> {
+  const mails = collectRegisteredEmails(emails).slice(0, 20);
+  if (mails.length === 0) return [];
+  const sql = await getSql();
+  const rows = await sql.query<{ id: string }>(
+    `select id from "user" where lower(email) = any($1::text[])
+     union
+     select user_id as id from user_settings
+     where lower(coalesce(config->>'email', '')) = any($1::text[])`,
+    [mails],
+  );
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const id = String(row.id || "").trim();
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+/**
+ * pending 1건만 running.
+ * userIds가 null이면 제한 없음(레거시 토큰).
+ * 아니면 그 계정을 집는다. includeUnscoped가 참이면 user_id 없는 잡도 집는다.
+ * 메일 필터는 includeUnscoped를 거짓으로 둔다.
+ */
+export async function claimBookingJob(
+  agentId: string,
+  userIds: string[] | null = null,
+  includeUnscoped = true,
+): Promise<BookingJob | null> {
   await reapExpiredLeases();
   const sql = await getSql();
   await sql.query(`alter table booking_jobs add column if not exists user_id text`);
@@ -185,7 +215,11 @@ export async function claimBookingJob(agentId: string, userIds: string[] | null 
     `with picked as (
        select id from booking_jobs
        where status = 'pending'
-         and ($2::boolean or user_id is null or user_id = any($3::text[]))
+         and (
+           $2::boolean
+           or ($4::boolean and user_id is null)
+           or user_id = any($3::text[])
+         )
        order by created_at
        limit 1
        for update skip locked
@@ -199,7 +233,7 @@ export async function claimBookingJob(agentId: string, userIds: string[] | null 
      from picked
      where j.id = picked.id and j.status = 'pending'
      returning j.*`,
-    [agentId.slice(0, 120), userIds == null, userIds ?? []],
+    [agentId.slice(0, 120), userIds == null, userIds ?? [], userIds != null && includeUnscoped],
   );
   return rows[0] ? mapJob(rows[0]) : null;
 }

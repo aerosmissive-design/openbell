@@ -34,6 +34,18 @@ export const enqueueNasFromAlert = createServerFn({ method: "POST" })
         enqueued: 0,
       };
     }
+    let userId = "";
+    try {
+      const { getRequest } = await import("@tanstack/react-start/server");
+      const { auth } = await import("@/lib/auth/server");
+      const request = getRequest();
+      if (request) {
+        const session = await auth.api.getSession({ headers: request.headers });
+        userId = String(session?.user?.id || "").trim();
+      }
+    } catch {
+      userId = "";
+    }
     let enqueued = 0;
     const ids: string[] = [];
     for (const item of data.items) {
@@ -48,6 +60,7 @@ export const enqueueNasFromAlert = createServerFn({ method: "POST" })
         seats: item.seats,
         zone: item.zone,
         preferredSeats: item.preferredSeats,
+        userId,
       });
       if (job) {
         enqueued += 1;
