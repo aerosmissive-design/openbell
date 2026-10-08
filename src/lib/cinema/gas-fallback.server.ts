@@ -198,6 +198,8 @@ export async function relayJobToGas(job: {
   hallName: string;
   bookingUrl: string;
   seats?: number;
+  targetDevice?: string;
+  notifyEmail?: string;
 }): Promise<void> {
   const { url, key } = await resolveGasExec();
   if (!url) return;

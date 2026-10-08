@@ -13,6 +13,7 @@ const JobItem = z.object({
   preferredSeats: z.array(z.string()).optional(),
   targetDevice: z.string().max(20).optional(),
   notifyEmail: z.string().max(254).optional(),
+  autoPay: z.boolean().optional(),
 });
 
 /**
@@ -65,6 +66,7 @@ export const enqueueNasFromAlert = createServerFn({ method: "POST" })
         userId,
         targetDevice: item.targetDevice,
         notifyEmail: item.notifyEmail,
+        autoPay: item.autoPay === true,
       });
       if (job) {
         enqueued += 1;

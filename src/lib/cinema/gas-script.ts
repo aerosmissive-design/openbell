@@ -1061,8 +1061,11 @@ function handleJob_(p, body) {
     if (locked && !findActiveDevice_(deviceKey)) return jsonOut_({ ok: false, error: "DEVICE_UNAUTHORIZED" });
     if (locked) touchGasDevice_(deviceKey, "lastJobClaim");
     var i;
+    var wantDevice = String((body && body.deviceName) || (p && p.deviceName) || "");
     for (i = 0; i < jobs.length; i++) {
       if (jobs[i] && jobs[i].status === "pending") {
+        var tagged = String(jobs[i].targetDevice || "");
+        if (!wantDevice || tagged !== wantDevice) continue;
         jobs[i].status = "running";
         jobs[i].updatedAt = new Date().toISOString();
         props.setProperty("openbell_jobs", JSON.stringify(jobs).slice(0, 8000));
@@ -1120,6 +1123,8 @@ function handleJob_(p, body) {
     hallName: String(job.hallName || ""),
     bookingUrl: String(job.bookingUrl || ""),
     seats: Number(job.seats) || 2,
+    targetDevice: String(job.targetDevice || ""),
+    notifyEmail: String(job.notifyEmail || ""),
     createdAt: new Date().toISOString()
   });
   if (jobs.length > 40) jobs = jobs.slice(jobs.length - 40);

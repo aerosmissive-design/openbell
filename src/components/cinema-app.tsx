@@ -6,7 +6,7 @@ import { bookingJumpUrl } from "@/lib/cinema/kakao";
 import { filterWatched, mergeMovieCatalog, moviesFromShowtimes, primeIdsForWatchChange, describeWatchChange, titleInSet, watchedTitleSet, watchSignature } from "@/lib/cinema/match";
 import { planAutoBook } from "@/lib/cinema/auto-book-run";
 import { useAutoBook } from "@/lib/auto-book-store";
-import { BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, bookingDeviceName, notifyMailbox } from "@/lib/cinema/booking-link";
+import { AUTO_PAY_KEY, BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, autoPayEnabled, bookingDeviceName, notifyMailbox } from "@/lib/cinema/booking-link";
 import { enqueueNasFromAlert, relayGasJobs } from "@/lib/cinema/nas-enqueue";
 import { fetchMovieCatalog, pingGasBeat, pullTheaterSeats, scanCinema, sendAlertEmail, sendKakaoMemo, sendTelegram, sendWebhook } from "@/lib/cinema/scan";
 import { applyCgvSeatHits, diffStarSeats, mergeShowtimes, notifyBatches, notifyCopy, putSeatHit, seatChangeAlert, showAlertBody, type SeatHitMap } from "@/lib/cinema/seats";
@@ -651,9 +651,11 @@ const autoPayPlan = new Map<string, { seats: number; preferredSeats: string[] }>
 function queueNasHoldJobs(items: AlertItem[], config: WatchConfig) {
   let targetDevice = bookingDeviceName("");
   let notifyEmail = "";
+  let autoPay = false;
   try {
     targetDevice = bookingDeviceName(localStorage.getItem(BOOKING_DEVICE_KEY));
     notifyEmail = notifyMailbox(localStorage.getItem(NOTIFY_EMAIL_KEY));
+    autoPay = autoPayEnabled(localStorage.getItem(AUTO_PAY_KEY));
   } catch {
     targetDevice = "";
   }
@@ -682,6 +684,7 @@ function queueNasHoldJobs(items: AlertItem[], config: WatchConfig) {
         preferredSeats: extra?.preferredSeats,
         targetDevice,
         notifyEmail,
+        autoPay,
       }];
     });
   if (!payload.length) return;

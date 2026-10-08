@@ -1,7 +1,7 @@
 import { getSql, isTransientDbError } from "@/lib/db";
 import { authorizeNasWorker, nasJobsConfigured } from "./nas-jobs.server";
 import { isDbQuotaError } from "./app-meta.server";
-import { bookingDeviceName, notifyMailbox } from "./booking-link";
+import { autoPayEnabled, bookingDeviceName, notifyMailbox } from "./booking-link";
 import { collectRegisteredEmails } from "./registered-emails";
 
 export type BookingJobStatus = "pending" | "running" | "done" | "failed" | "need_user";
@@ -27,6 +27,7 @@ export type BookingJob = {
   resultMessage: string;
   targetDevice: string;
   notifyEmail: string;
+  autoPay: boolean;
 };
 
 type JobRow = {
@@ -50,6 +51,7 @@ type JobRow = {
   result_message: string;
   target_device?: string | null;
   notify_email?: string | null;
+  auto_pay?: boolean | null;
 };
 
 const LEASE = "10 minutes";
@@ -95,6 +97,7 @@ function mapJob(row: JobRow): BookingJob {
     resultMessage: row.result_message || "",
     targetDevice: String(row.target_device || ""),
     notifyEmail: String(row.notify_email || ""),
+    autoPay: row.auto_pay === true,
   };
 }
 
@@ -140,6 +143,7 @@ export async function insertBookingJob(input: {
   userId?: string;
   targetDevice?: string;
   notifyEmail?: string;
+  autoPay?: boolean;
 }): Promise<BookingJob | null> {
   const url = String(input.bookingUrl || "").trim();
   const targetDevice = bookingDeviceName(input.targetDevice);
@@ -148,6 +152,7 @@ export async function insertBookingJob(input: {
   await sql.query(`alter table booking_jobs add column if not exists user_id text`);
   await sql.query(`alter table booking_jobs add column if not exists target_device text`);
   await sql.query(`alter table booking_jobs add column if not exists notify_email text`);
+  await sql.query(`alter table booking_jobs add column if not exists auto_pay boolean not null default false`);
   const id = input.id || `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const seats =
     Number.isFinite(Number(input.seats)) && Number(input.seats) >= 1
@@ -156,9 +161,9 @@ export async function insertBookingJob(input: {
   const rows = await sql.query<JobRow>(
     `insert into booking_jobs (
        id, status, movie_title, theater_id, play_date, start_time, hall_name,
-       booking_url, seats, zone, preferred_seats, user_id, target_device, notify_email
+       booking_url, seats, zone, preferred_seats, user_id, target_device, notify_email, auto_pay
      ) values (
-       $1, 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13
+       $1, 'pending', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14
      )
      on conflict (id) do nothing
      returning *`,
@@ -176,6 +181,7 @@ export async function insertBookingJob(input: {
       input.userId?.trim() || null,
       targetDevice,
       notifyMailbox(input.notifyEmail) || null,
+      autoPayEnabled(input.autoPay),
     ],
   );
   return rows[0] ? mapJob(rows[0]) : null;

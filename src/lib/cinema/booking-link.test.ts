@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bookingDeviceName, gasUrlForNotifyEmail, mergeAgentSeen, notifyMailbox, readAgentSeen } from "./booking-link.ts";
+import { autoPayEnabled, bookingDeviceName, gasUrlForNotifyEmail, mergeAgentSeen, notifyMailbox, readAgentSeen } from "./booking-link.ts";
 
 test("only the three agent names connect", () => {
   assert.equal(bookingDeviceName("G_PC"), "G_PC");
@@ -8,6 +8,14 @@ test("only the three agent names connect", () => {
   assert.equal(bookingDeviceName("G_DS225+"), "G_DS225+");
   assert.equal(bookingDeviceName("aero"), "");
   assert.equal(bookingDeviceName(""), "");
+});
+
+test("auto pay stays off unless the choice is on", () => {
+  assert.equal(autoPayEnabled(undefined), false);
+  assert.equal(autoPayEnabled(""), false);
+  assert.equal(autoPayEnabled("off"), false);
+  assert.equal(autoPayEnabled("on"), true);
+  assert.equal(autoPayEnabled(true), true);
 });
 
 test("a notify mailbox is one email", () => {

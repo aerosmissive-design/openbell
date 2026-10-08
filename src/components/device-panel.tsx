@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { BOOKING_DEVICES, BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, bookingDeviceName, notifyMailbox, type BookingDevice } from "@/lib/cinema/booking-link";
+import { AUTO_PAY_KEY, BOOKING_DEVICES, BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, autoPayEnabled, bookingDeviceName, notifyMailbox, type BookingDevice } from "@/lib/cinema/booking-link";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { flushSettings } from "./cloud-sync";
@@ -64,11 +64,13 @@ export function DevicePanel() {
   const [seen, setSeen] = useState<Record<string, string>>({});
   const [connected, setConnected] = useState<BookingDevice | "">("");
   const [email, setEmail] = useState("");
+  const [autoPay, setAutoPay] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setConnected(bookingDeviceName(readStored(BOOKING_DEVICE_KEY)));
     setEmail(readStored(NOTIFY_EMAIL_KEY));
+    setAutoPay(autoPayEnabled(readStored(AUTO_PAY_KEY)));
   }, []);
 
   useEffect(() => {
@@ -97,6 +99,12 @@ export function DevicePanel() {
     writeStored(BOOKING_DEVICE_KEY, name);
     setConnected(name);
     toast.success(`${name}에 연결했습니다. 이제 자동예매가 이 기기로 갑니다.`);
+  }
+
+  function chooseAutoPay(on: boolean) {
+    writeStored(AUTO_PAY_KEY, on ? "on" : "");
+    setAutoPay(on);
+    toast.success(on ? "자동결제를 켰습니다. 최종 결제 버튼을 누릅니다." : "자동결제를 껐습니다. 최종 결제 버튼은 직접 누릅니다.");
   }
 
   function disconnect() {
@@ -152,6 +160,12 @@ export function DevicePanel() {
       {connected ? (
         <button type="button" className={cn(settingsActionClass, "mt-2")} onClick={disconnect}>연결 해제</button>
       ) : null}
+      <p className="mt-5 text-xs text-muted">자동결제</p>
+      <div className="mt-1.5 grid grid-cols-2 gap-2">
+        <button type="button" className={settingsChoiceClass(!autoPay)} onClick={() => chooseAutoPay(false)}>꺼짐</button>
+        <button type="button" className={settingsChoiceClass(autoPay)} onClick={() => chooseAutoPay(true)}>켜짐</button>
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-muted">기본은 꺼짐입니다. 켜짐일 때만 결제 화면의 최종 금액 버튼을 한 번 누릅니다.</p>
       <label className="mt-5 block text-xs text-muted" htmlFor="openbell-notify-email">결제 대기 알림 메일</label>
       <input
         id="openbell-notify-email"

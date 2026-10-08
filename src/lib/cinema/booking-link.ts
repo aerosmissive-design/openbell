@@ -4,12 +4,20 @@ export type BookingDevice = (typeof BOOKING_DEVICES)[number];
 
 export const BOOKING_DEVICE_KEY = "openbell-booking-device";
 export const NOTIFY_EMAIL_KEY = "openbell-notify-email";
+export const AUTO_PAY_KEY = "openbell-auto-pay";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function bookingDeviceName(value: unknown): BookingDevice | "" {
   const name = String(value || "").trim();
   return (BOOKING_DEVICES as readonly string[]).includes(name) ? (name as BookingDevice) : "";
+}
+
+/** 켜짐만 참이다. 빈 값과 그 밖의 값은 꺼짐이다. */
+export function autoPayEnabled(value: unknown): boolean {
+  if (value === true) return true;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "1" || text === "on" || text === "true";
 }
 
 export function notifyMailbox(value: unknown): string {

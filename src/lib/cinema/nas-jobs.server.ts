@@ -94,6 +94,7 @@ export type EnqueueNasJobInput = {
   userId?: string;
   targetDevice?: string;
   notifyEmail?: string;
+  autoPay?: boolean;
 };
 
 export async function enqueueNasJob(
@@ -161,11 +162,12 @@ export async function enqueueNasJob(
         userId: input.userId,
         targetDevice,
         notifyEmail: input.notifyEmail,
+        autoPay: input.autoPay === true,
       }),
     )
     .catch(() => {});
   void import("./gas-fallback.server")
-    .then(({ relayJobToGas }) => relayJobToGas(job))
+    .then(({ relayJobToGas }) => relayJobToGas({ ...job, targetDevice, notifyEmail: input.notifyEmail || "" }))
     .catch(() => {});
   return job;
 }
