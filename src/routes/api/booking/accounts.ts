@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { listRegisteredEmails } from "@/lib/cinema/gas-bind.server";
+import { listRegisteredEmails, registeredEmailFailure } from "@/lib/cinema/gas-bind.server";
 
 export const Route = createFileRoute("/api/booking/accounts")({
   server: {
@@ -11,8 +11,11 @@ export const Route = createFileRoute("/api/booking/accounts")({
             { ok: true, accounts },
             { headers: { "cache-control": "no-store" } },
           );
-        } catch {
-          return Response.json({ ok: false, error: "unavailable" }, { status: 503 });
+        } catch (err) {
+          return Response.json(
+            { ok: false, error: "unavailable", ...registeredEmailFailure(err) },
+            { status: 503 },
+          );
         }
       },
     },

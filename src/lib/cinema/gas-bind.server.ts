@@ -1,6 +1,8 @@
 import { getSql } from "@/lib/db";
 import { collectRegisteredEmails, isAccountEmail, normalizeAccountEmail } from "./registered-emails";
 
+export { registeredEmailFailure } from "./registered-emails";
+
 async function ensureBindTable() {
   const sql = await getSql();
   await sql.query(`
