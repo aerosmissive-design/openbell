@@ -18,3 +18,18 @@ export function claimEmailScope(value: unknown): ClaimEmailScope {
   if (emails.length === 0) return { kind: "none" };
   return { kind: "emails", emails };
 }
+
+/**
+ * 메일이 있으면 그 계정과 계정이 없는 예약을 함께 집는다.
+ * 조회된 계정이 없어도 계정 없는 예약은 남긴다.
+ * 다른 계정의 예약은 집지 않는다. 코드는 쓰지 않는다.
+ * null 이면 이번 청구는 비운다.
+ */
+export function legacyClaimPlan(
+  scope: ClaimEmailScope,
+  lookedUpIds: string[],
+): { userIds: string[] | null; includeUnscoped: boolean } | null {
+  if (scope.kind === "none") return null;
+  if (scope.kind === "all") return { userIds: null, includeUnscoped: true };
+  return { userIds: lookedUpIds, includeUnscoped: true };
+}

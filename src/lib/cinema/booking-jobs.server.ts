@@ -201,7 +201,7 @@ export async function userIdsForEmails(emails: string[]): Promise<string[]> {
  * pending 1건만 running.
  * userIds가 null이면 제한 없음(레거시 토큰).
  * 아니면 그 계정을 집는다. includeUnscoped가 참이면 user_id 없는 잡도 집는다.
- * 메일 필터는 includeUnscoped를 거짓으로 둔다.
+ * 메일 필터도 그 계정과 계정이 없는 잡을 함께 집는다. 다른 계정은 집지 않는다.
  */
 export async function claimBookingJob(
   agentId: string,

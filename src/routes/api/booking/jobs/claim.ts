@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { claimBookingJob, jobDbFailure, userIdsForEmails } from "@/lib/cinema/booking-jobs.server";
-import { claimEmailScope } from "@/lib/cinema/claim-scope";
+import { claimEmailScope, legacyClaimPlan } from "@/lib/cinema/claim-scope";
 import { authorizeAgent } from "@/lib/cinema/devices.server";
 
 function json(data: unknown, status = 200) {
@@ -28,11 +28,17 @@ export const Route = createFileRoute("/api/booking/jobs/claim")({
             userIds = auth.userIds;
           } else {
             const scope = claimEmailScope(body.emails);
-            if (scope.kind === "none") return json({ ok: true, job: null });
             if (scope.kind === "emails") {
-              userIds = await userIdsForEmails(scope.emails);
-              includeUnscoped = false;
-              if (userIds.length === 0) return json({ ok: true, job: null });
+              const found = await userIdsForEmails(scope.emails);
+              const plan = legacyClaimPlan(scope, found);
+              if (!plan) return json({ ok: true, job: null });
+              userIds = plan.userIds;
+              includeUnscoped = plan.includeUnscoped;
+            } else {
+              const plan = legacyClaimPlan(scope, []);
+              if (!plan) return json({ ok: true, job: null });
+              userIds = plan.userIds;
+              includeUnscoped = plan.includeUnscoped;
             }
           }
           const job = await claimBookingJob(agentId, userIds, includeUnscoped);
