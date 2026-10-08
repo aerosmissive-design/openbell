@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AUTO_PAY_KEY, BOOKING_DEVICES, BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, agentConnectable, autoPayEnabled, bookingDeviceName, notifyMailbox, type BookingDevice } from "@/lib/cinema/booking-link";
+import { AUTO_PAY_KEY, BOOKING_DEVICES, BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, agentButtonLabel, agentConnectable, autoPayEnabled, bookingDeviceName, notifyMailbox, type BookingDevice } from "@/lib/cinema/booking-link";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { flushSettings } from "./cloud-sync";
@@ -62,6 +62,10 @@ export function DevicePanel() {
   }, []);
 
   function connect(name: BookingDevice) {
+    if (!agentConnectable(seen[name] || "")) {
+      toast.error("신호가 없습니다. 연결하지 않았습니다.");
+      return;
+    }
     writeStored(BOOKING_DEVICE_KEY, name);
     setConnected(name);
     toast.success(`${name}에 연결했습니다. 이제 자동예매가 이 기기로 갑니다.`);
@@ -101,11 +105,12 @@ export function DevicePanel() {
   return (
     <div className="mt-5 border-t border-border pt-4">
       <h2 className="text-xs font-medium tracking-[0.16em] text-muted">에이전트</h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted">초록은 지금 연결할 수 있는 기기입니다. 빨강은 신호가 없습니다. 연결 전에는 자동예매가 가지 않습니다.</p>
+      <p className="mt-2 text-sm leading-relaxed text-muted">초록은 지금 연결할 수 있는 기기입니다. 빨강은 신호가 없습니다. 신호가 없는 기기에서 연결을 눌러도 연결됨이 되지 않습니다.</p>
       <div className="mt-3 grid grid-cols-3 gap-1.5">
         {BOOKING_DEVICES.map((name) => {
           const ready = agentConnectable(seen[name] || "");
           const on = connected === name;
+          const linked = on && ready;
           const status = on ? (ready ? "연결됨" : "끊김") : (ready ? "연결 가능" : "연결 불가");
           return (
             <div key={name} className="flex flex-col rounded-md bg-bg px-1.5 py-2">
@@ -114,8 +119,8 @@ export function DevicePanel() {
                 <span className={cn("inline-block size-2 shrink-0 rounded-full", ready ? "bg-emerald-500" : "bg-red-500")} />
                 {status}
               </span>
-              <button type="button" className={cn(settingsChoiceClass(on), "mt-2 px-1 text-xs")} onClick={() => connect(name)}>
-                {on ? "연결됨" : "연결"}
+              <button type="button" className={cn(settingsChoiceClass(linked), "mt-2 px-1 text-xs")} onClick={() => connect(name)}>
+                {agentButtonLabel(on, ready)}
               </button>
             </div>
           );

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { bookingDeviceName } from "@/lib/cinema/booking-link";
+import { recordAgentSeen } from "@/lib/cinema/booking-link.server";
 import { claimBookingJobForDevice, jobDbFailure } from "@/lib/cinema/booking-jobs.server";
 import { authorizeAgent } from "@/lib/cinema/devices.server";
 
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/api/booking/jobs/claim")({
         if (!agentId) return json({ ok: false, error: "agentId required" }, 400);
         const device = bookingDeviceName(body.deviceName || (auth.via === "device" ? auth.deviceName : ""));
         if (!device) return json({ ok: true, job: null });
+        await recordAgentSeen(device);
         try {
           const job = await claimBookingJobForDevice(agentId, device);
           return json({ ok: true, job });

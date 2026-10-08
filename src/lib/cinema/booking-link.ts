@@ -34,6 +34,33 @@ export function gasUrlForNotifyEmail(found: { url: string; email: string }[], wa
   return hit ? String(hit.url).trim() : "";
 }
 
+/** 연결됨은 선택된 기기가 지금 신호를 낼 때만 쓴다. */
+export function agentButtonLabel(selected: boolean, ready: boolean): "연결" | "연결됨" {
+  return selected && ready ? "연결됨" : "연결";
+}
+
+export function latestSeenAt(values: readonly string[]): string {
+  let best = "";
+  let bestAt = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    const at = Date.parse(String(value || ""));
+    if (Number.isFinite(at) && at > bestAt) {
+      bestAt = at;
+      best = String(value);
+    }
+  }
+  return best;
+}
+
+/** 여러 저장소의 시각 중 기기마다 더 최근 것을 남긴다. */
+export function mergeSeenMaps(raws: readonly string[]): string {
+  const next: Record<string, string> = {};
+  for (const name of BOOKING_DEVICES) {
+    next[name] = latestSeenAt(raws.map((raw) => readAgentSeen(raw).find((row) => row.name === name)?.seenAt || ""));
+  }
+  return JSON.stringify(next);
+}
+
 export function mergeAgentSeen(raw: string, name: string, nowIso: string): string {
   const device = bookingDeviceName(name);
   let parsed: Record<string, unknown> = {};

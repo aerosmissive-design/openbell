@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { agentConnectable, autoPayEnabled, bookingDeviceName, gasUrlForNotifyEmail, mergeAgentSeen, notifyMailbox, readAgentSeen } from "./booking-link.ts";
+import { agentButtonLabel, agentConnectable, autoPayEnabled, bookingDeviceName, gasUrlForNotifyEmail, latestSeenAt, mergeAgentSeen, mergeSeenMaps, notifyMailbox, readAgentSeen } from "./booking-link.ts";
 
 test("only the three agent names connect", () => {
   assert.equal(bookingDeviceName("G_PC"), "G_PC");
@@ -39,6 +39,28 @@ test("an agent is connectable only within two minutes", () => {
   assert.equal(agentConnectable(new Date(now - 60_000).toISOString(), now), true);
   assert.equal(agentConnectable(new Date(now - 3 * 60_000).toISOString(), now), false);
   assert.equal(agentConnectable("", now), false);
+});
+
+test("a red agent does not wear the connected label", () => {
+  assert.equal(agentButtonLabel(true, false), "연결");
+  assert.equal(agentButtonLabel(false, true), "연결");
+  assert.equal(agentButtonLabel(false, false), "연결");
+  assert.equal(agentButtonLabel(true, true), "연결됨");
+});
+
+test("the newer seen time wins per agent", () => {
+  const older = new Date(Date.parse("2026-10-09T00:00:00.000Z")).toISOString();
+  const newer = new Date(Date.parse("2026-10-09T00:01:00.000Z")).toISOString();
+  assert.equal(latestSeenAt(["", older, newer]), newer);
+  const merged = mergeSeenMaps([
+    JSON.stringify({ "G_PC": older, "G_DS225+": newer }),
+    JSON.stringify({ "G_PC": newer }),
+  ]);
+  assert.deepEqual(readAgentSeen(merged), [
+    { name: "G_PC", seenAt: newer },
+    { name: "G_DS225+", seenAt: newer },
+    { name: "G_DS423+", seenAt: "" },
+  ]);
 });
 
 test("a seen mark keeps the other agents", () => {
