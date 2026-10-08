@@ -2,8 +2,9 @@ import { collectRegisteredEmails, isAccountEmail, normalizeAccountEmail } from "
 
 const URL_ENV = ["GAS_WEB_URL", "GAS_WEB_URL_AERO1", "GAS_WEB_URL_AERO2"] as const;
 const KEY_ENV = ["GAS_SYNC_KEY", "GAS_SYNC_KEY_AERO1", "GAS_SYNC_KEY_AERO2"] as const;
+const EMAIL_ENV = ["GAS_ACCOUNT_EMAIL", "GAS_ACCOUNT_EMAIL_AERO1", "GAS_ACCOUNT_EMAIL_AERO2"] as const;
 
-export type GasAccountSlot = { url: string; key: string };
+export type GasAccountSlot = { url: string; key: string; email: string };
 
 export type GasAccountMeta = { email: string; url: string; scriptId: string; key: string };
 
@@ -15,9 +16,18 @@ export function gasAccountSlots(env: Record<string, string | undefined>): GasAcc
     const url = gasExecUrl(env[URL_ENV[i]]);
     if (!url || seen.has(url)) continue;
     seen.add(url);
-    out.push({ url, key: String(env[KEY_ENV[i]] || "").trim() });
+    out.push({
+      url,
+      key: String(env[KEY_ENV[i]] || "").trim(),
+      email: slotEmail(env[EMAIL_ENV[i]]),
+    });
   }
   return out;
+}
+
+function slotEmail(raw: string | undefined): string {
+  const email = normalizeAccountEmail(raw);
+  return isAccountEmail(email) ? email : "";
 }
 
 function gasExecUrl(raw: string | undefined): string {

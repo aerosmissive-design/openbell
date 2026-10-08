@@ -14,6 +14,22 @@ test("gas slots keep only https script hosts and drop duplicate urls", () => {
   assert.equal(slots.length, 1);
   assert.equal(slots[0].url, "https://script.google.com/macros/s/aaa/exec");
   assert.equal(slots[0].key, "key-one");
+  assert.equal(slots[0].email, "");
+});
+
+test("a configured slot mailbox is kept and a short name is dropped", () => {
+  const slots = gasAccountSlots({
+    GAS_WEB_URL: "https://script.google.com/macros/s/aaa/exec",
+    GAS_ACCOUNT_EMAIL: "First@Example.com",
+    GAS_WEB_URL_AERO1: "https://script.google.com/macros/s/bbb/exec",
+    GAS_ACCOUNT_EMAIL_AERO1: "aero1",
+    GAS_WEB_URL_AERO2: "https://script.google.com/macros/s/ccc/exec",
+    GAS_ACCOUNT_EMAIL_AERO2: "third@example.com",
+  });
+  assert.deepEqual(
+    slots.map((slot) => slot.email),
+    ["first@example.com", "", "third@example.com"],
+  );
 });
 
 test("meta json yields the mailbox and drops the web app url", () => {
@@ -58,7 +74,7 @@ test("meta fetch asks GAS without the sync key", async () => {
     );
   }) as typeof fetch;
   const rows = await emailsFromGasSlots(
-    [{ url: "https://script.google.com/macros/s/aaa/exec", key: "sync-key-secret" }],
+    [{ url: "https://script.google.com/macros/s/aaa/exec", key: "sync-key-secret", email: "" }],
     fetchImpl,
     1000,
   );

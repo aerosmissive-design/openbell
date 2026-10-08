@@ -6,7 +6,8 @@ export const Route = createFileRoute("/api/booking/accounts")({
   server: {
     handlers: {
       GET: async () => {
-        const gasTask = emailsFromGasSlots(gasAccountSlots(process.env), fetch);
+        const slots = gasAccountSlots(process.env);
+        const gasTask = emailsFromGasSlots(slots, fetch);
         let vesselEmails: string[] | null = null;
         let vesselError: unknown = null;
         try {
@@ -15,10 +16,10 @@ export const Route = createFileRoute("/api/booking/accounts")({
           vesselError = err;
         }
         const gasRows = await gasTask;
-        const decision = decideAccountList(
-          vesselEmails,
-          gasRows.map((row) => row.email),
-        );
+        const decision = decideAccountList(vesselEmails, [
+          ...slots.map((slot) => slot.email),
+          ...gasRows.map((row) => row.email),
+        ]);
         if (decision.status === 503) {
           return Response.json(
             { ok: false, error: "unavailable", ...registeredEmailFailure(vesselError) },
