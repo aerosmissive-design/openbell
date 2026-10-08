@@ -1,35 +1,37 @@
 import { readAppMeta, writeAppMeta, type MetaWriteResult } from "./app-meta.server";
+import { envGasPair, isGasExecHost, pairGasExec } from "./gas-exec-pair";
 import { postGasJson } from "./gas-post";
 import { WAKE_AT_KEY, type WakeKind } from "./wake-kind";
 
 const mem = { url: "", key: "" };
 
 function isGasHost(raw: string) {
-  try {
-    const host = new URL(raw).hostname;
-    return host.endsWith("script.google.com") || host.endsWith("googleusercontent.com");
-  } catch {
-    return false;
-  }
+  return isGasExecHost(raw);
 }
 
 export function rememberGasExec(url: string, key = "") {
-  const raw = url.trim();
-  if (!isGasHost(raw)) return;
-  mem.url = raw;
-  if (key.trim()) mem.key = key.trim();
+  const next = pairGasExec(mem, { url, key });
+  mem.url = next.url;
+  mem.key = next.key;
 }
 
 export async function resolveGasExec(): Promise<{ url: string; key: string }> {
   const envUrl = process.env.GAS_WEB_URL?.trim() || "";
-  if (isGasHost(envUrl)) mem.url = envUrl;
   const envKey = process.env.GAS_SYNC_KEY?.trim() || "";
-  if (envKey) mem.key = envKey;
+  const fromEnv = envGasPair(mem, envUrl, envKey);
+  if (fromEnv) {
+    mem.url = fromEnv.url;
+    mem.key = fromEnv.key;
+    return { url: mem.url, key: mem.key };
+  }
   if (!mem.url) {
     const stored = await readAppMeta("gas_exec_url");
-    if (isGasHost(stored)) mem.url = stored;
     const storedKey = await readAppMeta("gas_sync_key");
-    if (storedKey.trim()) mem.key = storedKey.trim();
+    const fromStore = pairGasExec({ url: "", key: "" }, { url: stored, key: storedKey });
+    if (fromStore.url) {
+      mem.url = fromStore.url;
+      mem.key = fromStore.key;
+    }
   }
   return { url: mem.url, key: mem.key };
 }
