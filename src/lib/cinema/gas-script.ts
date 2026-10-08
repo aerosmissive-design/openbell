@@ -2,7 +2,42 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20261007-kt1";
+export const GAS_SOURCE_STAMP = "20261009-link";
+
+export function gasStampIsCurrent(remote: unknown, local = GAS_SOURCE_STAMP): boolean {
+  return String(remote || "").trim() === local;
+}
+
+export function gasUpgradeSupported(body: string): boolean {
+  return /"error"\s*:\s*"phase"/.test(String(body || ""));
+}
+
+/** 주소 길이 제한 안에 들어가게 스크립트를 나눈다. */
+export function gasPieces(payload: string, maxEncoded = 800): string[] {
+  const chunks: string[] = [];
+  let buf = "";
+  const cap = Math.max(32, Math.floor(maxEncoded));
+  for (const ch of String(payload || "")) {
+    const next = buf + ch;
+    if (buf && encodeURIComponent(next).length > cap) {
+      chunks.push(buf);
+      buf = ch;
+      continue;
+    }
+    buf = next;
+  }
+  if (buf) chunks.push(buf);
+  return chunks;
+}
+
+/** 긴 스크립트를 몇 조각씩 나눌 때 다음 구간. */
+export function gasChunkSpan(total: number, cursor: number, batch = 2): { from: number; to: number; more: boolean } {
+  const safeTotal = Math.max(0, Math.floor(Number(total) || 0));
+  const from = Math.min(safeTotal, Math.max(0, Math.floor(Number(cursor) || 0)));
+  const size = Math.max(1, Math.floor(Number(batch) || 1));
+  const to = Math.min(safeTotal, from + size);
+  return { from, to, more: to < safeTotal };
+}
 
 export function buildGasManifest(): string {
   return JSON.stringify({
@@ -1821,7 +1856,10 @@ function handleUpgrade_(e) {
   var stored = props.getProperty("syncKey") || CONFIG.syncKey || "";
   if (phase === "start") {
     if (stored && incomingKey && stored !== incomingKey) return jsonOut_({ ok: false, error: "key" });
+    var lockAt = Number(props.getProperty("upLock") || 0);
+    if (lockAt && Date.now() - lockAt < 8 * 60 * 1000) return jsonOut_({ ok: false, error: "busy" });
     if (incomingKey) props.setProperty("syncKey", incomingKey);
+    props.setProperty("upLock", String(Date.now()));
     props.setProperty("upBuf", "");
     return jsonOut_({ ok: true, phase: "start" });
   }
@@ -1832,13 +1870,37 @@ function handleUpgrade_(e) {
   if (phase === "end") {
     var source = props.getProperty("upBuf") || "";
     try { props.deleteProperty("upBuf"); } catch (err) {}
-    if (!source) return jsonOut_({ ok: false, error: "empty" });
-    return jsonOut_(upgradeSelf_(source));
+    if (!source) {
+      try { props.deleteProperty("upLock"); } catch (err2) {}
+      return jsonOut_({ ok: false, error: "empty" });
+    }
+    var upgraded = upgradeSelf_(source);
+    try { props.deleteProperty("upLock"); } catch (err3) {}
+    return jsonOut_(upgraded);
   }
   return jsonOut_({ ok: false, error: "phase" });
 }
 
+function rememberLiveSecrets_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var prev = {};
+    try { prev = JSON.parse(props.getProperty("liveConfig") || "{}"); } catch (e) {}
+    var keys = ["email","telegramToken","telegramChatId","webhookUrl","kakaoRestKey","kakaoRefreshToken","xApiKey","xApiSecret","xAccessToken","xAccessSecret","xClientId","xClientSecret","xRefreshToken"];
+    var changed = false;
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (!String(prev[k] || "").trim() && String(CONFIG[k] || "").trim()) {
+        prev[k] = CONFIG[k];
+        changed = true;
+      }
+    }
+    if (changed) props.setProperty("liveConfig", JSON.stringify(prev));
+  } catch (e) {}
+}
+
 function upgradeSelf_(source) {
+  rememberLiveSecrets_();
   var id = ScriptApp.getScriptId();
   var token = ScriptApp.getOAuthToken();
   var headers = { Authorization: "Bearer " + token };
@@ -1889,18 +1951,7 @@ function upgradeSelf_(source) {
     if (web) break;
   }
   if (!web || !web.deploymentId) {
-    var created = UrlFetchApp.fetch("https://script.googleapis.com/v1/projects/" + id + "/deployments", {
-      method: "post",
-      contentType: "application/json",
-      headers: headers,
-      payload: JSON.stringify({
-        versionNumber: versionNumber,
-        manifestFileName: "appsscript",
-        description: "openbell web"
-      }),
-      muteHttpExceptions: true
-    });
-    return { ok: created.getResponseCode() < 300, version: versionNumber };
+    return { ok: false, error: "nodeploy" };
   }
   var patched = UrlFetchApp.fetch(
     "https://script.googleapis.com/v1/projects/" + id + "/deployments/" + web.deploymentId + "?updateMask=deploymentConfig",

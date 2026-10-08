@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
-import { DEFAULT_WATCH } from "./gas-script";
+import { notifyMailbox } from "./booking-link";
+import { DEFAULT_WATCH, buildGasScript, gasChunkSpan, gasPieces, gasStampIsCurrent, gasUpgradeSupported } from "./gas-script";
 import { THEATERS } from "./theaters";
 import type { AutoMovie, AutoShow } from "@/lib/auto-book-store";
 import {
@@ -404,10 +405,7 @@ async function chunkGasOp(
 ): Promise<GasPushResult> {
   const target = parseGasUrl(raw);
   if (!target) return { status: "error", message: "웹앱 주소가 올바르지 않습니다." };
-  const chunks: string[] = [];
-  for (let i = 0; i < payload.length; i += 1100) {
-    chunks.push(payload.slice(i, i + 1100));
-  }
+  const chunks = gasPieces(payload, 800);
   try {
     const start = new URL(target.toString());
     start.searchParams.set("op", op);
@@ -456,6 +454,138 @@ async function chunkGasOp(
     };
   }
 }
+
+async function readGasMeta(raw: string): Promise<{ stamp: string; email: string } | null> {
+  const parsed = parseGasUrl(raw);
+  if (!parsed) return null;
+  parsed.searchParams.set("op", "meta");
+  try {
+    const text = await fetchGasText(parsed);
+    const json = parseGasJson(text);
+    if (!json?.ok) return null;
+    return {
+      stamp: String(json.stamp || ""),
+      email: notifyMailbox(json.email),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function gasAcceptsUpgrade(raw: string): Promise<boolean> {
+  const parsed = parseGasUrl(raw);
+  if (!parsed) return false;
+  parsed.searchParams.set("op", "upgrade");
+  try {
+    return gasUpgradeSupported(await fetchGasText(parsed));
+  } catch {
+    return false;
+  }
+}
+
+export type GasCodeStep = {
+  pending: boolean;
+  slot: number;
+  cursor: number;
+  begun: boolean;
+  mark: string;
+};
+
+const GAS_STEP_DONE: GasCodeStep = { pending: false, slot: 3, cursor: 0, begun: false, mark: "" };
+let nextGasUpgradeAt = 0;
+
+function boundGasSlots(): Array<[string, string]> {
+  return [
+    [process.env.GAS_WEB_URL || "", process.env.GAS_SYNC_KEY || ""],
+    [process.env.GAS_WEB_URL_AERO1 || "", process.env.GAS_SYNC_KEY_AERO1 || ""],
+    [process.env.GAS_WEB_URL_AERO2 || "", process.env.GAS_SYNC_KEY_AERO2 || ""],
+  ];
+}
+
+function nextGasSlot(slot: number): GasCodeStep {
+  if (slot >= 2) return GAS_STEP_DONE;
+  return { pending: true, slot: slot + 1, cursor: 0, begun: false, mark: "" };
+}
+
+async function gasUpgradeCall(
+  raw: string,
+  key: string,
+  phase: "start" | "chunk" | "end",
+  extra?: Record<string, string>,
+): Promise<boolean> {
+  const parsed = parseGasUrl(raw);
+  if (!parsed) return false;
+  parsed.searchParams.set("op", "upgrade");
+  parsed.searchParams.set("phase", phase);
+  parsed.searchParams.set("key", key);
+  for (const [name, value] of Object.entries(extra || {})) parsed.searchParams.set(name, value);
+  try {
+    return looksJsonOk(await fetchGasText(parsed));
+  } catch {
+    return false;
+  }
+}
+
+/** 한 번에 스크립트 전부를 보내지 않는다. 기존 웹앱만 고치고 배포는 만들지 않는다. */
+export async function refreshGasCodeStep(slot: number, cursor: number, begun: boolean, mark: string): Promise<GasCodeStep> {
+  if (slot < 0 || slot > 2) return GAS_STEP_DONE;
+  const pair = boundGasSlots()[slot];
+  const url = pair[0].trim();
+  const key = pair[1].trim();
+  if (!url || !key) return nextGasSlot(slot);
+
+  if (!begun) {
+    if (Date.now() < nextGasUpgradeAt) return GAS_STEP_DONE;
+    const meta = await readGasMeta(url);
+    if (!meta || gasStampIsCurrent(meta.stamp)) return nextGasSlot(slot);
+    if (!(await gasAcceptsUpgrade(url))) return nextGasSlot(slot);
+    const started = await gasUpgradeCall(url, key, "start");
+    if (!started) {
+      nextGasUpgradeAt = Date.now() + 20 * 60 * 1000;
+      return GAS_STEP_DONE;
+    }
+    return { pending: true, slot, cursor: 0, begun: true, mark: meta.email };
+  }
+
+  const email = notifyMailbox(mark);
+  const config: WatchConfig = {
+    ...DEFAULT_WATCH,
+    email,
+    emailNotify: Boolean(email),
+    gasWebUrl: url,
+    gasSyncKey: key,
+  };
+  const source = buildGasScript(config, []);
+  const chunks = gasPieces(source, 800);
+  const span = gasChunkSpan(chunks.length, cursor, 2);
+  for (let i = span.from; i < span.to; i++) {
+    const ok = await gasUpgradeCall(url, key, "chunk", { i: String(i), d: chunks[i] });
+    if (!ok) {
+      nextGasUpgradeAt = Date.now() + 20 * 60 * 1000;
+      return GAS_STEP_DONE;
+    }
+  }
+  if (span.more) return { pending: true, slot, cursor: span.to, begun: true, mark: email };
+  const ended = await gasUpgradeCall(url, key, "end");
+  if (!ended) {
+    nextGasUpgradeAt = Date.now() + 20 * 60 * 1000;
+    return GAS_STEP_DONE;
+  }
+  return nextGasSlot(slot);
+}
+
+export const refreshGasCode = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      slot: z.number().int().min(0).max(3),
+      cursor: z.number().int().min(0).max(20000),
+      begun: z.boolean(),
+      mark: z.string().max(254),
+    }),
+  )
+  .handler(async ({ data }) => {
+    return refreshGasCodeStep(data.slot, data.cursor, data.begun, data.mark);
+  });
 
 export const upgradeExistingGas = createServerFn({ method: "POST" })
   .validator(

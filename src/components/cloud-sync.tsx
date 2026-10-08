@@ -7,6 +7,7 @@ import {
   mergeNotifyFromGas,
   publishToGas,
   pullGasNotify,
+  refreshGasCode,
   saveCloudSettings,
   type CloudSnapshot,
   type GasPushResult,
@@ -101,6 +102,8 @@ export function CloudSync() {
   const [ready, setReady] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const skipSave = useRef(true);
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
   const pulledFor = useRef<string | null>(null);
   const lastWatch = useRef("");
 
@@ -178,6 +181,57 @@ export function CloudSync() {
       cancelled = true;
     };
   }, [hydrated, userId, isPending, hydrateCloud]);
+
+  useEffect(() => {
+    if (!ready || !hydrated) return;
+    let stop = false;
+    const owner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    void (async () => {
+      try {
+        const now = Date.now();
+        const pause = Number(localStorage.getItem("openbell-gas-pause") || 0);
+        if (now - pause < 30 * 60 * 1000) return;
+        const beat = Number(localStorage.getItem("openbell-gas-beat") || 0);
+        const current = localStorage.getItem("openbell-gas-owner") || "";
+        if (current && current !== owner && now - beat < 20_000) return;
+        localStorage.setItem("openbell-gas-owner", owner);
+        localStorage.setItem("openbell-gas-beat", String(now));
+      } catch {
+        /* 저장을 막으면 이 탭만 진행한다 */
+      }
+      await flushSettings(Boolean(userIdRef.current)).catch(() => undefined);
+      if (stop) return;
+      let slot = 0;
+      let cursor = 0;
+      let begun = false;
+      let mark = "";
+      for (let n = 0; n < 2000 && !stop; n++) {
+        try {
+          if (localStorage.getItem("openbell-gas-owner") !== owner) return;
+          localStorage.setItem("openbell-gas-beat", String(Date.now()));
+        } catch {
+          /* ignore */
+        }
+        const step = await refreshGasCode({ data: { slot, cursor, begun, mark } }).catch(() => null);
+        if (!step?.pending) {
+          try {
+            localStorage.setItem("openbell-gas-pause", String(Date.now()));
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        if (!step.begun) mark = "";
+        else if (step.mark) mark = step.mark;
+        slot = step.slot;
+        cursor = step.cursor;
+        begun = step.begun;
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [ready, hydrated]);
 
   useEffect(() => {
     if (!ready || !hydrated) return;

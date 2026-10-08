@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { autoPayEnabled, bookingDeviceName, gasUrlForNotifyEmail, mergeAgentSeen, notifyMailbox, readAgentSeen } from "./booking-link.ts";
+import { agentConnectable, autoPayEnabled, bookingDeviceName, gasUrlForNotifyEmail, mergeAgentSeen, notifyMailbox, readAgentSeen } from "./booking-link.ts";
 
 test("only the three agent names connect", () => {
   assert.equal(bookingDeviceName("G_PC"), "G_PC");
@@ -32,6 +32,13 @@ test("payment mail uses only the script that owns that mailbox", () => {
   assert.equal(gasUrlForNotifyEmail(found, "b@b.c"), "https://example.test/b");
   assert.equal(gasUrlForNotifyEmail(found, "c@b.c"), "");
   assert.equal(gasUrlForNotifyEmail([{ url: "http://example.test/plain", email: "a@b.c" }], "a@b.c"), "");
+});
+
+test("an agent is connectable only within two minutes", () => {
+  const now = Date.parse("2026-10-09T00:00:00.000Z");
+  assert.equal(agentConnectable(new Date(now - 60_000).toISOString(), now), true);
+  assert.equal(agentConnectable(new Date(now - 3 * 60_000).toISOString(), now), false);
+  assert.equal(agentConnectable("", now), false);
 });
 
 test("a seen mark keeps the other agents", () => {

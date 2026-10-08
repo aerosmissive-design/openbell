@@ -51,6 +51,14 @@ export function mergeAgentSeen(raw: string, name: string, nowIso: string): strin
   return JSON.stringify(next);
 }
 
+export const AGENT_READY_MS = 2 * 60 * 1000;
+
+/** 최근 2분 안에 신호가 있으면 연결할 수 있다. */
+export function agentConnectable(seenAt: unknown, now = Date.now()): boolean {
+  const t = Date.parse(String(seenAt || ""));
+  return Number.isFinite(t) && t > 0 && now - t <= AGENT_READY_MS;
+}
+
 export function readAgentSeen(raw: string): { name: BookingDevice; seenAt: string }[] {
   let parsed: Record<string, unknown> = {};
   try {

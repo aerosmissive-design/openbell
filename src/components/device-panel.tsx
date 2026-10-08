@@ -1,45 +1,11 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AUTO_PAY_KEY, BOOKING_DEVICES, BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, autoPayEnabled, bookingDeviceName, notifyMailbox, type BookingDevice } from "@/lib/cinema/booking-link";
+import { AUTO_PAY_KEY, BOOKING_DEVICES, BOOKING_DEVICE_KEY, NOTIFY_EMAIL_KEY, agentConnectable, autoPayEnabled, bookingDeviceName, notifyMailbox, type BookingDevice } from "@/lib/cinema/booking-link";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { flushSettings } from "./cloud-sync";
 import { settingsActionClass, settingsChoiceClass } from "./settings-controls";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-
-type Freshness = "ONLINE" | "DELAYED" | "OFFLINE" | "NONE";
-
-function hm(iso: string) {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t) || t <= 0) return "";
-  return new Date(t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Seoul" });
-}
-
-function freshnessOf(iso: string): Freshness {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t) || t <= 0) return "NONE";
-  const age = Date.now() - t;
-  if (age <= 2 * 60 * 1000) return "ONLINE";
-  if (age <= 5 * 60 * 1000) return "DELAYED";
-  return "OFFLINE";
-}
-
-function dot(state: Freshness) {
-  return cn(
-    "inline-block size-2 rounded-full",
-    state === "ONLINE" && "bg-emerald-500",
-    state === "DELAYED" && "bg-amber-400",
-    state === "OFFLINE" && "bg-red-500",
-    state === "NONE" && "bg-zinc-500",
-  );
-}
-
-function label(state: Freshness) {
-  if (state === "ONLINE") return "켜짐";
-  if (state === "DELAYED") return "지연";
-  if (state === "OFFLINE") return "꺼짐";
-  return "없음";
-}
 
 function readStored(key: string) {
   try {
@@ -135,22 +101,20 @@ export function DevicePanel() {
   return (
     <div className="mt-5 border-t border-border pt-4">
       <h2 className="text-xs font-medium tracking-[0.16em] text-muted">에이전트</h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted">켜진 기기가 보이면 연결을 누르세요. 연결 전에는 자동예매가 가지 않습니다.</p>
-      <div className="mt-3 flex flex-col gap-2">
+      <p className="mt-2 text-sm leading-relaxed text-muted">초록은 지금 연결할 수 있는 기기입니다. 빨강은 신호가 없습니다. 연결 전에는 자동예매가 가지 않습니다.</p>
+      <div className="mt-3 grid grid-cols-3 gap-1.5">
         {BOOKING_DEVICES.map((name) => {
-          const state = freshnessOf(seen[name] || "");
+          const ready = agentConnectable(seen[name] || "");
           const on = connected === name;
+          const status = on ? (ready ? "연결됨" : "끊김") : (ready ? "연결 가능" : "연결 불가");
           return (
-            <div key={name} className="rounded-md bg-bg px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm text-fg">{name}</span>
-                <span className="flex items-center gap-1.5 text-sm text-muted">
-                  <span className={dot(state)} />
-                  {label(state)}
-                  {hm(seen[name] || "") ? <span className="tabular-nums">{hm(seen[name] || "")}</span> : null}
-                </span>
-              </div>
-              <button type="button" className={cn(settingsChoiceClass(on), "mt-2")} onClick={() => connect(name)}>
+            <div key={name} className="flex flex-col rounded-md bg-bg px-1.5 py-2">
+              <span className="text-center text-xs text-fg">{name}</span>
+              <span className={cn("mt-1 flex items-center justify-center gap-1 text-xs font-medium", ready ? "text-emerald-500" : "text-red-500")}>
+                <span className={cn("inline-block size-2 shrink-0 rounded-full", ready ? "bg-emerald-500" : "bg-red-500")} />
+                {status}
+              </span>
+              <button type="button" className={cn(settingsChoiceClass(on), "mt-2 px-1 text-xs")} onClick={() => connect(name)}>
                 {on ? "연결됨" : "연결"}
               </button>
             </div>

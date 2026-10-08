@@ -81,7 +81,7 @@ export function SettingsView({ lastScan }: { lastScan: ScanResult | null }) {
           </button>
           {showGasSection ? (
             <>
-              <p className="mt-2 text-sm leading-relaxed text-muted">베셀·Neon이 죽어도 구글스크립트가 알림을 보냅니다.</p>
+              <p className="mt-2 text-sm leading-relaxed text-muted">베셀·Neon이 죽어도 구글스크립트가 알림을 보냅니다. 사이트를 열면 이미 있는 웹앱 배포가 최신 코드로 맞춰집니다. 새 주소는 만들지 않습니다.</p>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {[1, 5, 10].map((n) => (
                   <button key={n} type="button" onClick={() => { setConfig({ intervalMin: n }); void pushWatchWindow(); }} className={cn(settingsChoiceClass(config.intervalMin === n), "tabular-nums")}>
