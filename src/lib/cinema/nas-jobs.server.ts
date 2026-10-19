@@ -1,5 +1,5 @@
 import { bookingDeviceName } from "./booking-link";
-import { readAppMeta, writeAppMeta } from "./app-meta.server";
+import { readAppMetaFresh, writeAppMeta } from "./app-meta.server";
 
 export type NasJobStatus =
   | "pending"
@@ -57,7 +57,7 @@ export function authorizeNasWorker(request: Request) {
 }
 
 async function loadJobs(): Promise<NasHoldJob[]> {
-  const raw = await readAppMeta(META_KEY);
+  const raw = await readAppMetaFresh(META_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as NasHoldJob[];

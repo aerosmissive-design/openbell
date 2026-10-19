@@ -13,7 +13,7 @@ import type {
   TheaterId,
   WatchConfig,
 } from "@/lib/cinema/types";
-import { normalizeHold, normalizeScanSources, CHART_SIZE } from "@/lib/cinema/types";
+import { normalizeHold, normalizeScanSources, CHART_SIZE, ALERT_HISTORY_CAP } from "@/lib/cinema/types";
 import { keepTypedConfig, readLegacyWatchConfig } from "@/lib/cinema/keep-typed";
 import { stripConfigSecrets } from "@/lib/cinema/secret-fields";
 import { decodeHtml, normalizeTitle } from "@/lib/utils";
@@ -197,7 +197,7 @@ export const useAppStore = create<AppState>()(
         })),
       pushAlerts: (items) =>
         set((s) => ({
-          alerts: [...items, ...s.alerts].slice(0, 2000),
+          alerts: [...items, ...s.alerts].slice(0, ALERT_HISTORY_CAP),
         })),
       clearAlerts: () => set({ alerts: [] }),
       enqueue: (item) =>
@@ -258,7 +258,7 @@ export const useAppStore = create<AppState>()(
             s.config,
           ),
           queue: snap.queue.slice(0, 40),
-          alerts: snap.alerts.slice(0, 2000),
+          alerts: snap.alerts.slice(0, ALERT_HISTORY_CAP),
           onlyAlerted: snap.onlyAlerted,
           primed: snap.primed,
           seenIds: uniqueCap(snap.seenIds, 2500),

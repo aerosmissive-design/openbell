@@ -1,6 +1,7 @@
 import { readAppMeta, writeAppMeta, type MetaWriteResult } from "./app-meta.server";
 import { envGasPair, isGasExecHost, pairGasExec } from "./gas-exec-pair";
 import { postGasJson } from "./gas-post";
+import { payloadFromGasBlob } from "./seat-blob-store";
 import { WAKE_AT_KEY, type WakeKind } from "./wake-kind";
 
 const mem = { url: "", key: "" };
@@ -209,6 +210,69 @@ export async function relayJobToGas(job: {
   } catch {
     /* GAS 죽음은 베셀 잡을 막지 않는다 */
   }
+}
+
+const SEAT_GAS_TIMEOUT_MS = 1200;
+
+function seatGasAccounts(): { url: string; key: string }[] {
+  const rows: Array<[string, string]> = [
+    [process.env.GAS_WEB_URL || "", process.env.GAS_SYNC_KEY || ""],
+    [process.env.GAS_WEB_URL_AERO1 || "", process.env.GAS_SYNC_KEY_AERO1 || ""],
+    [process.env.GAS_WEB_URL_AERO2 || "", process.env.GAS_SYNC_KEY_AERO2 || ""],
+  ];
+  const out: { url: string; key: string }[] = [];
+  const seen = new Set<string>();
+  for (const [url, key] of rows) {
+    const target = url.trim();
+    if (!target || !isGasHost(target) || seen.has(target)) continue;
+    seen.add(target);
+    out.push({ url: target, key: key.trim() });
+  }
+  return out;
+}
+
+async function readOneGasSeatAccount(
+  account: { url: string; key: string },
+  keys: string[],
+): Promise<Record<string, string>> {
+  try {
+    const target = new URL(account.url);
+    target.searchParams.set("op", "reporter");
+    if (account.key) target.searchParams.set("key", account.key);
+    target.searchParams.set("ids", keys.join(","));
+    const res = await fetch(target, { redirect: "follow", signal: AbortSignal.timeout(SEAT_GAS_TIMEOUT_MS) });
+    const text = await res.text();
+    if (!res.ok || /<html/i.test(text) || text.trim() === "openbell") return {};
+    const json = JSON.parse(text) as { ok?: boolean; blobs?: Record<string, unknown> };
+    if (!json.ok || !json.blobs) return {};
+    const out: Record<string, string> = {};
+    for (const key of keys) {
+      const encoded = payloadFromGasBlob(json.blobs[key]);
+      if (encoded) out[key] = encoded;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Reporter dual-write already stored on GAS. Used when Runtime Cache misses. */
+export async function readGasSeatBlobs(keys: string[]): Promise<Record<string, string>> {
+  if (!keys.length) return {};
+  let accounts = seatGasAccounts();
+  if (!accounts.length) {
+    const resolved = await resolveGasExec();
+    if (resolved.url && isGasHost(resolved.url)) accounts = [{ url: resolved.url, key: resolved.key }];
+  }
+  if (!accounts.length) return {};
+  const parts = await Promise.all(accounts.map((account) => readOneGasSeatAccount(account, keys)));
+  const out: Record<string, string> = {};
+  for (const part of parts) {
+    for (const key of keys) {
+      if (!out[key] && part[key]) out[key] = part[key];
+    }
+  }
+  return out;
 }
 
 export async function ackGasJob(idempotencyKey: string): Promise<void> {

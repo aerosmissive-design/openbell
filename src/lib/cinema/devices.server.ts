@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readAppMeta, writeAppMeta } from "./app-meta.server";
+import { readAppMetaFresh, writeAppMeta } from "./app-meta.server";
 import { resolveGasExec } from "./gas-fallback.server";
 import {
   applyApprove,
@@ -15,6 +15,7 @@ import {
   isDeviceName,
   pairingCodeFromBytes,
   pendingPublic,
+  deviceTouchDue,
   resolveDeviceKey,
   touchDevice,
   type DeviceName,
@@ -35,7 +36,7 @@ function locked<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function load(): Promise<Registry> {
-  const raw = await readAppMeta(META_KEY);
+  const raw = await readAppMetaFresh(META_KEY);
   if (!raw) return emptyRegistry();
   try {
     const parsed = JSON.parse(raw) as Registry;
@@ -194,10 +195,16 @@ export async function heartbeatDevice(deviceKey: string, agentVersion: string) {
     const reg = await load();
     const resolved = resolveDeviceKey(reg, deviceKey);
     if (!resolved.ok) return resolved;
-    const next = touchDevice(reg, resolved.device.id, "lastSeenAt", Date.now());
-    if (agentVersion) {
+    const now = Date.now();
+    const version = agentVersion ? agentVersion.slice(0, 40) : "";
+    const versionChanged = Boolean(version) && version !== resolved.device.agentVersion;
+    if (!versionChanged && !deviceTouchDue(resolved.device, "lastSeenAt", now)) {
+      return { ok: true as const, deviceId: resolved.device.id, deviceName: resolved.device.name, userId: resolved.device.ownerUserId };
+    }
+    const next = touchDevice(reg, resolved.device.id, "lastSeenAt", now);
+    if (version) {
       next.devices = next.devices.map((row) =>
-        row.id === resolved.device.id ? { ...row, agentVersion: agentVersion.slice(0, 40) } : row,
+        row.id === resolved.device.id ? { ...row, agentVersion: version } : row,
       );
     }
     await save(next);
@@ -255,7 +262,15 @@ export async function authorizeAgent(request: Request, touch: "seen" | "claim" |
       const resolved = resolveDeviceKey(reg, presented);
       if (!resolved.ok) return { ok: false as const, status: 401, error: resolved.error };
       const field = touch === "claim" ? "lastJobClaimAt" : touch === "payment" ? "lastPaymentReadyAt" : "lastSeenAt";
-      await save(touchDevice(reg, resolved.device.id, field, Date.now()));
+      const now = Date.now();
+      const seenDue = deviceTouchDue(resolved.device, "lastSeenAt", now);
+      const fieldDue = field !== "lastSeenAt" && deviceTouchDue(resolved.device, field, now);
+      if (seenDue || fieldDue) {
+        const next = fieldDue
+          ? touchDevice(reg, resolved.device.id, field, now)
+          : touchDevice(reg, resolved.device.id, "lastSeenAt", now);
+        await save(next);
+      }
       return {
         ok: true as const,
         via: "device" as const,

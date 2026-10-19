@@ -1,6 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { readAppMeta, writeAppMeta } from "@/lib/cinema/app-meta.server";
+import { appMetaFreshTrusted, readAppMetaFresh, writeAppMeta, type MetaWriteResult } from "@/lib/cinema/app-meta.server";
 import { relaySeatToGas } from "@/lib/cinema/gas-fallback.server";
+import { readStoredSeatBlobs, readTheaterSeatHealth } from "@/lib/cinema/nas.server";
+import {
+  loadNeonSeatMark,
+  rememberNeonSeatMark,
+  saveSeatBlobCache,
+  shouldWriteNeonSeatBlob,
+} from "@/lib/cinema/seat-blob-store";
+import { legacyBlobKey, legacyStatJson, seatBlobKey, seatStatJson, seatStatKey } from "@/lib/cinema/seat-stat";
 import { normalizeSourceKey, seatReportStatus, type SeatReportStatus } from "@/lib/cinema/source-key";
 
 const ALLOWED = new Set([
@@ -99,18 +107,18 @@ function cleanRows(rows: SeatRow[]) {
 
 /** 출처별 키. pc / nas423 / nas225 가 서로 덮어쓰지 않음. */
 function sourceKey(source: ReporterSource, theaterId: string) {
-  const src = source === "nas" ? "nas423" : source;
-  return `nas_seats:${src}:${theaterId}`;
+  return seatBlobKey(source, theaterId);
 }
 function instanceKey(sourceId: string, theaterId: string) {
   return `reporter_seen:${sourceId}:${theaterId}`;
 }
 function legacyKey(theaterId: string) {
-  return `nas_seats:${theaterId}`;
+  return legacyBlobKey(theaterId);
 }
 const OFFLINE_MS = 10 * 60 * 1000;
 async function rememberInstance(sourceId: string, displayGroup: string, status: string) {
-  const raw = await readAppMeta("reporter_instances");
+  const raw = await readAppMetaFresh("reporter_instances");
+  if (!appMetaFreshTrusted("reporter_instances")) return;
   let list: { sourceId: string; displayGroup: string; at: number; status: string }[] = [];
   try {
     const parsed = JSON.parse(raw || "[]");
@@ -124,7 +132,7 @@ async function rememberInstance(sourceId: string, displayGroup: string, status: 
 }
 
 async function reporterInstances() {
-  const raw = await readAppMeta("reporter_instances");
+  const raw = await readAppMetaFresh("reporter_instances");
   let list: { sourceId?: string; displayGroup?: string; at?: number; status?: string }[] = [];
   try {
     const parsed = JSON.parse(raw || "[]");
@@ -150,60 +158,7 @@ async function reporterInstances() {
 
 async function handleGet(request: Request) {
   if (!authorized(request)) return json({ ok: false, error: "unauthorized" }, 401);
-  const now = Date.now();
-  const theaters: Record<
-    string,
-    { at: number; ageMs: number; count: number; source: string; bySource: Record<string, { at: number; count: number }> }
-  > = {};
-  for (const id of ALLOWED) {
-    const bySource: Record<string, { at: number; count: number }> = {};
-    let bestAt = 0;
-    let bestCount = 0;
-    let bestSource = "pc";
-    for (const src of ["pc", "nas423", "nas225"] as const) {
-      const raw = await readAppMeta(sourceKey(src, id));
-      if (!raw) continue;
-      try {
-        const parsed = JSON.parse(raw) as { at?: number; rows?: unknown[]; source?: string };
-        const at = Number(parsed.at) || 0;
-        const count = Array.isArray(parsed.rows) ? parsed.rows.length : 0;
-        if (at > 0) {
-          bySource[src] = { at, count };
-          if (at >= bestAt) {
-            bestAt = at;
-            bestCount = count;
-            bestSource = src;
-          }
-        }
-      } catch {}
-    }
-    if (!Object.keys(bySource).length) {
-      const raw = await readAppMeta(legacyKey(id));
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw) as { at?: number; rows?: unknown[]; source?: string };
-          const at = Number(parsed.at) || 0;
-          const count = Array.isArray(parsed.rows) ? parsed.rows.length : 0;
-          const src = normalizeSource(parsed.source);
-          if (at > 0) {
-            bySource[src === "nas" ? "nas423" : src] = { at, count };
-            bestAt = at;
-            bestCount = count;
-            bestSource = src === "nas" ? "nas423" : src;
-          }
-        } catch {}
-      }
-    }
-    if (bestAt > 0) {
-      theaters[id] = {
-        at: bestAt,
-        ageMs: now - bestAt,
-        count: bestCount,
-        source: bestSource,
-        bySource,
-      };
-    }
-  }
+  const theaters = await readTheaterSeatHealth([...ALLOWED], Date.now());
   return json({ ok: true, theaters, instances: await reporterInstances() });
 }
 
@@ -272,31 +227,51 @@ async function handlePost(request: Request) {
   let rows = incoming;
   const sk = sourceKey(storageSource, theaterId);
   if (merge) {
-    const prevRaw = await readAppMeta(sk);
+    const prevRaw = (await readStoredSeatBlobs([sk]))[sk] || "";
     const byKey = new Map<string, SeatRow>();
     if (prevRaw) {
       try {
         const prev = JSON.parse(prevRaw) as { rows?: SeatRow[] };
         for (const r of cleanRows(Array.isArray(prev.rows) ? prev.rows : [])) byKey.set(rowKey(r), r);
-      } catch {}
+      } catch {
+        /* 이전 행이 깨져 있으면 이번 보고만 합친다. */
+      }
     }
     for (const r of incoming) byKey.set(rowKey(r), r);
     rows = [...byKey.values()].slice(0, MAX_ROWS);
   }
+  const at = Date.now();
   const payload = JSON.stringify({
-    at: Date.now(),
+    at,
     rows,
     mode: merge ? "merge" : "full",
     source: storageSource,
     sourceId: named.sourceId,
     displayGroup: named.displayGroup,
   });
-  const sourceWrite = await writeAppMeta(sk, payload);
-  const legacyWrite = await writeAppMeta(legacyKey(theaterId), payload);
+  // 핫패스는 Runtime Cache. Neon 블롭은 키당 10분, 또는 행 수가 크게 바뀔 때만.
+  const cacheOk = await saveSeatBlobCache(sk, payload);
+  const mark = await loadNeonSeatMark(sk);
+  let writeBlob = shouldWriteNeonSeatBlob({
+    now: at,
+    lastAt: mark?.at ?? 0,
+    lastCount: mark?.count ?? 0,
+    count: rows.length,
+    cacheOk,
+  });
+  let sourceWrite: MetaWriteResult = writeBlob ? await writeAppMeta(sk, payload) : { ok: true };
+  // 행은 출처 키에만 있다. 레거시는 GAS와 같이 {at,source,n}. 옛 통짜 값은 출처 키가 없을 때만 읽힌다.
+  const legacyWrite = await writeAppMeta(legacyKey(theaterId), legacyStatJson(at, storageSource, rows.length));
+  if (!writeBlob && !legacyWrite.ok) {
+    writeBlob = true;
+    sourceWrite = await writeAppMeta(sk, payload);
+  }
+  if (writeBlob && sourceWrite.ok) await rememberNeonSeatMark(sk, at, rows.length);
+  await writeAppMeta(seatStatKey(storageSource, theaterId), seatStatJson(at, rows.length));
   await writeAppMeta(
     instanceKey(named.sourceId, theaterId),
     JSON.stringify({
-      at: Date.now(),
+      at,
       sourceId: named.sourceId,
       displayGroup: named.displayGroup,
       status: "available",

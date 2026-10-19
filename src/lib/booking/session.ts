@@ -1,4 +1,4 @@
-import { readAppMeta, writeAppMeta } from "@/lib/cinema/app-meta.server";
+import { readAppMetaFresh, writeAppMeta } from "@/lib/cinema/app-meta.server";
 import { transition } from "./state-machine";
 import { PAYMENT_READY_TTL_MS, type BookingSession, type BookingState } from "./types";
 
@@ -9,7 +9,7 @@ function key(id: string) {
 }
 
 export async function getBookingSession(id: string): Promise<BookingSession | null> {
-  const raw = await readAppMeta(key(id));
+  const raw = await readAppMetaFresh(key(id));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as BookingSession;

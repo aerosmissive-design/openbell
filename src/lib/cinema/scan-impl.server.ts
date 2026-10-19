@@ -312,16 +312,16 @@ export async function runScan(input: {
           emptyMap(),
         )
       : Promise.resolve(emptyMap());
-  const nasPromise = deadline(
+  const nasPromise = deadline<Awaited<ReturnType<typeof readNasSeatmap>> | null>(
     readNasSeatmap([...wanted], { maxAgeMs: 30 * 60 * 1000 }),
     fast ? SCAN_DEADLINES.fastNas : SCAN_DEADLINES.nas,
-    emptyNas,
+    null,
   );
   const naverPromise = wantNaver
     ? deadline(fetchNaverShowtimes(wanted), SCAN_DEADLINES.naver, [] as Showtime[])
     : Promise.resolve([] as Showtime[]);
 
-  const [officialCgv, relay, kt, mega, nas, naver] = await Promise.all([
+  const [officialCgv, relay, kt, mega, nasRead, naver] = await Promise.all([
     officialCgvPromise,
     relayPromise,
     ktPromise,
@@ -331,6 +331,7 @@ export async function runScan(input: {
   ]);
 
   const officialMap: SeatHitMap = { ...officialCgv.map, ...mega.map };
+  const nas = nasRead ?? { ...emptyNas, reporterTimes: {} as Record<string, Record<string, string>> };
   const { nas225Map, nas423Map } = splitNasMaps(nas.showtimes);
   const nas423Rows = nas.showtimes.filter((s) => {
     const src = String(s.seatSource || "").toLowerCase();
@@ -386,9 +387,11 @@ export async function runScan(input: {
     };
   });
 
-  const reporterTimes = await readNasReporterTimes([...wanted], { maxAgeMs: 30 * 60 * 1000 }).catch(
-    () => ({} as Record<string, Record<string, string>>),
-  );
+  const reporterTimes = nasRead
+    ? nasRead.reporterTimes
+    : await readNasReporterTimes([...wanted], { maxAgeMs: 30 * 60 * 1000 }).catch(
+        () => ({} as Record<string, Record<string, string>>),
+      );
   const seatSourceTimes = Object.fromEntries(
     wanted.map((theaterId) => {
       const fromMaps = latestSeatSourceTimes(theaterId, [
@@ -497,25 +500,25 @@ export async function pingSeatmap(input: {
         }).catch(() => emptyMap())
       : emptyMap();
 
-  const nas = await readNasSeatmap(nasTheaters, { maxAgeMs: 30 * 60 * 1000 }).catch(() => ({
-    map: {} as SeatHitMap,
-    showtimes: [] as Showtime[],
-    source: "pc" as const,
-  }));
+  const nas = await readNasSeatmap(nasTheaters, { maxAgeMs: 30 * 60 * 1000 }).catch(() => null);
 
-  const map = { ...relay.map, ...kt.map, ...officialCgv.map, ...mega.map, ...nas.map };
+  const nasShows = nas?.showtimes ?? [];
+  const nasMap = nas?.map ?? {};
+  const map = { ...relay.map, ...kt.map, ...officialCgv.map, ...mega.map, ...nasMap };
   const extraShows = [
     ...naver,
     ...relay.showtimes,
     ...kt.showtimes,
     ...officialCgv.showtimes,
     ...mega.showtimes,
-    ...nas.showtimes,
+    ...nasShows,
   ];
   const keys = Object.keys(map);
-  const reporterTimes = await readNasReporterTimes(nasTheaters, { maxAgeMs: 30 * 60 * 1000 }).catch(
-    () => ({} as Record<string, Record<string, string>>),
-  );
+  const reporterTimes = nas
+    ? nas.reporterTimes
+    : await readNasReporterTimes(nasTheaters, { maxAgeMs: 30 * 60 * 1000 }).catch(
+        () => ({} as Record<string, Record<string, string>>),
+      );
   const seatSourceTimes: Record<string, Record<string, string>> = {};
   for (const theaterId of nasTheaters) {
     const fromMaps = latestSeatSourceTimes(theaterId, [

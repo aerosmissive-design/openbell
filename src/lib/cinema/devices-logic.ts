@@ -334,6 +334,26 @@ export function resolveDeviceKey(reg: Registry, deviceKey: string):
   return { ok: true, device, userIds };
 }
 
+/** Claim and payment stamps. Last-seen uses the shorter window below. */
+export const DEVICE_TOUCH_MS = 5 * 60 * 1000;
+/** Must stay inside the 2 minute ONLINE window so a live heartbeat still looks connected. */
+export const DEVICE_SEEN_TOUCH_MS = 90 * 1000;
+
+export function deviceTouchInterval(field: "lastSeenAt" | "lastJobClaimAt" | "lastPaymentReadyAt") {
+  return field === "lastSeenAt" ? DEVICE_SEEN_TOUCH_MS : DEVICE_TOUCH_MS;
+}
+
+export function deviceTouchDue(
+  device: Pick<DeviceRow, "lastSeenAt" | "lastJobClaimAt" | "lastPaymentReadyAt">,
+  field: "lastSeenAt" | "lastJobClaimAt" | "lastPaymentReadyAt",
+  now: number,
+  intervalMs = deviceTouchInterval(field),
+) {
+  const prev = Date.parse(device[field] || "");
+  if (!Number.isFinite(prev)) return true;
+  return now - prev >= intervalMs;
+}
+
 export function touchDevice(
   reg: Registry,
   deviceId: string,

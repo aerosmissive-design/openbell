@@ -1,4 +1,4 @@
-import { readAppMeta, writeAppMeta } from "./app-meta.server";
+import { readAppMetaFresh, writeAppMeta } from "./app-meta.server";
 import {
   cgvRelayWatchPublic,
   cgvTheatersMissingSeats,
@@ -11,7 +11,7 @@ import type { TheaterScan } from "./types";
 const META_KEY = "cgv_relay_watch";
 
 async function readState(): Promise<CgvRelayWatchState> {
-  const raw = await readAppMeta(META_KEY);
+  const raw = await readAppMetaFresh(META_KEY);
   if (!raw) return parseCgvRelayWatch(null);
   try {
     return parseCgvRelayWatch(JSON.parse(raw));

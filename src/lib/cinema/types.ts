@@ -14,6 +14,8 @@ export type TheaterScan = { theaterId: TheaterId; ok: boolean; error: string | n
 export type ScanResult = { scannedAt: string; playDates: string[]; ranking: RankingMovie[]; showing: RankingMovie[]; catalog: RankingMovie[]; catalogNote?: string; theaters: TheaterScan[]; seatSourceTimes?: Record<string, Record<string, string>> };
 export type ScanProps = { scan: ScanResult | null; loading: boolean; error: Error | null; onRefresh: () => void; refreshing: boolean };
 export type AlertItem = { id: string; createdAt: string; kind: "open" | "seat"; title: string; body: string; bookingUrl: string; theaterId: TheaterId; movieTitle: string; playDate: string; startTime: string; hallName: string; formats: FormatId[]; restSeats: number | null; totalSeats?: number | null; seatSource?: string };
+/** 오픈 기록 상한. 감시는 이 배열을 읽지 않고, 설정 로드도 이 개수만 옮긴다. */
+export const ALERT_HISTORY_CAP = 200;
 export type HoldZone = "center" | "rear" | "front";
 export type HoldStep = "seats" | "pay" | "wait";
 export type HoldPrefs = { enabled: boolean; seats: number; zone: HoldZone; autoOpen: boolean; minutes: number; /** 알림 시 나스 도우미에 자동으로 잡 넣기 (서버에 NAS_WORKER_TOKEN 필요) */ nasAuto: boolean };
