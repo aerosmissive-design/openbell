@@ -18,6 +18,13 @@ export function seatStatKey(source: string, theaterId: string) {
   return `nas_seats_at:${storageSource(source)}:${theaterId}`;
 }
 
+/** Stat sibling of a source blob key. Empty for the legacy nas_seats:<theater> key. */
+export function statKeyForBlobKey(blobKey: string): string {
+  const parts = blobKey.split(":");
+  if (parts.length !== 3 || parts[0] !== "nas_seats") return "";
+  return seatStatKey(parts[1] || "", parts[2] || "");
+}
+
 export function legacyBlobKey(theaterId: string) {
   return `nas_seats:${theaterId}`;
 }

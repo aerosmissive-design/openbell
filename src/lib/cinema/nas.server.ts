@@ -2,7 +2,7 @@ import type { Showtime, TheaterId } from "./types";
 import { putSeatHit, type SeatHitMap } from "./seats";
 import { readAppMetaJsonFields, readAppMetas } from "./app-meta.server";
 import { readGasSeatBlobs } from "./gas-fallback.server";
-import { readSeatBlobCacheValue, readSeatBlobs } from "./seat-blob-store";
+import { readSeatBlobCacheValue, readSeatBlobs, saveSeatBlobCache } from "./seat-blob-store";
 import { cgvHallFromCapacity, megaboxFormats } from "./theaters";
 import { decodeHtml, normalizePlayDate } from "@/lib/utils";
 import {
@@ -13,6 +13,7 @@ import {
   reporterTimesFromStats,
   seatBlobKey,
   seatStatKey,
+  statKeyForBlobKey,
   storageSource,
   type SeatStat,
 } from "./seat-stat";
@@ -257,6 +258,20 @@ export async function readNasReporterTimes(
   return out;
 }
 
+async function knownBlobAts(keys: string[]): Promise<Record<string, number>> {
+  const pairs = keys
+    .map((key) => ({ key, stat: statKeyForBlobKey(key) }))
+    .filter((row) => row.stat);
+  if (!pairs.length) return {};
+  const bag = await readAppMetas(pairs.map((row) => row.stat));
+  const out: Record<string, number> = {};
+  for (const row of pairs) {
+    const parsed = parseSeatStat(bag[row.stat] || "");
+    if (parsed?.at) out[row.key] = parsed.at;
+  }
+  return out;
+}
+
 /** 큰 좌석 블롭. Runtime Cache → GAS → Neon. 작은 stat 키는 여기로 오지 않는다. */
 export async function readStoredSeatBlobs(keys: string[]): Promise<Record<string, string>> {
   if (!keys.length) return {};
@@ -264,6 +279,8 @@ export async function readStoredSeatBlobs(keys: string[]): Promise<Record<string
     cacheGet: readSeatBlobCacheValue,
     gasRead: (missing) => readGasSeatBlobs(missing),
     dbRead: (missing) => readAppMetas(missing),
+    knownAts: knownBlobAts,
+    cachePut: (key, value) => saveSeatBlobCache(key, value),
   });
 }
 

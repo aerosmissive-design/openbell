@@ -11,6 +11,8 @@ import {
   RUNTIME_CACHE_ITEM_LIMIT,
   SEAT_BLOB_COUNT_DELTA,
   SEAT_BLOB_NEON_INTERVAL_MS,
+  SEAT_GAS_STALE_MS,
+  seatBlobCachePuts,
   shouldWriteNeonSeatBlob,
   unpackSeatBlob,
 } from "./seat-blob-store.ts";
@@ -232,6 +234,129 @@ test("steady cache hits drop seat-blob Neon egress to zero", () => {
   });
   assert.equal(before, 320_000 * 4 * 480 * 30);
   assert.equal(after, 0);
+});
+
+test("shard puts publish the manifest last and a missing shard is not a payload", async () => {
+  const raw = payload(4, 77);
+  let puts: { key: string; value: unknown }[] | null = null;
+  for (let limit = 80; limit < raw.length; limit += 15) {
+    const plan = seatBlobCachePuts("k", raw, limit);
+    if (plan && plan.length > 2 && plan[plan.length - 1]?.key === "k") {
+      puts = plan;
+      break;
+    }
+  }
+  assert.ok(puts);
+  if (!puts) return;
+  const head = puts[puts.length - 1]!;
+  const manifest = head.value as { shardGen?: string };
+  assert.equal(typeof manifest.shardGen, "string");
+  assert.ok(manifest.shardGen);
+  puts.slice(0, -1).forEach((put, index) => {
+    assert.equal(put.key, `k#${manifest.shardGen}#${index}`);
+  });
+  const store = new Map(puts.map((put) => [put.key, put.value]));
+  const whole = await unpackSeatBlob("k", store.get("k"), async (shardKey) => store.get(shardKey) ?? null);
+  assert.equal(JSON.parse(whole).at, 77);
+  store.delete(puts[0]!.key);
+  const broken = await unpackSeatBlob("k", store.get("k"), async (shardKey) => store.get(shardKey) ?? null);
+  assert.equal(broken, "");
+});
+
+test("stale GAS does not hide a newer Neon blob", async () => {
+  const key = "nas_seats:pc:cgv_yongsan";
+  const gasAt = 1_000_000;
+  const knownAt = gasAt + SEAT_GAS_STALE_MS + 1;
+  let db = 0;
+  const puts: string[] = [];
+  const blobs = await readSeatBlobs([key], {
+    cacheGet: async () => null,
+    gasRead: async () => ({ [key]: payload(1, gasAt) }),
+    knownAts: async () => ({ [key]: knownAt }),
+    dbRead: async () => {
+      db += 1;
+      return { [key]: payload(1, knownAt) };
+    },
+    cachePut: async (cacheKey) => {
+      puts.push(cacheKey);
+    },
+  });
+  assert.equal(db, 1);
+  assert.match(blobs[key] ?? "", new RegExp(`"at":${knownAt}`));
+  assert.deepEqual(puts, [key]);
+});
+
+test("GAS inside the skew window does not read Neon", async () => {
+  const key = "nas_seats:nas423:cgv_yongsan";
+  const gasAt = 2_000_000;
+  let db = 0;
+  const blobs = await readSeatBlobs([key], {
+    cacheGet: async () => null,
+    gasRead: async () => ({ [key]: payload(1, gasAt) }),
+    knownAts: async () => ({ [key]: gasAt + 60_000 }),
+    dbRead: async () => {
+      db += 1;
+      return {};
+    },
+  });
+  assert.equal(db, 0);
+  assert.match(blobs[key] ?? "", /"at":2000000/);
+});
+
+test("stale GAS is kept when Neon is empty and is not written back to the cache", async () => {
+  const key = "nas_seats:nas225:cgv_yongsan";
+  const gasAt = 3_000_000;
+  const knownAt = gasAt + SEAT_GAS_STALE_MS + 5_000;
+  let puts = 0;
+  const blobs = await readSeatBlobs([key], {
+    cacheGet: async () => null,
+    gasRead: async () => ({ [key]: payload(1, gasAt) }),
+    knownAts: async () => ({ [key]: knownAt }),
+    dbRead: async () => ({}),
+    cachePut: async () => {
+      puts += 1;
+    },
+  });
+  assert.match(blobs[key] ?? "", /"at":3000000/);
+  assert.equal(puts, 0);
+});
+
+test("a failed stat-clock check reads Neon instead of pinning GAS", async () => {
+  const key = "nas_seats:pc:megabox_coex";
+  let db = 0;
+  let puts = 0;
+  const blobs = await readSeatBlobs([key], {
+    cacheGet: async () => null,
+    gasRead: async () => ({ [key]: payload(1, 10) }),
+    knownAts: async () => {
+      throw new Error("stat down");
+    },
+    dbRead: async () => {
+      db += 1;
+      return { [key]: payload(1, 50) };
+    },
+    cachePut: async () => {
+      puts += 1;
+    },
+  });
+  assert.equal(db, 1);
+  assert.match(blobs[key] ?? "", /"at":50/);
+  assert.equal(puts, 1);
+});
+
+test("a Runtime Cache hit does not fill the cache again", async () => {
+  const key = "nas_seats:pc:megabox_namyangju";
+  let puts = 0;
+  const blobs = await readSeatBlobs([key], {
+    cacheGet: async () => payload(1, 4),
+    gasRead: async () => ({}),
+    dbRead: async () => ({}),
+    cachePut: async () => {
+      puts += 1;
+    },
+  });
+  assert.match(blobs[key] ?? "", /"at":4/);
+  assert.equal(puts, 0);
 });
 
 test("store reset clears throttle marks between cases", () => {

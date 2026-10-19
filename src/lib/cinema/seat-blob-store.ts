@@ -49,6 +49,8 @@ export type SeatBlobManifest = {
   n: number;
   body?: string;
   shards?: number;
+  /** Shard keys are `${blobKey}#${shardGen}#${i}` so a new write cannot mix with the previous one. */
+  shardGen?: string;
 };
 
 export type SeatBlobCachePlan =
@@ -59,7 +61,14 @@ export type SeatBlobReadDeps = {
   cacheGet(key: string): Promise<unknown>;
   gasRead(keys: string[]): Promise<Record<string, string>>;
   dbRead(keys: string[]): Promise<Record<string, string>>;
+  /** Newest stat clock. GAS older than this by SEAT_GAS_STALE_MS falls through to Neon. */
+  knownAts?(keys: string[]): Promise<Record<string, number>>;
+  /** Remember a GAS or Neon payload so the next scan can hit Runtime Cache. */
+  cachePut?(key: string, payloadJson: string): Promise<unknown>;
 };
+
+/** GAS this far behind the stat clock is not allowed to hide Neon. */
+export const SEAT_GAS_STALE_MS = 2 * 60 * 1000;
 
 type NeonMark = { at: number; count: number };
 
@@ -197,6 +206,39 @@ export function planSeatBlobCache(payloadJson: string, limit = RUNTIME_CACHE_ITE
   return { kind: "compact", manifest, shards, complete: true };
 }
 
+/** Shard puts first, manifest last. Null means the payload cannot be cached. */
+export function seatBlobCachePuts(
+  key: string,
+  payloadJson: string,
+  limit = RUNTIME_CACHE_ITEM_LIMIT,
+): { key: string; value: unknown }[] | null {
+  const plan = planSeatBlobCache(payloadJson, limit);
+  if (!plan.complete) return null;
+  if (plan.kind === "raw") return [{ key, value: plan.value }];
+  const shardGen = `${plan.manifest.at}:${plan.shards.length}:${plan.shards.reduce((sum, shard) => sum + shard.length, 0)}`;
+  const puts: { key: string; value: unknown }[] = plan.shards.map((shard, index) => ({
+    key: `${key}#${shardGen}#${index}`,
+    value: shard,
+  }));
+  puts.push({ key, value: { ...plan.manifest, shardGen } });
+  return puts;
+}
+
+function payloadAt(raw: string): number {
+  try {
+    const parsed = JSON.parse(raw) as { at?: number };
+    return Number(parsed.at) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function preferNewer(current: string, next: string): string {
+  if (!current) return next;
+  if (!next) return current;
+  return payloadAt(next) >= payloadAt(current) ? next : current;
+}
+
 export async function unpackSeatBlob(
   key: string,
   value: unknown,
@@ -219,11 +261,16 @@ export async function unpackSeatBlob(
   }
   let body = typeof rec.body === "string" ? rec.body : "";
   const n = Number(rec.shards) || 0;
+  const gen = typeof rec.shardGen === "string" ? rec.shardGen : "";
   if (!body && n > 0) {
-    const pieces = await Promise.all(Array.from({ length: n }, (_, i) => getShard(`${key}#${i}`)));
-    body = pieces.filter((piece): piece is string => typeof piece === "string" && piece.length > 0).join("\n");
+    const pieces = await Promise.all(
+      Array.from({ length: n }, (_, i) => getShard(gen ? `${key}#${gen}#${i}` : `${key}#${i}`)),
+    );
+    if (pieces.some((piece) => typeof piece !== "string" || piece.length === 0)) return "";
+    body = (pieces as string[]).join("\n");
   }
   if (!rec.at) return "";
+  if (n > 0 && !body) return "";
   return payloadFromParts(rec, body);
 }
 
@@ -259,20 +306,65 @@ export async function readSeatBlobs(keys: string[], deps: SeatBlobReadDeps): Pro
   } catch {
     gas = {};
   }
+  let known: Record<string, number> = {};
+  let knownFailed = false;
+  const gasKeys = missed.filter((key) => gas[key]);
+  if (gasKeys.length && deps.knownAts) {
+    try {
+      known = await deps.knownAts(gasKeys);
+    } catch {
+      known = {};
+      knownFailed = true;
+    }
+  }
   const dbKeys: string[] = [];
+  const gasFallback = new Map<string, string>();
   for (const key of missed) {
-    if (gas[key]) out[key] = gas[key];
-    else dbKeys.push(key);
+    const gasRaw = gas[key] || "";
+    if (!gasRaw) {
+      dbKeys.push(key);
+      continue;
+    }
+    const knownAt = Number(known[key]) || 0;
+    const gasAt = payloadAt(gasRaw);
+    if (knownFailed || (knownAt && gasAt && knownAt - gasAt > SEAT_GAS_STALE_MS)) {
+      gasFallback.set(key, gasRaw);
+      dbKeys.push(key);
+      continue;
+    }
+    out[key] = gasRaw;
   }
-  if (!dbKeys.length) return out;
-  let db: Record<string, string> = {};
-  try {
-    db = await deps.dbRead(dbKeys);
-  } catch {
-    db = {};
+  if (dbKeys.length) {
+    let db: Record<string, string> = {};
+    try {
+      db = await deps.dbRead(dbKeys);
+    } catch {
+      db = {};
+    }
+    for (const key of dbKeys) {
+      const picked = preferNewer(gasFallback.get(key) || "", db[key] || "");
+      if (picked) out[key] = picked;
+    }
   }
-  for (const key of dbKeys) {
-    if (db[key]) out[key] = db[key];
+  if (deps.cachePut) {
+    const fill = missed.filter((key) => {
+      const value = out[key];
+      if (!value) return false;
+      if (knownFailed && gasFallback.get(key) === value) return false;
+      const knownAt = Number(known[key]) || 0;
+      if (!knownAt) return true;
+      // A stale GAS fallback must not stick in front of a later Neon copy.
+      return payloadAt(value) + SEAT_GAS_STALE_MS >= knownAt;
+    });
+    await Promise.all(
+      fill.map(async (key) => {
+        try {
+          await deps.cachePut!(key, out[key]);
+        } catch {
+          /* the value already read still stands */
+        }
+      }),
+    );
   }
   return out;
 }
@@ -372,22 +464,21 @@ export async function readSeatBlobCacheValue(key: string): Promise<unknown> {
 
 export async function saveSeatBlobCache(key: string, payloadJson: string): Promise<boolean> {
   mirror.set(key, payloadJson);
-  const plan = planSeatBlobCache(payloadJson);
-  if (!plan.complete) {
+  const puts = seatBlobCachePuts(key, payloadJson);
+  if (!puts) {
     await runtimeCacheDelete(key);
     return false;
   }
-  let ok = false;
-  if (plan.kind === "raw") ok = await runtimeCacheSet(key, plan.value, key);
-  else {
-    const head = await runtimeCacheSet(key, plan.manifest, key);
-    if (head) {
-      const wrote = await Promise.all(
-        plan.shards.map((shard, i) => runtimeCacheSet(`${key}#${i}`, shard, `${key}#${i}`)),
-      );
-      ok = wrote.every(Boolean);
+  const head = puts[puts.length - 1];
+  const shards = puts.slice(0, -1);
+  if (shards.length) {
+    const wrote = await Promise.all(shards.map((put) => runtimeCacheSet(put.key, put.value, put.key)));
+    if (!wrote.every(Boolean)) {
+      await runtimeCacheDelete(key);
+      return false;
     }
   }
+  const ok = await runtimeCacheSet(head.key, head.value, head.key);
   // A failed put must not leave an older cache entry hiding GAS and Neon.
   if (!ok) await runtimeCacheDelete(key);
   return ok;

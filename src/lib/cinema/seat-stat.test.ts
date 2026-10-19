@@ -6,12 +6,17 @@ import {
   reporterTimesFromStats,
   seatStatJson,
   seatStatKey,
+  statKeyForBlobKey,
 } from "./seat-stat.ts";
 
 test("seat stat key is the small sibling of a reporter source", () => {
   assert.equal(seatStatKey("pc", "cgv_yongsan"), "nas_seats_at:pc:cgv_yongsan");
   assert.equal(seatStatKey("nas", "megabox_coex"), "nas_seats_at:nas423:megabox_coex");
   assert.equal(seatStatKey("nas225", "cgv_yeongdeungpo"), "nas_seats_at:nas225:cgv_yeongdeungpo");
+  assert.equal(statKeyForBlobKey("nas_seats:pc:cgv_yongsan"), "nas_seats_at:pc:cgv_yongsan");
+  assert.equal(statKeyForBlobKey("nas_seats:nas423:megabox_coex"), "nas_seats_at:nas423:megabox_coex");
+  assert.equal(statKeyForBlobKey("nas_seats:cgv_yongsan"), "");
+  assert.equal(statKeyForBlobKey("reporter_seen:pc:cgv_yongsan"), "");
   assert.deepEqual(JSON.parse(seatStatJson(1_700_000_000_000, 42)), { at: 1_700_000_000_000, count: 42 });
   assert.deepEqual(JSON.parse(legacyStatJson(1_700_000_000_000, "nas", 7)), {
     at: 1_700_000_000_000,
