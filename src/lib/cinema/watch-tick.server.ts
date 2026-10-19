@@ -19,6 +19,12 @@ import {
 } from "./app-meta.server";
 import { isTransientDbError } from "@/lib/db";
 import { ALERT_HISTORY_CAP } from "./types";
+import {
+  loadWatchUserRows,
+  shouldPersistWatch,
+  type WatchFatRow,
+  type WatchRowCache,
+} from "./watch-row-cache";
 import { revealConfigSecrets } from "./secret-box.server";
 import {
   filterWatched,
@@ -65,6 +71,91 @@ async function watchQuery<T>(text: string, params?: unknown[]): Promise<T[]> {
 
 const THEATER_IDS = THEATERS.map((t) => t.id);
 let lastRunAt = 0;
+const watchMem = new Map<string, { rev: string; row: WatchFatRow }>();
+/** Rev mismatch ignores a stale entry, so the ttl only bounds cold fat reads. */
+const WATCH_ROW_CACHE_TTL_SEC = 7 * 24 * 60 * 60;
+
+function watchCacheId(userId: string) {
+  return `${watchHost()}:${userId}`;
+}
+
+function withinCache<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
+}
+
+function asWatchCached(value: unknown): { rev: string; row: WatchFatRow } | null {
+  if (!value || typeof value !== "object") return null;
+  const rec = value as { rev?: unknown; row?: WatchFatRow };
+  if (!rec.row || typeof rec.row !== "object" || typeof rec.rev !== "string" || !rec.rev) return null;
+  if (typeof rec.row.user_id !== "string") return null;
+  return { rev: rec.rev, row: rec.row };
+}
+
+function watchUserCache(): WatchRowCache {
+  return {
+    async get(userId, rev) {
+      const id = watchCacheId(userId);
+      const local = watchMem.get(id);
+      if (local?.rev === rev) return local.row;
+      try {
+        const { getCache } = await import("@vercel/functions");
+        const remote = asWatchCached(
+          await withinCache(getCache({ namespace: "openbell" }).get(`watch-user:${id}`), 400, null),
+        );
+        if (remote?.rev === rev) {
+          watchMem.set(id, remote);
+          return remote.row;
+        }
+      } catch {
+        /* Runtime Cache is optional. A miss reads Neon. */
+      }
+      return null;
+    },
+    async set(userId, rev, row) {
+      const id = watchCacheId(userId);
+      const packed = { rev, row };
+      watchMem.set(id, packed);
+      try {
+        const { getCache } = await import("@vercel/functions");
+        await withinCache(
+          getCache({ namespace: "openbell" })
+            .set(`watch-user:${id}`, packed, { ttl: WATCH_ROW_CACHE_TTL_SEC, name: "watch-user" })
+            .then(() => true),
+          800,
+          false,
+        );
+      } catch {
+        /* The next instance reads the fat row from Neon. */
+      }
+    },
+    async drop(userId) {
+      const id = watchCacheId(userId);
+      watchMem.delete(id);
+      try {
+        const { getCache } = await import("@vercel/functions");
+        await withinCache(
+          getCache({ namespace: "openbell" }).delete(`watch-user:${id}`).then(() => undefined),
+          400,
+          undefined,
+        );
+      } catch {
+        /* The stale entry expires with its ttl. */
+      }
+    },
+  };
+}
 
 function isDbQuota(err: unknown) {
   return isDbQuotaError(err);
@@ -372,6 +463,7 @@ async function notifyChannels(config: WatchConfig, items: AlertItem[]) {
 
 async function persistWatch(
   userId: string,
+  rev: string,
   extras: {
     primed: boolean;
     seenIds: string[];
@@ -381,10 +473,10 @@ async function persistWatch(
     queue: BookingIntent[];
     autoFired: Record<string, string>;
   },
-) {
+): Promise<string> {
   const seenIds = uniqueCap(extras.seenIds, 2500);
   const seenDates = uniqueCap(extras.seenDates, 40);
-  await watchQuery(
+  const rows = await watchQuery<{ rev: string }>(
     `update user_settings
      set alerts = (
            select coalesce(jsonb_agg(elem order by ord), '[]'::jsonb)
@@ -418,7 +510,9 @@ async function persistWatch(
          ),
          queue = $8::jsonb,
          updated_at = now()
-     where user_id = $9`,
+     where user_id = $9
+       and xmin::text = $11
+     returning xmin::text as rev`,
     [
       JSON.stringify(extras.newAlerts),
       extras.primed,
@@ -430,8 +524,10 @@ async function persistWatch(
       JSON.stringify(extras.queue.slice(0, 40)),
       userId,
       JSON.stringify(extras.autoFired),
+      rev,
     ],
   );
+  return String(rows[0]?.rev || "");
 }
 
 async function commitAutoBook(
@@ -486,57 +582,41 @@ export async function runWatchTick() {
   await writeWatchLastRun(now);
   try {
     await ensureUserSettingsSchema();
-  const rows = await watchQuery<{
-    user_id: string;
-    config: unknown;
-    queue: unknown;
-    account_email: string | null;
-    seen_dates: unknown;
-    watch_sig: string | null;
-    auto_movies: unknown;
-    auto_shows: unknown;
-    auto_fired: unknown;
-    host_seen: unknown;
-  }>(
-    `select us.user_id,
-            us.config,
-            us.queue,
-            u.email as account_email,
-            us.prefs->'seenDates' as seen_dates,
-            us.prefs->>'watchSig' as watch_sig,
-            us.prefs->'autoMovies' as auto_movies,
-            us.prefs->'autoShows' as auto_shows,
-            us.prefs->'autoFired' as auto_fired,
-            coalesce(us.prefs #> ARRAY['seenByHost', $1], '[]'::jsonb) as host_seen
-     from user_settings us
-     left join "user" u on u.id = us.user_id`,
-    [watchHost()],
-  );
-  const accounts = rows
-    .map((row) => {
-      const snap = snapshotFromRow({
-        config: row.config,
-        queue: row.queue,
-        prefs: {
-          seenDates: row.seen_dates,
-          watchSig: row.watch_sig ?? "",
-          autoMovies: row.auto_movies,
-          autoShows: row.auto_shows,
-          autoFired: row.auto_fired,
-        },
-      });
-      snap.config = revealConfigSecrets(snap.config);
-      const email = String(row.account_email || snap.config.email || "").trim();
-      return {
-        userId: row.user_id,
-        hostSeen: hostSeenList(row.host_seen),
-        snap: {
-          ...snap,
-          config: { ...snap.config, email },
-        },
-      };
-    })
-    .filter((row) => canNotify(row.snap.config));
+    const cache = watchUserCache();
+    const loaded = await loadWatchUserRows(
+      (text, params) => watchQuery<Record<string, unknown>>(text, params),
+      cache,
+      watchHost(),
+    );
+    const accounts = loaded
+      .map((row) => {
+        const primed = row.primed === true || row.primed === "true";
+        const snap = snapshotFromRow({
+          config: row.config,
+          queue: row.queue,
+          prefs: {
+            seenDates: row.seen_dates,
+            watchSig: row.watch_sig ?? "",
+            autoMovies: row.auto_movies,
+            autoShows: row.auto_shows,
+            autoFired: row.auto_fired,
+            primed,
+          },
+        });
+        snap.config = revealConfigSecrets(snap.config);
+        const email = String(row.account_email || snap.config.email || "").trim();
+        return {
+          userId: row.user_id,
+          rev: row.rev,
+          fat: row,
+          hostSeen: hostSeenList(row.host_seen),
+          snap: {
+            ...snap,
+            config: { ...snap.config, email },
+          },
+        };
+      })
+      .filter((row) => canNotify(row.snap.config));
   if (!accounts.length) {
     return { skipped: false as const, users: 0, sent: 0 };
   }
@@ -559,7 +639,66 @@ export async function runWatchTick() {
   }
   const allShows = scan.theaters.flatMap((t) => t.showtimes);
   let sent = 0;
-  for (const { userId, snap, hostSeen } of accounts) {
+  async function saveWatch(
+    account: (typeof accounts)[number],
+    extras: {
+      primed: boolean;
+      seenIds: string[];
+      seenDates: string[];
+      watchSig: string;
+      newAlerts: AlertItem[];
+      queue: BookingIntent[];
+      autoFired: Record<string, string>;
+    },
+  ) {
+    const seenIds = uniqueCap(extras.seenIds, 2500);
+    const seenDates = uniqueCap(extras.seenDates, 40);
+    const queue = extras.queue.slice(0, 40);
+    // An idle tick must not update the row. xmin would change and the next tick would pull the fat columns again.
+    if (
+      !shouldPersistWatch({
+        prevPrimed: account.snap.primed,
+        nextPrimed: extras.primed,
+        prevSig: account.snap.watchSig || "",
+        nextSig: extras.watchSig,
+        prevDates: account.snap.seenDates,
+        nextDates: seenDates,
+        prevSeen: account.hostSeen,
+        nextSeen: seenIds,
+        prevQueue: account.snap.queue,
+        nextQueue: queue,
+        prevFired: account.snap.autoFired,
+        nextFired: extras.autoFired,
+        alertCount: extras.newAlerts.length,
+      })
+    ) {
+      return;
+    }
+    const nextRev = await persistWatch(account.userId, account.rev, {
+      ...extras,
+      seenIds,
+      seenDates,
+      queue,
+    });
+    if (!nextRev) {
+      await cache.drop(account.userId);
+      return;
+    }
+    await cache.set(account.userId, nextRev, {
+      user_id: account.fat.user_id,
+      config: account.fat.config,
+      queue,
+      seen_dates: seenDates,
+      watch_sig: extras.watchSig,
+      auto_movies: account.fat.auto_movies,
+      auto_shows: account.fat.auto_shows,
+      auto_fired: extras.autoFired,
+      host_seen: seenIds,
+      primed: extras.primed ? "true" : "",
+    });
+  }
+  for (const account of accounts) {
+    const { userId, snap, hostSeen } = account;
     const config = snap.config;
     const enabled = new Set(
       THEATERS.filter((t) => config.theaters[t.id]).map((t) => t.id),
@@ -575,9 +714,9 @@ export async function runWatchTick() {
     const autoFired = await commitAutoBook(bookable, snap, new Set(), userId);
     if (!hostSeen.length) {
       const primedQueue = diffStarSeats(snap.queue, allShows).nextQueue;
-      await persistWatch(userId, {
+      await saveWatch(account, {
         primed: true,
-        seenIds: uniqueCap(watched.map((s) => s.id), 2500),
+        seenIds: watched.map((s) => s.id),
         seenDates: snap.seenDates,
         watchSig: sig,
         newAlerts: [],
@@ -610,13 +749,10 @@ export async function runWatchTick() {
       await notifyChannels(config, items);
       sent += items.length;
     }
-    await persistWatch(userId, {
+    await saveWatch(account, {
       primed: true,
       seenIds: nextSeen,
-      seenDates: uniqueCap(
-        [...snap.seenDates, ...fresh.map((s) => s.playDate)],
-        40,
-      ),
+      seenDates: [...snap.seenDates, ...fresh.map((s) => s.playDate)],
       watchSig: nextSig,
       newAlerts: items,
       queue: nextQueue,
