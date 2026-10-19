@@ -4,7 +4,11 @@ import { ensureUserSettingsSchema } from "./settings-schema.server";
 import {
   dbDegraded,
   dbLabel,
+  dbSkipReason,
+  dbSkippedError,
   isDbQuotaError,
+  noteDbFailure,
+  noteDbSuccess,
   readAppMetas,
   readLastNotify,
   readWatchLastRun,
@@ -14,6 +18,7 @@ import {
   type ChannelSendLog,
 } from "./app-meta.server";
 import { isTransientDbError } from "@/lib/db";
+import { ALERT_HISTORY_CAP } from "./types";
 import { revealConfigSecrets } from "./secret-box.server";
 import {
   filterWatched,
@@ -31,17 +36,31 @@ import type { AutoMovie, AutoShow } from "@/lib/auto-book-store";
 import { planAutoBook } from "./auto-book-run";
 import { enqueueNasJob } from "./nas-jobs.server";
 
-function hostSeenFromPrefs(prefs: unknown): string[] {
-  const bag =
-    prefs && typeof prefs === "object"
-      ? (prefs as { seenByHost?: unknown })
-      : {};
-  const byHost =
-    bag.seenByHost && typeof bag.seenByHost === "object"
-      ? (bag.seenByHost as Record<string, unknown>)
-      : {};
-  const mine = byHost[watchHost()];
-  return Array.isArray(mine) ? mine.map(String) : [];
+function hostSeenList(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map(String);
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+async function watchQuery<T>(text: string, params?: unknown[]): Promise<T[]> {
+  const skip = dbSkipReason();
+  if (skip) throw dbSkippedError(skip);
+  try {
+    const sql = await getSql();
+    const rows = await sql.query<T>(text, params);
+    noteDbSuccess();
+    return rows;
+  } catch (err) {
+    noteDbFailure(err);
+    throw err;
+  }
 }
 
 const THEATER_IDS = THEATERS.map((t) => t.id);
@@ -363,10 +382,9 @@ async function persistWatch(
     autoFired: Record<string, string>;
   },
 ) {
-  const sql = await getSql();
   const seenIds = uniqueCap(extras.seenIds, 2500);
   const seenDates = uniqueCap(extras.seenDates, 40);
-  await sql.query(
+  await watchQuery(
     `update user_settings
      set alerts = (
            select coalesce(jsonb_agg(elem order by ord), '[]'::jsonb)
@@ -374,7 +392,7 @@ async function persistWatch(
              select elem, ord
              from jsonb_array_elements($1::jsonb || coalesce(alerts, '[]'::jsonb))
                with ordinality as t(elem, ord)
-             where ord <= 2000
+             where ord <= ${ALERT_HISTORY_CAP}
            ) s
          ),
          prefs = jsonb_set(
@@ -462,31 +480,56 @@ export async function runWatchTick() {
   if (now - Math.max(lastRunAt, storedRun) < 3 * 60 * 1000) {
     return { skipped: true as const, users: 0, sent: 0 };
   }
+  const blocked = dbSkipReason();
+  if (blocked) return { skipped: true as const, users: 0, sent: 0, degraded: blocked };
   lastRunAt = now;
   await writeWatchLastRun(now);
   try {
     await ensureUserSettingsSchema();
-    const sql = await getSql();
-  const rows = await sql.query<{
+  const rows = await watchQuery<{
     user_id: string;
     config: unknown;
     queue: unknown;
-    alerts: unknown;
-    prefs: unknown;
     account_email: string | null;
+    seen_dates: unknown;
+    watch_sig: string | null;
+    auto_movies: unknown;
+    auto_shows: unknown;
+    auto_fired: unknown;
+    host_seen: unknown;
   }>(
-    `select us.user_id, us.config, us.queue, us.alerts, us.prefs, u.email as account_email
+    `select us.user_id,
+            us.config,
+            us.queue,
+            u.email as account_email,
+            us.prefs->'seenDates' as seen_dates,
+            us.prefs->>'watchSig' as watch_sig,
+            us.prefs->'autoMovies' as auto_movies,
+            us.prefs->'autoShows' as auto_shows,
+            us.prefs->'autoFired' as auto_fired,
+            coalesce(us.prefs #> ARRAY['seenByHost', $1], '[]'::jsonb) as host_seen
      from user_settings us
      left join "user" u on u.id = us.user_id`,
+    [watchHost()],
   );
   const accounts = rows
     .map((row) => {
-      const snap = snapshotFromRow(row);
+      const snap = snapshotFromRow({
+        config: row.config,
+        queue: row.queue,
+        prefs: {
+          seenDates: row.seen_dates,
+          watchSig: row.watch_sig ?? "",
+          autoMovies: row.auto_movies,
+          autoShows: row.auto_shows,
+          autoFired: row.auto_fired,
+        },
+      });
       snap.config = revealConfigSecrets(snap.config);
       const email = String(row.account_email || snap.config.email || "").trim();
       return {
         userId: row.user_id,
-        hostSeen: hostSeenFromPrefs(row.prefs),
+        hostSeen: hostSeenList(row.host_seen),
         snap: {
           ...snap,
           config: { ...snap.config, email },
@@ -602,10 +645,11 @@ export async function runWatchTick() {
     return { skipped: false as const, users: accounts.length, sent };
   } catch (err) {
     lastRunAt = 0;
-    if (isDbQuota(err)) {
+    const failure = noteDbFailure(err);
+    if (failure === "quota_exceeded" || isDbQuota(err)) {
       return { skipped: true as const, users: 0, sent: 0, degraded: "quota_exceeded" as const };
     }
-    if (isTransientDbError(err)) {
+    if (failure === "conn_failed" || isTransientDbError(err)) {
       return { skipped: true as const, users: 0, sent: 0, degraded: "conn_failed" as const };
     }
     await writeWatchLastRun(0);

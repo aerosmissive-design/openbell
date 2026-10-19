@@ -13,7 +13,7 @@ import {
   sanitizeAutoShows,
 } from "./auto-book-run";
 import type { AlertItem, BookingIntent, WatchConfig } from "./types";
-import { CHART_SIZE, normalizeHold, normalizeScanSources } from "./types";
+import { ALERT_HISTORY_CAP, CHART_SIZE, normalizeHold, normalizeScanSources } from "./types";
 import { keepTypedConfig } from "./keep-typed";
 import { normalizeTheme } from "@/lib/theme";
 
@@ -144,7 +144,7 @@ export function mergeSnapshots(
   return {
     config,
     queue: mergeById(remote.queue, local.queue, 40),
-    alerts: mergeById(remote.alerts, local.alerts, 2000),
+    alerts: mergeById(remote.alerts, local.alerts, ALERT_HISTORY_CAP),
     onlyAlerted: remote.onlyAlerted || local.onlyAlerted,
     primed: remote.primed || local.primed,
     seenIds: [...new Set([...remote.seenIds, ...local.seenIds])].slice(-2500),
@@ -721,25 +721,48 @@ export function snapshotFromRow(row: {
 export const loadCloudSettings = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const { ensureUserSettingsSchema } = await import("./settings-schema.server");
-    await ensureUserSettingsSchema();
-    const { getSql } = await import("@/lib/db");
-    const sql = await getSql();
-    const rows = await sql.query<{
-      config: unknown;
-      queue: unknown;
-      alerts: unknown;
-      prefs: unknown;
-    }>(
-      "select config, queue, alerts, prefs from user_settings where user_id = $1 limit 1",
-      [context.userId],
-    );
-    const row = rows[0];
-    if (!row) return { snapshot: null as CloudSnapshot | null };
-    const snapshot = snapshotFromRow(row);
-    const { revealConfigSecrets } = await import("./secret-box.server");
-    snapshot.config = revealConfigSecrets(snapshot.config);
-    return { snapshot };
+    const { dbSkipReason, dbSkippedError, noteDbFailure, noteDbSuccess } = await import("./app-meta.server");
+    const skip = dbSkipReason();
+    if (skip) throw dbSkippedError(skip);
+    try {
+      const { ensureUserSettingsSchema } = await import("./settings-schema.server");
+      await ensureUserSettingsSchema();
+      const { getSql } = await import("@/lib/db");
+      const sql = await getSql();
+      const rows = await sql.query<{
+        config: unknown;
+        queue: unknown;
+        alerts: unknown;
+        prefs: unknown;
+      }>(
+        `select config,
+                queue,
+                coalesce((
+                  select jsonb_agg(elem order by ord)
+                  from (
+                    select elem, ord
+                    from jsonb_array_elements(coalesce(alerts, '[]'::jsonb)) with ordinality as t(elem, ord)
+                    where ord <= $2
+                  ) s
+                ), '[]'::jsonb) as alerts,
+                prefs
+         from user_settings
+         where user_id = $1
+         limit 1`,
+        [context.userId, ALERT_HISTORY_CAP],
+      );
+      const row = rows[0];
+      if (!row) return { snapshot: null as CloudSnapshot | null };
+      const snapshot = snapshotFromRow(row);
+      snapshot.alerts = snapshot.alerts.slice(0, ALERT_HISTORY_CAP);
+      const { revealConfigSecrets } = await import("./secret-box.server");
+      snapshot.config = revealConfigSecrets(snapshot.config);
+      noteDbSuccess();
+      return { snapshot };
+    } catch (err) {
+      noteDbFailure(err);
+      throw err;
+    }
   });
 
 const SaveInput = z.object({
@@ -759,61 +782,70 @@ export const saveCloudSettings = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(SaveInput)
   .handler(async ({ context, data }) => {
-    const { ensureUserSettingsSchema } = await import("./settings-schema.server");
-    await ensureUserSettingsSchema();
-    const snapshot: CloudSnapshot = {
-      config: hydrateConfig(data.config),
-      queue: asList<BookingIntent>(data.queue),
-      alerts: asList<AlertItem>(data.alerts),
-      onlyAlerted: Boolean(data.onlyAlerted),
-      primed: Boolean(data.primed),
-      seenIds: asList<string>(data.seenIds).slice(-2500),
-      seenDates: asList<string>(data.seenDates).slice(-40),
-      watchSig: String(data.watchSig ?? ""),
-      autoMovies: sanitizeAutoMovies(data.autoMovies),
-      autoShows: sanitizeAutoShows(data.autoShows),
-      autoFired: {},
-    };
-    const prefs = {
-      onlyAlerted: snapshot.onlyAlerted,
-      primed: snapshot.primed,
-      seenIds: snapshot.seenIds,
-      seenDates: snapshot.seenDates,
-      watchSig: snapshot.watchSig,
-      autoMovies: snapshot.autoMovies,
-      autoShows: snapshot.autoShows,
-    };
-    const { getSql } = await import("@/lib/db");
-    const sql = await getSql();
-    const account = await sql.query<{ email: string }>(
-      `select email from "user" where id = $1 limit 1`,
-      [context.userId],
-    );
-    const accountEmail = String(account[0]?.email ?? "").trim();
-    if (accountEmail) {
-      snapshot.config.email = accountEmail;
+    const { dbSkipReason, dbSkippedError, noteDbFailure, noteDbSuccess } = await import("./app-meta.server");
+    const skip = dbSkipReason();
+    if (skip) throw dbSkippedError(skip);
+    try {
+      const { ensureUserSettingsSchema } = await import("./settings-schema.server");
+      await ensureUserSettingsSchema();
+      const snapshot: CloudSnapshot = {
+        config: hydrateConfig(data.config),
+        queue: asList<BookingIntent>(data.queue),
+        alerts: asList<AlertItem>(data.alerts).slice(0, ALERT_HISTORY_CAP),
+        onlyAlerted: Boolean(data.onlyAlerted),
+        primed: Boolean(data.primed),
+        seenIds: asList<string>(data.seenIds).slice(-2500),
+        seenDates: asList<string>(data.seenDates).slice(-40),
+        watchSig: String(data.watchSig ?? ""),
+        autoMovies: sanitizeAutoMovies(data.autoMovies),
+        autoShows: sanitizeAutoShows(data.autoShows),
+        autoFired: {},
+      };
+      const prefs = {
+        onlyAlerted: snapshot.onlyAlerted,
+        primed: snapshot.primed,
+        seenIds: snapshot.seenIds,
+        seenDates: snapshot.seenDates,
+        watchSig: snapshot.watchSig,
+        autoMovies: snapshot.autoMovies,
+        autoShows: snapshot.autoShows,
+      };
+      const { getSql } = await import("@/lib/db");
+      const sql = await getSql();
+      const account = await sql.query<{ email: string }>(
+        `select email from "user" where id = $1 limit 1`,
+        [context.userId],
+      );
+      const accountEmail = String(account[0]?.email ?? "").trim();
+      if (accountEmail) {
+        snapshot.config.email = accountEmail;
+      }
+      const { sealConfigSecrets } = await import("./secret-box.server");
+      const storedConfig = sealConfigSecrets(snapshot.config);
+      await sql.query(
+        `insert into user_settings (user_id, config, queue, alerts, prefs, updated_at)
+         values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, now())
+         on conflict (user_id) do update set
+           config = excluded.config,
+           queue = excluded.queue,
+           alerts = excluded.alerts,
+           prefs = coalesce(user_settings.prefs, '{}'::jsonb) || excluded.prefs,
+           updated_at = now()`,
+        [
+          context.userId,
+          JSON.stringify(storedConfig),
+          JSON.stringify(snapshot.queue),
+          JSON.stringify(snapshot.alerts),
+          JSON.stringify(prefs),
+        ],
+      );
+      noteDbSuccess();
+      const gas = await pushGasConfigOwned(context.userId, snapshot.config, snapshot.queue);
+      return { ok: true as const, gas };
+    } catch (err) {
+      noteDbFailure(err);
+      throw err;
     }
-    const { sealConfigSecrets } = await import("./secret-box.server");
-    const storedConfig = sealConfigSecrets(snapshot.config);
-    await sql.query(
-      `insert into user_settings (user_id, config, queue, alerts, prefs, updated_at)
-       values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, now())
-       on conflict (user_id) do update set
-         config = excluded.config,
-         queue = excluded.queue,
-         alerts = excluded.alerts,
-         prefs = coalesce(user_settings.prefs, '{}'::jsonb) || excluded.prefs,
-         updated_at = now()`,
-      [
-        context.userId,
-        JSON.stringify(storedConfig),
-        JSON.stringify(snapshot.queue),
-        JSON.stringify(snapshot.alerts),
-        JSON.stringify(prefs),
-      ],
-    );
-    const gas = await pushGasConfigOwned(context.userId, snapshot.config, snapshot.queue);
-    return { ok: true as const, gas };
   });
 
 export const publishToGas = createServerFn({ method: "POST" })
