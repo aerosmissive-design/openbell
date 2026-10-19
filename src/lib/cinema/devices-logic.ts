@@ -334,6 +334,19 @@ export function resolveDeviceKey(reg: Registry, deviceKey: string):
   return { ok: true, device, userIds };
 }
 
+export const DEVICE_TOUCH_MS = 5 * 60 * 1000;
+
+export function deviceTouchDue(
+  device: Pick<DeviceRow, "lastSeenAt" | "lastJobClaimAt" | "lastPaymentReadyAt">,
+  field: "lastSeenAt" | "lastJobClaimAt" | "lastPaymentReadyAt",
+  now: number,
+  intervalMs = DEVICE_TOUCH_MS,
+) {
+  const prev = Date.parse(device[field] || "");
+  if (!Number.isFinite(prev)) return true;
+  return now - prev >= intervalMs;
+}
+
 export function touchDevice(
   reg: Registry,
   deviceId: string,

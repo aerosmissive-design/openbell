@@ -7,6 +7,7 @@ import {
   applyRevoke,
   applyStatus,
   emptyRegistry,
+  deviceTouchDue,
   freshness,
   hashDeviceKey,
   resolveDeviceKey,
@@ -190,4 +191,16 @@ test("freshness windows", () => {
   assert.equal(freshness(new Date(now - 60_000).toISOString(), now), "ONLINE");
   assert.equal(freshness(new Date(now - 3 * 60_000).toISOString(), now), "DELAYED");
   assert.equal(freshness(new Date(now - 6 * 60_000).toISOString(), now), "OFFLINE");
+});
+
+test("device touch writes at most once per five minutes for that field", () => {
+  const device = {
+    lastSeenAt: new Date(now).toISOString(),
+    lastJobClaimAt: "",
+    lastPaymentReadyAt: new Date(now - 6 * 60_000).toISOString(),
+  };
+  assert.equal(deviceTouchDue(device, "lastSeenAt", now + 60_000), false);
+  assert.equal(deviceTouchDue(device, "lastSeenAt", now + 5 * 60_000), true);
+  assert.equal(deviceTouchDue(device, "lastJobClaimAt", now), true);
+  assert.equal(deviceTouchDue(device, "lastPaymentReadyAt", now), true);
 });

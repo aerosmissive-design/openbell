@@ -1,6 +1,6 @@
-import { getSql, isTransientDbError } from "@/lib/db";
+import { getSql, isTransientDbError, type Sql } from "@/lib/db";
 import { authorizeNasWorker, nasJobsConfigured } from "./nas-jobs.server";
-import { isDbQuotaError } from "./app-meta.server";
+import { dbSkipReason, dbSkippedError, isDbQuotaError, noteDbFailure, noteDbSuccess } from "./app-meta.server";
 import { autoPayEnabled, bookingDeviceName, notifyMailbox } from "./booking-link";
 import { collectRegisteredEmails } from "./registered-emails";
 
@@ -55,6 +55,30 @@ type JobRow = {
 };
 
 const LEASE = "10 minutes";
+let bookingColsReady = false;
+
+async function withJobSql<T>(fn: (sql: Sql) => Promise<T>): Promise<T> {
+  const skip = dbSkipReason();
+  if (skip) throw dbSkippedError(skip);
+  try {
+    const sql = await getSql();
+    const result = await fn(sql);
+    noteDbSuccess();
+    return result;
+  } catch (err) {
+    noteDbFailure(err);
+    throw err;
+  }
+}
+
+async function ensureBookingJobColumns(sql: Sql) {
+  if (bookingColsReady) return;
+  await sql.query(`alter table booking_jobs add column if not exists user_id text`);
+  await sql.query(`alter table booking_jobs add column if not exists target_device text`);
+  await sql.query(`alter table booking_jobs add column if not exists notify_email text`);
+  await sql.query(`alter table booking_jobs add column if not exists auto_pay boolean not null default false`);
+  bookingColsReady = true;
+}
 
 function iso(value: string | Date | null) {
   if (!value) return null;
@@ -113,7 +137,7 @@ export function jobDbFailure(err: unknown): { ok: false; reason: "dbQuota" | "db
 
 /** 만료된 running 을 pending 으로 되돌린다. 3회면 failed. stale_running 상태는 없다. */
 export async function reapExpiredLeases() {
-  const sql = await getSql();
+  await withJobSql(async (sql) => {
   await sql.query(
     `update booking_jobs
      set status = case when attempts + 1 >= 3 then 'failed' else 'pending' end,
@@ -127,6 +151,7 @@ export async function reapExpiredLeases() {
        and lease_expires_at is not null
        and lease_expires_at < now()`,
   );
+  });
 }
 
 export async function insertBookingJob(input: {
@@ -148,11 +173,8 @@ export async function insertBookingJob(input: {
   const url = String(input.bookingUrl || "").trim();
   const targetDevice = bookingDeviceName(input.targetDevice);
   if (!url || !targetDevice) return null;
-  const sql = await getSql();
-  await sql.query(`alter table booking_jobs add column if not exists user_id text`);
-  await sql.query(`alter table booking_jobs add column if not exists target_device text`);
-  await sql.query(`alter table booking_jobs add column if not exists notify_email text`);
-  await sql.query(`alter table booking_jobs add column if not exists auto_pay boolean not null default false`);
+  return withJobSql(async (sql) => {
+  await ensureBookingJobColumns(sql);
   const id = input.id || `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const seats =
     Number.isFinite(Number(input.seats)) && Number(input.seats) >= 1
@@ -185,23 +207,25 @@ export async function insertBookingJob(input: {
     ],
   );
   return rows[0] ? mapJob(rows[0]) : null;
+  });
 }
 
 export async function listBookingJobs(limit = 20) {
   await reapExpiredLeases();
-  const sql = await getSql();
+  return withJobSql(async (sql) => {
   const rows = await sql.query<JobRow>(
     `select * from booking_jobs order by created_at desc limit $1`,
     [Math.min(Math.max(limit, 1), 50)],
   );
   return rows.map(mapJob);
+  });
 }
 
 /** 메일로 고른 계정의 user id. 없거나 깨진 메일은 넣지 않는다. */
 export async function userIdsForEmails(emails: string[]): Promise<string[]> {
   const mails = collectRegisteredEmails(emails).slice(0, 20);
   if (mails.length === 0) return [];
-  const sql = await getSql();
+  return withJobSql(async (sql) => {
   const rows = await sql.query<{ id: string }>(
     `select id from "user" where lower(email) = any($1::text[])
      union
@@ -215,6 +239,7 @@ export async function userIdsForEmails(emails: string[]): Promise<string[]> {
     if (id) ids.add(id);
   }
   return [...ids];
+  });
 }
 
 /** 연결 버튼으로 고른 기기 이름의 대기 작업만 집는다. */
@@ -222,8 +247,8 @@ export async function claimBookingJobForDevice(agentId: string, deviceName: stri
   const device = bookingDeviceName(deviceName);
   if (!device) return null;
   await reapExpiredLeases();
-  const sql = await getSql();
-  await sql.query(`alter table booking_jobs add column if not exists target_device text`);
+  return withJobSql(async (sql) => {
+  await ensureBookingJobColumns(sql);
   const rows = await sql.query<JobRow>(
     `with picked as (
        select id from booking_jobs
@@ -244,6 +269,7 @@ export async function claimBookingJobForDevice(agentId: string, deviceName: stri
     [agentId.slice(0, 120), device],
   );
   return rows[0] ? mapJob(rows[0]) : null;
+  });
 }
 
 /**
@@ -258,8 +284,8 @@ export async function claimBookingJob(
   includeUnscoped = true,
 ): Promise<BookingJob | null> {
   await reapExpiredLeases();
-  const sql = await getSql();
-  await sql.query(`alter table booking_jobs add column if not exists user_id text`);
+  return withJobSql(async (sql) => {
+  await ensureBookingJobColumns(sql);
   const rows = await sql.query<JobRow>(
     `with picked as (
        select id from booking_jobs
@@ -285,10 +311,11 @@ export async function claimBookingJob(
     [agentId.slice(0, 120), userIds == null, userIds ?? [], userIds != null && includeUnscoped],
   );
   return rows[0] ? mapJob(rows[0]) : null;
+  });
 }
 
 export async function heartbeatBookingJob(id: string, agentId: string): Promise<BookingJob | null> {
-  const sql = await getSql();
+  return withJobSql(async (sql) => {
   const rows = await sql.query<JobRow>(
     `update booking_jobs
      set lease_expires_at = now() + interval '${LEASE}', updated_at = now()
@@ -297,6 +324,7 @@ export async function heartbeatBookingJob(id: string, agentId: string): Promise<
     [id, agentId],
   );
   return rows[0] ? mapJob(rows[0]) : null;
+  });
 }
 
 export async function completeBookingJob(input: {
@@ -305,7 +333,7 @@ export async function completeBookingJob(input: {
   status: "done" | "failed" | "need_user";
   resultMessage?: string;
 }): Promise<BookingJob | null> {
-  const sql = await getSql();
+  return withJobSql(async (sql) => {
   const rows = await sql.query<JobRow>(
     `update booking_jobs
      set status = $3,
@@ -317,10 +345,11 @@ export async function completeBookingJob(input: {
     [input.id, input.agentId, input.status, String(input.resultMessage || "").slice(0, 500)],
   );
   return rows[0] ? mapJob(rows[0]) : null;
+  });
 }
 
 export async function retryFailedBookingJob(id: string): Promise<BookingJob | null> {
-  const sql = await getSql();
+  return withJobSql(async (sql) => {
   const rows = await sql.query<JobRow>(
     `update booking_jobs
      set status = 'pending',
@@ -334,4 +363,5 @@ export async function retryFailedBookingJob(id: string): Promise<BookingJob | nu
     [id],
   );
   return rows[0] ? mapJob(rows[0]) : null;
+  });
 }
