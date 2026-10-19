@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { readAppMeta, writeAppMeta } from "@/lib/cinema/app-meta.server";
+import { readAppMeta, writeAppMeta, type MetaWriteResult } from "@/lib/cinema/app-meta.server";
 import { relaySeatToGas } from "@/lib/cinema/gas-fallback.server";
-import { readTheaterSeatHealth } from "@/lib/cinema/nas.server";
+import { readStoredSeatBlobs, readTheaterSeatHealth } from "@/lib/cinema/nas.server";
+import {
+  loadNeonSeatMark,
+  rememberNeonSeatMark,
+  saveSeatBlobCache,
+  shouldWriteNeonSeatBlob,
+} from "@/lib/cinema/seat-blob-store";
 import { legacyBlobKey, legacyStatJson, seatBlobKey, seatStatJson, seatStatKey } from "@/lib/cinema/seat-stat";
 import { normalizeSourceKey, seatReportStatus, type SeatReportStatus } from "@/lib/cinema/source-key";
 
@@ -220,7 +226,7 @@ async function handlePost(request: Request) {
   let rows = incoming;
   const sk = sourceKey(storageSource, theaterId);
   if (merge) {
-    const prevRaw = await readAppMeta(sk);
+    const prevRaw = (await readStoredSeatBlobs([sk]))[sk] || "";
     const byKey = new Map<string, SeatRow>();
     if (prevRaw) {
       try {
@@ -242,9 +248,24 @@ async function handlePost(request: Request) {
     sourceId: named.sourceId,
     displayGroup: named.displayGroup,
   });
-  const sourceWrite = await writeAppMeta(sk, payload);
+  // 핫패스는 Runtime Cache. Neon 블롭은 키당 10분, 또는 행 수가 크게 바뀔 때만.
+  const cacheOk = await saveSeatBlobCache(sk, payload);
+  const mark = await loadNeonSeatMark(sk);
+  let writeBlob = shouldWriteNeonSeatBlob({
+    now: at,
+    lastAt: mark?.at ?? 0,
+    lastCount: mark?.count ?? 0,
+    count: rows.length,
+    cacheOk,
+  });
+  let sourceWrite: MetaWriteResult = writeBlob ? await writeAppMeta(sk, payload) : { ok: true };
   // 행은 출처 키에만 있다. 레거시는 GAS와 같이 {at,source,n}. 옛 통짜 값은 출처 키가 없을 때만 읽힌다.
   const legacyWrite = await writeAppMeta(legacyKey(theaterId), legacyStatJson(at, storageSource, rows.length));
+  if (!writeBlob && !legacyWrite.ok) {
+    writeBlob = true;
+    sourceWrite = await writeAppMeta(sk, payload);
+  }
+  if (writeBlob && sourceWrite.ok) await rememberNeonSeatMark(sk, at, rows.length);
   await writeAppMeta(seatStatKey(storageSource, theaterId), seatStatJson(at, rows.length));
   await writeAppMeta(
     instanceKey(named.sourceId, theaterId),
