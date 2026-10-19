@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { readAppMeta, writeAppMeta, type MetaWriteResult } from "@/lib/cinema/app-meta.server";
+import { appMetaFreshTrusted, readAppMetaFresh, writeAppMeta, type MetaWriteResult } from "@/lib/cinema/app-meta.server";
 import { relaySeatToGas } from "@/lib/cinema/gas-fallback.server";
 import { readStoredSeatBlobs, readTheaterSeatHealth } from "@/lib/cinema/nas.server";
 import {
@@ -117,7 +117,8 @@ function legacyKey(theaterId: string) {
 }
 const OFFLINE_MS = 10 * 60 * 1000;
 async function rememberInstance(sourceId: string, displayGroup: string, status: string) {
-  const raw = await readAppMeta("reporter_instances");
+  const raw = await readAppMetaFresh("reporter_instances");
+  if (!appMetaFreshTrusted("reporter_instances")) return;
   let list: { sourceId: string; displayGroup: string; at: number; status: string }[] = [];
   try {
     const parsed = JSON.parse(raw || "[]");
@@ -131,7 +132,7 @@ async function rememberInstance(sourceId: string, displayGroup: string, status: 
 }
 
 async function reporterInstances() {
-  const raw = await readAppMeta("reporter_instances");
+  const raw = await readAppMetaFresh("reporter_instances");
   let list: { sourceId?: string; displayGroup?: string; at?: number; status?: string }[] = [];
   try {
     const parsed = JSON.parse(raw || "[]");

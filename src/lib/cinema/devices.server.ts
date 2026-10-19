@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readAppMeta, writeAppMeta } from "./app-meta.server";
+import { readAppMetaFresh, writeAppMeta } from "./app-meta.server";
 import { resolveGasExec } from "./gas-fallback.server";
 import {
   applyApprove,
@@ -36,7 +36,7 @@ function locked<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function load(): Promise<Registry> {
-  const raw = await readAppMeta(META_KEY);
+  const raw = await readAppMetaFresh(META_KEY);
   if (!raw) return emptyRegistry();
   try {
     const parsed = JSON.parse(raw) as Registry;
@@ -263,8 +263,13 @@ export async function authorizeAgent(request: Request, touch: "seen" | "claim" |
       if (!resolved.ok) return { ok: false as const, status: 401, error: resolved.error };
       const field = touch === "claim" ? "lastJobClaimAt" : touch === "payment" ? "lastPaymentReadyAt" : "lastSeenAt";
       const now = Date.now();
-      if (deviceTouchDue(resolved.device, field, now)) {
-        await save(touchDevice(reg, resolved.device.id, field, now));
+      const seenDue = deviceTouchDue(resolved.device, "lastSeenAt", now);
+      const fieldDue = field !== "lastSeenAt" && deviceTouchDue(resolved.device, field, now);
+      if (seenDue || fieldDue) {
+        const next = fieldDue
+          ? touchDevice(reg, resolved.device.id, field, now)
+          : touchDevice(reg, resolved.device.id, "lastSeenAt", now);
+        await save(next);
       }
       return {
         ok: true as const,

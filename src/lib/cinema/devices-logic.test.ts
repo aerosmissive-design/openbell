@@ -7,6 +7,8 @@ import {
   applyRevoke,
   applyStatus,
   emptyRegistry,
+  DEVICE_SEEN_TOUCH_MS,
+  DEVICE_TOUCH_MS,
   deviceTouchDue,
   freshness,
   hashDeviceKey,
@@ -193,14 +195,25 @@ test("freshness windows", () => {
   assert.equal(freshness(new Date(now - 6 * 60_000).toISOString(), now), "OFFLINE");
 });
 
-test("device touch writes at most once per five minutes for that field", () => {
+test("lastSeen is stored inside the online window and claim stamps stay at five minutes", () => {
   const device = {
     lastSeenAt: new Date(now).toISOString(),
     lastJobClaimAt: "",
     lastPaymentReadyAt: new Date(now - 6 * 60_000).toISOString(),
   };
+  assert.equal(DEVICE_SEEN_TOUCH_MS, 90_000);
+  assert.ok(DEVICE_SEEN_TOUCH_MS <= 2 * 60_000);
+  assert.equal(DEVICE_TOUCH_MS, 5 * 60_000);
   assert.equal(deviceTouchDue(device, "lastSeenAt", now + 60_000), false);
-  assert.equal(deviceTouchDue(device, "lastSeenAt", now + 5 * 60_000), true);
+  assert.equal(deviceTouchDue(device, "lastSeenAt", now + 90_000), true);
+  assert.equal(freshness(new Date(now - 90_000).toISOString(), now), "ONLINE");
   assert.equal(deviceTouchDue(device, "lastJobClaimAt", now), true);
   assert.equal(deviceTouchDue(device, "lastPaymentReadyAt", now), true);
+  const stamped = {
+    ...device,
+    lastJobClaimAt: new Date(now).toISOString(),
+    lastPaymentReadyAt: new Date(now).toISOString(),
+  };
+  assert.equal(deviceTouchDue(stamped, "lastJobClaimAt", now + 5 * 60_000 - 1), false);
+  assert.equal(deviceTouchDue(stamped, "lastPaymentReadyAt", now + 5 * 60_000), true);
 });

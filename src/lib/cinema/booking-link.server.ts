@@ -1,4 +1,4 @@
-import { readAppMeta, writeAppMeta } from "./app-meta.server";
+import { appMetaFreshTrusted, readAppMetaFresh, writeAppMeta } from "./app-meta.server";
 import { bookingDeviceName, mergeAgentSeen, mergeSeenMaps, readAgentSeen } from "./booking-link";
 
 const SEEN_KEY = "agent_seen_v1";
@@ -69,9 +69,17 @@ export async function recordAgentSeen(name: string) {
   const now = new Date().toISOString();
   let prevDb = "";
   try {
-    prevDb = await readAppMeta(SEEN_KEY);
+    prevDb = await readAppMetaFresh(SEEN_KEY);
   } catch {
     prevDb = "";
+  }
+  if (!appMetaFreshTrusted(SEEN_KEY)) {
+    const cachedRaw = await readSeenCache();
+    if (!seenMem && !cachedRaw) return { ok: true as const, stored: false, name: device };
+    const next = mergeAgentSeen(mergeSeenMaps([seenMem, cachedRaw]), device, now);
+    seenMem = next;
+    const cached = await writeSeenCache(next);
+    return { ok: true as const, stored: cached, name: device };
   }
   const prev = mergeSeenMaps([seenMem, await readSeenCache(), prevDb]);
   const next = mergeAgentSeen(prev, device, now);
@@ -90,7 +98,7 @@ export async function recordAgentSeen(name: string) {
 export async function listAgentSeen() {
   let fromDb = "";
   try {
-    fromDb = await readAppMeta(SEEN_KEY);
+    fromDb = await readAppMetaFresh(SEEN_KEY);
   } catch {
     fromDb = "";
   }

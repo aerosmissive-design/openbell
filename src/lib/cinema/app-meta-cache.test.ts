@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { Sql } from "@/lib/db";
+import { HOT_META_NEON_MS, monthlyHotMetaWrites, type HotMetaEntry } from "./hot-meta.ts";
 import { setMetaClockForTests } from "./meta-read-cache.ts";
 
 // db.ts boots PGLite when DATABASE_URL is empty, and that boot calls Vite's
@@ -12,8 +13,12 @@ if (!process.env.DATABASE_URL?.trim()) {
 
 const {
   __clearDbDegradedForTests,
+  __dropMetaMemoryForTests,
   __resetAppMetaForTests,
   __setMetaSqlForTests,
+  __setSharedMetaCacheForTests,
+  appMetaFreshTrusted,
+  readAppMetaFresh,
   readAppMetas,
   writeAppMeta,
 } = await import("./app-meta.server.ts");
@@ -24,7 +29,7 @@ function quotaError() {
   return err;
 }
 
-function fakeSql(store: Map<string, string>, selects: { n: number }, fail: { quota: boolean }): Sql {
+function fakeSql(store: Map<string, string>, selects: { n: number; writes: number }, fail: { quota: boolean }): Sql {
   const query = async (text: string, params?: unknown[]) => {
     if (fail.quota) throw quotaError();
     if (/^select/i.test(text)) {
@@ -33,6 +38,7 @@ function fakeSql(store: Map<string, string>, selects: { n: number }, fail: { quo
       return keys.filter((key) => store.has(key)).map((key) => ({ key, value: store.get(key) ?? "" }));
     }
     if (/insert into app_meta/i.test(text)) {
+      selects.writes += 1;
       store.set(String(params?.[0]), String(params?.[1]));
       return [];
     }
@@ -44,7 +50,7 @@ function fakeSql(store: Map<string, string>, selects: { n: number }, fail: { quo
 describe("app_meta read cache", { concurrency: false }, () => {
 test("readAppMetas uses the 45s cache and write-through", async () => {
   const store = new Map<string, string>([["a", "1"]]);
-  const selects = { n: 0 };
+  const selects = { n: 0, writes: 0 };
   const fail = { quota: false };
   let now = 10_000;
   __resetAppMetaForTests(fakeSql(store, selects, fail));
@@ -68,7 +74,7 @@ test("readAppMetas uses the 45s cache and write-through", async () => {
 
 test("a quota write stays in memory and is flushed once Neon accepts it", async () => {
   const store = new Map<string, string>();
-  const selects = { n: 0 };
+  const selects = { n: 0, writes: 0 };
   const fail = { quota: true };
   __resetAppMetaForTests(fakeSql(store, selects, fail));
   try {
@@ -87,5 +93,156 @@ test("a quota write stays in memory and is flushed once Neon accepts it", async 
   } finally {
     __resetAppMetaForTests(null);
   }
+});
+
+test("a hot stat skips Neon until the interval, and another instance reads the shared copy", async () => {
+  const key = "nas_seats_at:pc:cgv_yongsan";
+  const store = new Map<string, string>();
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: false };
+  const shared = new Map<string, HotMetaEntry>();
+  let now = 1_000_000;
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  setMetaClockForTests(() => now);
+  __setSharedMetaCacheForTests(shared);
+  try {
+    assert.equal((await writeAppMeta(key, "{\"at\":1,\"count\":1}")).ok, true);
+    assert.equal((await writeAppMeta(key, "{\"at\":2,\"count\":2}")).ok, true);
+    assert.equal(selects.writes, 1);
+    assert.equal(store.get(key), "{\"at\":1,\"count\":1}");
+    assert.equal((await readAppMetas([key]))[key], "{\"at\":2,\"count\":2}");
+    const selectsBefore = selects.n;
+    __dropMetaMemoryForTests();
+    assert.equal((await readAppMetas([key]))[key], "{\"at\":2,\"count\":2}");
+    assert.equal(selects.n, selectsBefore);
+    now += HOT_META_NEON_MS;
+    assert.equal((await writeAppMeta(key, "{\"at\":3,\"count\":3}")).ok, true);
+    assert.equal(store.get(key), "{\"at\":3,\"count\":3}");
+    assert.equal(selects.writes, 2);
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("a shared-cache miss still writes every hot value, and a cold key always writes", async () => {
+  const store = new Map<string, string>();
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: false };
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  try {
+    assert.equal((await writeAppMeta("reporter_seen:pc:cgv_yongsan", "1")).ok, true);
+    assert.equal((await writeAppMeta("reporter_seen:pc:cgv_yongsan", "2")).ok, true);
+    assert.equal(selects.writes, 2);
+    __setSharedMetaCacheForTests(new Map());
+    assert.equal((await writeAppMeta("device_registry_v1", "a")).ok, true);
+    assert.equal((await writeAppMeta("device_registry_v1", "b")).ok, true);
+    assert.equal(selects.writes, 4);
+    assert.equal(store.get("device_registry_v1"), "b");
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("a quota write is flushed on the next try even inside the hot interval", async () => {
+  const key = "nas_seats_at:pc:cgv_yongsan";
+  const store = new Map<string, string>();
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: false };
+  const shared = new Map<string, HotMetaEntry>();
+  let now = 2_000_000;
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  setMetaClockForTests(() => now);
+  __setSharedMetaCacheForTests(shared);
+  try {
+    assert.equal((await writeAppMeta(key, "{\"at\":1,\"count\":1}")).ok, true);
+    __setSharedMetaCacheForTests("off");
+    fail.quota = true;
+    const denied = await writeAppMeta(key, "{\"at\":2,\"count\":2}");
+    assert.equal(denied.ok, false);
+    assert.equal(store.get(key), "{\"at\":1,\"count\":1}");
+    __setSharedMetaCacheForTests(shared);
+    fail.quota = false;
+    __clearDbDegradedForTests();
+    __setMetaSqlForTests(fakeSql(store, selects, fail));
+    now += 1_000;
+    const flushed = await writeAppMeta(key, "{\"at\":2,\"count\":2}");
+    assert.equal(flushed.ok, true);
+    assert.equal(store.get(key), "{\"at\":2,\"count\":2}");
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("a Neon read does not drop a value that quota has not stored yet", async () => {
+  const store = new Map<string, string>([["plain", "old"]]);
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: true };
+  let now = 3_000_000;
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  setMetaClockForTests(() => now);
+  try {
+    const denied = await writeAppMeta("plain", "new");
+    assert.equal(denied.ok, false);
+    fail.quota = false;
+    __clearDbDegradedForTests();
+    __setMetaSqlForTests(fakeSql(store, selects, fail));
+    now += 46_000;
+    assert.equal((await readAppMetas(["plain"])).plain, "new");
+    assert.equal(store.get("plain"), "old");
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("readAppMetaFresh sees a newer shared value while the 45s cache still has this instance", async () => {
+  const key = "agent_seen_v1";
+  const store = new Map<string, string>();
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: false };
+  const shared = new Map<string, HotMetaEntry>();
+  let now = 4_000_000;
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  setMetaClockForTests(() => now);
+  __setSharedMetaCacheForTests(shared);
+  try {
+    assert.equal((await writeAppMeta(key, "local")).ok, true);
+    shared.set(key, { v: "shared-newer", neonAt: now, at: now + 5 });
+    assert.equal((await readAppMetas([key]))[key], "local");
+    assert.equal(await readAppMetaFresh(key), "shared-newer");
+    assert.equal(selects.n, 0);
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("a failed shared read is not trusted for a hot key", async () => {
+  const hot = "reporter_instances";
+  const store = new Map<string, string>([
+    [hot, "[]"],
+    ["device_registry_v1", "reg"],
+  ]);
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: false };
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  __setSharedMetaCacheForTests("error");
+  try {
+    assert.equal(await readAppMetaFresh(hot), "[]");
+    assert.equal(appMetaFreshTrusted(hot), false);
+    assert.equal(await readAppMetaFresh("device_registry_v1"), "reg");
+    assert.equal(appMetaFreshTrusted("device_registry_v1"), true);
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("hot stat writes per month follow the distinct-key flush", () => {
+  const got = monthlyHotMetaWrites({
+    reportsPerMin: 12,
+    writesPerReport: 4,
+    distinctKeys: 29,
+    flushMin: 5,
+  });
+  assert.equal(got.before, 2_073_600);
+  assert.equal(got.after, 250_560);
 });
 });
