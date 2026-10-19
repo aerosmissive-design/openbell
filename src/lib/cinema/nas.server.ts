@@ -1,6 +1,8 @@
 import type { Showtime, TheaterId } from "./types";
 import { putSeatHit, type SeatHitMap } from "./seats";
 import { readAppMetaJsonFields, readAppMetas } from "./app-meta.server";
+import { readGasSeatBlobs } from "./gas-fallback.server";
+import { readSeatBlobCacheValue, readSeatBlobs } from "./seat-blob-store";
 import { cgvHallFromCapacity, megaboxFormats } from "./theaters";
 import { decodeHtml, normalizePlayDate } from "@/lib/utils";
 import {
@@ -255,6 +257,16 @@ export async function readNasReporterTimes(
   return out;
 }
 
+/** 큰 좌석 블롭. Runtime Cache → GAS → Neon. 작은 stat 키는 여기로 오지 않는다. */
+export async function readStoredSeatBlobs(keys: string[]): Promise<Record<string, string>> {
+  if (!keys.length) return {};
+  return readSeatBlobs(keys, {
+    cacheGet: readSeatBlobCacheValue,
+    gasRead: (missing) => readGasSeatBlobs(missing),
+    dbRead: (missing) => readAppMetas(missing),
+  });
+}
+
 /** maxAgeMs: 0이면 신선도 무시(전광판용). 기본은 30분. */
 export async function readNasSeatmap(
   theaters: TheaterId[],
@@ -342,7 +354,7 @@ export async function readNasSeatmap(
   for (const theaterId of theaters) {
     for (const src of REPORTER_SOURCES) blobKeys.push(seatBlobKey(src, theaterId));
   }
-  const blobs = await readAppMetas(blobKeys);
+  const blobs = await readStoredSeatBlobs(blobKeys);
   const perTheater = new Map<string, Record<string, SeatStat>>();
   const legacyRaw = new Map<string, string>();
   const needLegacy: TheaterId[] = [];

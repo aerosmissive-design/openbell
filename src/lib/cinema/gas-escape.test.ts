@@ -32,7 +32,8 @@ test("buildGasScript output parses", () => {
     [],
   );
   assert.match(src, /lines\.join\("\\n"\)/);
-  assert.match(src, /20261009-link/);
+  assert.match(src, /20261019-seatblob/);
+  assert.match(src, /op === "reporter"/);
   assert.match(src, /error: "nodeploy"/);
   assert.match(src, /function rememberLiveSecrets_/);
   assert.match(src, /error: "busy"/);

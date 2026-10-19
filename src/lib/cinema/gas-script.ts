@@ -2,7 +2,7 @@ import { DEFAULT_FORMATS, THEATERS } from "./theaters";
 import type { BookingIntent, WatchConfig } from "./types";
 import { DEFAULT_HOLD, DEFAULT_SCAN_SOURCES, normalizeScanSources } from "./types";
 
-export const GAS_SOURCE_STAMP = "20261009-link";
+export const GAS_SOURCE_STAMP = "20261019-seatblob";
 
 export function gasStampIsCurrent(remote: unknown, local = GAS_SOURCE_STAMP): boolean {
   return String(remote || "").trim() === local;
@@ -1773,6 +1773,27 @@ function doGet(e) {
       });
     }
     return jsonOut_({ ok: true, devices: devOut });
+  }
+  if (op === "reporter") {
+    var expectedRep = String(CONFIG.syncKey || PropertiesService.getScriptProperties().getProperty("syncKey") || "").trim();
+    if (expectedRep && String(p.key || "") !== expectedRep) return jsonOut_({ ok: false, error: "key" });
+    var repProps = PropertiesService.getScriptProperties();
+    var idList = String(p.ids || "").split(",");
+    var blobsOut = {};
+    var ri;
+    for (ri = 0; ri < idList.length; ri++) {
+      var rid = String(idList[ri] || "").trim();
+      if (!rid || rid.indexOf("nas_seats:") !== 0) continue;
+      var parsedRep = loadReporterPayload_(repProps, rid);
+      if (!parsedRep || !parsedRep.at || !parsedRep.rows) continue;
+      blobsOut[rid] = {
+        at: parsedRep.at,
+        source: parsedRep.source || "",
+        mode: parsedRep.mode || "",
+        rows: parsedRep.rows
+      };
+    }
+    return jsonOut_({ ok: true, blobs: blobsOut });
   }
   if (op === "job") return handleJob_(p, null);
   return ContentService.createTextOutput("openbell");
