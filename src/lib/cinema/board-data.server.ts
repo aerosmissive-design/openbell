@@ -103,7 +103,7 @@ export async function loadBoardDataImpl(data: {
     const packed = await deadline(
       readNasSeatmap(missing, { maxAgeMs: 0 }),
       1500,
-      { map: {}, showtimes: [] as Showtime[], source: "pc" as const },
+      { map: {}, showtimes: [] as Showtime[], source: "pc" as const, reporterTimes: {} },
     );
     stored = packed.showtimes;
   }
