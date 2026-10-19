@@ -313,7 +313,7 @@ async function adoptHot(keys: string[]): Promise<{ hit: Record<string, string>; 
     }
     const read = fetched.get(key);
     if (!read?.ok) {
-      if (mem.has(key)) {
+      if ((dirtyKeys.has(key) || neonPending.has(key)) && mem.has(key)) {
         hit[key] = mem.get(key) ?? "";
         continue;
       }
@@ -322,7 +322,7 @@ async function adoptHot(keys: string[]): Promise<{ hit: Record<string, string>; 
     }
     const entry = read.entry;
     const localAt = memAt.get(key) ?? 0;
-    if (dirtyKeys.has(key) && mem.has(key) && localAt > (entry?.at ?? 0)) {
+    if (dirtyKeys.has(key) && mem.has(key) && localAt >= (entry?.at ?? 0)) {
       hit[key] = mem.get(key) ?? "";
       metaCache.set(key, hit[key], metaNow());
       continue;
@@ -339,6 +339,21 @@ async function adoptHot(keys: string[]): Promise<{ hit: Record<string, string>; 
     rest.push(key);
   }
   return { hit, rest };
+}
+
+/** An empty hot key must not hide a value another instance already published. */
+async function refreshEmptyHot(hit: Record<string, string>) {
+  const keys = Object.keys(hit).filter((key) => isHotMetaKey(key) && hit[key] === "");
+  if (!keys.length) return;
+  await Promise.all(
+    keys.map(async (key) => {
+      if (dirtyKeys.has(key) || neonPending.has(key)) return;
+      const read = await readShared(key);
+      if (!read.ok || !read.entry?.v) return;
+      adoptEntry(key, read.entry);
+      hit[key] = read.entry.v;
+    }),
+  );
 }
 
 function cacheHits(keys: string[]) {
@@ -371,6 +386,7 @@ export async function readAppMetas(keys: string[]): Promise<Record<string, strin
     return { ...hot.hit, ...fromMem(hot.rest) };
   }
   const { hit, miss } = cacheHits(keys);
+  await refreshEmptyHot(hit);
   if (!miss.length) return hit;
   const hot = await adoptHot(miss);
   if (!hot.rest.length) return { ...hit, ...hot.hit };
@@ -511,12 +527,12 @@ export async function readAppMetaFresh(key: string): Promise<string> {
   const read = await readShared(key);
   if (!read.ok && isHotMetaKey(key)) {
     freshUntrusted.add(key);
-    if (mem.has(key)) return mem.get(key) ?? "";
+    if ((dirtyKeys.has(key) || neonPending.has(key)) && mem.has(key)) return mem.get(key) ?? "";
   } else if (read.ok) {
     freshUntrusted.delete(key);
     const entry = read.entry;
     const localAt = memAt.get(key) ?? 0;
-    if (dirtyKeys.has(key) && mem.has(key) && localAt > (entry?.at ?? 0)) return mem.get(key) ?? "";
+    if (dirtyKeys.has(key) && mem.has(key) && localAt >= (entry?.at ?? 0)) return mem.get(key) ?? "";
     if (entry) {
       adoptEntry(key, entry);
       return entry.v;
@@ -551,6 +567,14 @@ export async function readAppMetaFresh(key: string): Promise<string> {
   }
 }
 
+/** True when this instance already knows Neon is older than the hot interval. */
+function hotFlushDue(key: string): boolean {
+  if (!isHotMetaKey(key)) return false;
+  const neonAt = hotNeonAt.get(key) ?? 0;
+  if (!neonAt) return false;
+  return metaNow() - neonAt >= hotMetaIntervalMs(key);
+}
+
 export async function writeAppMeta(key: string, value: string): Promise<MetaWriteResult> {
   const state = dbDegraded();
   if (state === "quota_exceeded") {
@@ -571,7 +595,13 @@ export async function writeAppMeta(key: string, value: string): Promise<MetaWrit
       return { ok: false, reason: dbDegraded() === "quota_exceeded" ? "dbQuota" : "dbConn" };
     }
   }
-  if (!dirtyKeys.has(key) && !neonPending.has(key) && mem.get(key) === value && !dbDegraded()) {
+  if (
+    !dirtyKeys.has(key) &&
+    !neonPending.has(key) &&
+    mem.get(key) === value &&
+    !dbDegraded() &&
+    !hotFlushDue(key)
+  ) {
     metaCache.set(key, value, metaNow());
     return { ok: true };
   }

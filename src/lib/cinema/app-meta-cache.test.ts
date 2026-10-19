@@ -215,6 +215,92 @@ test("readAppMetaFresh sees a newer shared value while the 45s cache still has t
   }
 });
 
+test("an empty hot cache does not hide a newer shared value", async () => {
+  const key = "nas_seats_at:pc:cgv_yongsan";
+  const store = new Map<string, string>();
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: false };
+  const shared = new Map<string, HotMetaEntry>();
+  let now = 5_000_000;
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  setMetaClockForTests(() => now);
+  __setSharedMetaCacheForTests(shared);
+  try {
+    assert.equal((await readAppMetas([key]))[key], "");
+    assert.equal(selects.n, 1);
+    shared.set(key, { v: "{\"at\":4,\"count\":4}", neonAt: now, at: now + 1 });
+    assert.equal((await readAppMetas([key]))[key], "{\"at\":4,\"count\":4}");
+    assert.equal(selects.n, 1);
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("a failed shared read of a clean hot key still reads Neon and does not write it back", async () => {
+  const hot = "reporter_instances";
+  const store = new Map<string, string>([[hot, "newer"]]);
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: false };
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  __setSharedMetaCacheForTests("off");
+  try {
+    assert.equal((await writeAppMeta(hot, "local")).ok, true);
+    store.set(hot, "newer");
+    __setSharedMetaCacheForTests("error");
+    assert.equal(await readAppMetaFresh(hot), "newer");
+    assert.equal(appMetaFreshTrusted(hot), false);
+    assert.equal(store.get(hot), "newer");
+    assert.equal(selects.writes, 1);
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("a dirty hot value survives a failed shared read", async () => {
+  const hot = "reporter_instances";
+  const store = new Map<string, string>([[hot, "old"]]);
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: true };
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  try {
+    const denied = await writeAppMeta(hot, "dirty");
+    assert.equal(denied.ok, false);
+    __setSharedMetaCacheForTests("error");
+    __clearDbDegradedForTests();
+    fail.quota = false;
+    __setMetaSqlForTests(fakeSql(store, selects, fail));
+    assert.equal(await readAppMetaFresh(hot), "dirty");
+    assert.equal(appMetaFreshTrusted(hot), false);
+    assert.equal(store.get(hot), "old");
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
+test("an unchanged hot value still reaches Neon once the interval has elapsed", async () => {
+  const key = "nas_seats_at:pc:cgv_yongsan";
+  const store = new Map<string, string>();
+  const selects = { n: 0, writes: 0 };
+  const fail = { quota: false };
+  const shared = new Map<string, HotMetaEntry>();
+  let now = 6_000_000;
+  __resetAppMetaForTests(fakeSql(store, selects, fail));
+  setMetaClockForTests(() => now);
+  __setSharedMetaCacheForTests(shared);
+  try {
+    assert.equal((await writeAppMeta(key, "1")).ok, true);
+    shared.set(key, { v: "2", neonAt: now, at: now + 1000 });
+    now += 45_000;
+    assert.equal((await readAppMetas([key]))[key], "2");
+    now = 6_000_000 + HOT_META_NEON_MS;
+    assert.equal((await writeAppMeta(key, "2")).ok, true);
+    assert.equal(store.get(key), "2");
+    assert.equal(selects.writes, 2);
+  } finally {
+    __resetAppMetaForTests(null);
+  }
+});
+
 test("a failed shared read is not trusted for a hot key", async () => {
   const hot = "reporter_instances";
   const store = new Map<string, string>([

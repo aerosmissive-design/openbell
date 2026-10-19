@@ -13,6 +13,7 @@ import {
   SEAT_BLOB_NEON_INTERVAL_MS,
   SEAT_GAS_STALE_MS,
   seatBlobCachePuts,
+  shouldReplaceSeatCache,
   shouldWriteNeonSeatBlob,
   unpackSeatBlob,
 } from "./seat-blob-store.ts";
@@ -362,4 +363,12 @@ test("a Runtime Cache hit does not fill the cache again", async () => {
 test("store reset clears throttle marks between cases", () => {
   __resetSeatBlobStoreForTests();
   assert.equal(shouldWriteNeonSeatBlob({ now: 10, lastAt: 0, lastCount: 0, count: 1, cacheOk: true }), true);
+});
+
+test("a newer seat cache entry is not replaced by a slow fill", () => {
+  assert.equal(shouldReplaceSeatCache(0, 10), true);
+  assert.equal(shouldReplaceSeatCache(10, 0), true);
+  assert.equal(shouldReplaceSeatCache(10, 10), true);
+  assert.equal(shouldReplaceSeatCache(20, 10), false);
+  assert.equal(shouldReplaceSeatCache(10, 21), true);
 });

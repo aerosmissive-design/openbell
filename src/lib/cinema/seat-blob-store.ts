@@ -369,6 +369,15 @@ export async function readSeatBlobs(keys: string[], deps: SeatBlobReadDeps): Pro
   return out;
 }
 
+/**
+ * A slow GAS or Neon fill must not replace a newer blob already in the cache.
+ * Missing clocks write through so the first copy still lands.
+ */
+export function shouldReplaceSeatCache(remoteAt: number, incomingAt: number): boolean {
+  if (!incomingAt || !remoteAt) return true;
+  return incomingAt >= remoteAt;
+}
+
 export function shouldWriteNeonSeatBlob(input: {
   now: number;
   lastAt: number;
@@ -419,10 +428,10 @@ function cachedAt(value: unknown): number {
   return Number((value as { at?: number }).at) || 0;
 }
 
-async function runtimeCacheGet(key: string): Promise<unknown> {
+async function runtimeCacheGet(key: string, ms = 1000): Promise<unknown> {
   try {
     const { getCache } = await import("@vercel/functions");
-    return await within(getCache({ namespace: SEAT_BLOB_CACHE_NS }).get(key), 1000, null);
+    return await within(getCache({ namespace: SEAT_BLOB_CACHE_NS }).get(key), ms, null);
   } catch {
     return null;
   }
@@ -463,6 +472,14 @@ export async function readSeatBlobCacheValue(key: string): Promise<unknown> {
 }
 
 export async function saveSeatBlobCache(key: string, payloadJson: string): Promise<boolean> {
+  const incomingAt = payloadAt(payloadJson);
+  const remote = await runtimeCacheGet(key, 300);
+  const remoteAt = cachedAt(remote);
+  const localAt = cachedAt(mirror.get(key) ?? null);
+  if (!shouldReplaceSeatCache(Math.max(remoteAt, localAt), incomingAt)) {
+    if (localAt && remoteAt >= localAt) mirror.delete(key);
+    return true;
+  }
   mirror.set(key, payloadJson);
   const puts = seatBlobCachePuts(key, payloadJson);
   if (!puts) {
